@@ -5,38 +5,6 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.6] - 2025-11-24
-
-### Fixed
-- **Large Image Memory Management** - Node no longer crashes when scaling very large images
-  - Added memory-aware scaling with automatic CPU fallback for images > 16MP
-  - Added proactive tiled VAE encoding for large output images to prevent OOM errors
-  - Images like 5696×8832 (50MP) now scale correctly using system RAM (PIL/Lanczos)
-  - GPU memory estimation prevents OOM before operations start
-
-### Added
-- **Memory Estimation Utilities** - New functions for predicting memory requirements
-  - `estimate_scaling_memory()` - Calculates GPU memory for image scaling operations
-  - `estimate_vae_encode_memory()` - Calculates GPU memory for VAE encoding
-  - `should_use_cpu_scaling()` - Determines when to use CPU vs GPU for scaling
-  - `should_use_tiled_vae()` - Determines when to use tiled VAE encoding
-  - `cpu_scale_image()` - PIL-based scaling using system RAM (Lanczos quality)
-
-### Technical
-- **Memory-Aware Scaling** (`py/smart_resolution_calc.py`):
-  - `LARGE_IMAGE_MP_THRESHOLD = 16.0` - Images above 16MP automatically use CPU scaling
-  - `GPU_MEMORY_SAFETY_MARGIN = 0.80` - Leave 20% GPU memory free for safety
-  - `transform_image()` now checks memory before GPU operation
-  - Falls back to CPU/PIL with high-quality Lanczos resampling on GPU OOM
-  - VAE encoding proactively uses tiled mode for large images (512×512 tiles, 64px overlap)
-
-### Benefits
-- ✅ **No More OOM Crashes**: Large images processed via CPU when needed
-- ✅ **Leverages System RAM**: Uses 127GB+ system RAM for large images instead of limited VRAM
-- ✅ **High Quality Scaling**: CPU fallback uses Lanczos (high quality) resampling
-- ✅ **Transparent Operation**: Console messages indicate when CPU/tiled mode is used
-- ✅ **Backward Compatible**: Small images still use fast GPU path
-
 ## [0.6.5] - 2025-11-12
 
 ### Fixed
