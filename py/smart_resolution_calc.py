@@ -24,6 +24,232 @@ if not logger.handlers:
 print("[SmartResCalc] Module loaded, DEBUG_ENABLED =", DEBUG_ENABLED)
 
 
+# =============================================================================
+# Memory-Efficient Image Scaling Utilities
+# =============================================================================
+
+# Memory safety margin (leave 20% free for other operations)
+GPU_MEMORY_SAFETY_MARGIN = 0.80
+# Threshold in megapixels above which we prefer CPU scaling
+LARGE_IMAGE_MP_THRESHOLD = 16.0  # ~4K resolution
+
+
+def estimate_scaling_memory(source_w: int, source_h: int, target_w: int, target_h: int,
+                           channels: int = 3, batch_size: int = 1) -> int:
+    """
+    Estimate GPU memory required for image scaling operation.
+
+    Memory needed:
+    - Source tensor: batch × source_h × source_w × channels × 4 bytes (float32)
+    - Target tensor: batch × target_h × target_w × channels × 4 bytes (float32)
+    - Intermediate buffers: ~2x target size for interpolation
+
+    Returns:
+        Estimated memory in bytes
+    """
+    bytes_per_float = 4  # float32
+
+    # Source image memory (NHWC format)
+    source_mem = batch_size * source_h * source_w * channels * bytes_per_float
+
+    # Target image memory
+    target_mem = batch_size * target_h * target_w * channels * bytes_per_float
+
+    # Intermediate buffers (conservative estimate: 2x target for interpolation)
+    intermediate_mem = target_mem * 2
+
+    # Total with some headroom
+    total = source_mem + target_mem + intermediate_mem
+
+    return int(total)
+
+
+def estimate_vae_encode_memory(width: int, height: int, batch_size: int = 1) -> int:
+    """
+    Estimate GPU memory required for VAE encoding.
+
+    VAE encoding is memory-intensive due to:
+    - Input tensor: batch × 3 × height × width × 4 bytes
+    - Multiple intermediate feature maps (encoder has many layers)
+    - Output latent: batch × 4 × (height//8) × (width//8) × 4 bytes
+
+    Empirical multiplier: ~30x input size for full VAE encode
+
+    Returns:
+        Estimated memory in bytes
+    """
+    bytes_per_float = 4
+    input_mem = batch_size * 3 * height * width * bytes_per_float
+
+    # Empirical: VAE encoding needs ~30x input memory for intermediate activations
+    # This is conservative but based on observed behavior
+    vae_multiplier = 30
+
+    return int(input_mem * vae_multiplier)
+
+
+def get_available_gpu_memory() -> int:
+    """
+    Get available GPU memory in bytes using ComfyUI's memory management.
+
+    Returns:
+        Available GPU memory in bytes, or 0 if no GPU available
+    """
+    try:
+        device = comfy.model_management.get_torch_device()
+        if device.type == 'cpu':
+            return 0
+        free_mem = comfy.model_management.get_free_memory(device)
+        return int(free_mem * GPU_MEMORY_SAFETY_MARGIN)
+    except Exception as e:
+        logger.warning(f"Could not determine GPU memory: {e}")
+        return 0
+
+
+def should_use_cpu_scaling(source_w: int, source_h: int, target_w: int, target_h: int,
+                          channels: int = 3, batch_size: int = 1) -> bool:
+    """
+    Determine if CPU scaling should be used instead of GPU.
+
+    Uses CPU when:
+    1. Source image exceeds LARGE_IMAGE_MP_THRESHOLD megapixels
+    2. Estimated memory exceeds available GPU memory
+
+    Returns:
+        True if CPU scaling is recommended
+    """
+    source_mp = (source_w * source_h) / 1_000_000
+
+    # Always use CPU for very large images
+    if source_mp > LARGE_IMAGE_MP_THRESHOLD:
+        logger.info(f"Source image {source_w}×{source_h} ({source_mp:.1f}MP) exceeds threshold, using CPU scaling")
+        return True
+
+    # Check GPU memory
+    estimated_mem = estimate_scaling_memory(source_w, source_h, target_w, target_h, channels, batch_size)
+    available_mem = get_available_gpu_memory()
+
+    if available_mem > 0 and estimated_mem > available_mem:
+        logger.info(f"Scaling requires ~{estimated_mem / (1024**3):.2f}GB, only {available_mem / (1024**3):.2f}GB available, using CPU")
+        return True
+
+    return False
+
+
+def should_use_tiled_vae(width: int, height: int, batch_size: int = 1) -> bool:
+    """
+    Determine if tiled VAE encoding should be used instead of regular encoding.
+
+    Uses tiled VAE when:
+    1. Image exceeds LARGE_IMAGE_MP_THRESHOLD megapixels
+    2. Estimated VAE memory exceeds available GPU memory
+
+    Returns:
+        True if tiled VAE encoding is recommended
+    """
+    mp = (width * height) / 1_000_000
+
+    # Always use tiled for very large images
+    if mp > LARGE_IMAGE_MP_THRESHOLD:
+        logger.info(f"Image {width}×{height} ({mp:.1f}MP) exceeds threshold, will use tiled VAE encoding")
+        return True
+
+    # Check GPU memory
+    estimated_mem = estimate_vae_encode_memory(width, height, batch_size)
+    available_mem = get_available_gpu_memory()
+
+    if available_mem > 0 and estimated_mem > available_mem:
+        logger.info(f"VAE encode requires ~{estimated_mem / (1024**3):.2f}GB, only {available_mem / (1024**3):.2f}GB available, will use tiled")
+        return True
+
+    return False
+
+
+def cpu_scale_image(image_tensor: torch.Tensor, target_w: int, target_h: int,
+                   method: str = "lanczos") -> torch.Tensor:
+    """
+    Scale image tensor using CPU (PIL) instead of GPU.
+
+    Uses system RAM which is typically much larger than VRAM.
+    Handles batch dimension by processing images individually.
+
+    Args:
+        image_tensor: Input tensor [batch, height, width, channels] in range [0,1]
+        target_w: Target width
+        target_h: Target height
+        method: Resampling method ("lanczos", "bilinear", "bicubic")
+
+    Returns:
+        Scaled tensor [batch, target_h, target_w, channels]
+    """
+    # Map method names to PIL resampling modes
+    resample_map = {
+        "lanczos": Image.Resampling.LANCZOS,
+        "bilinear": Image.Resampling.BILINEAR,
+        "bicubic": Image.Resampling.BICUBIC,
+        "nearest": Image.Resampling.NEAREST,
+    }
+    resample = resample_map.get(method, Image.Resampling.LANCZOS)
+
+    batch_size = image_tensor.shape[0]
+    channels = image_tensor.shape[3]
+
+    # Process each image in batch
+    result_list = []
+    for i in range(batch_size):
+        # Convert tensor to numpy then PIL
+        img_np = (image_tensor[i].cpu().numpy() * 255).astype(np.uint8)
+
+        # Handle different channel counts
+        if channels == 1:
+            pil_img = Image.fromarray(img_np[:, :, 0], mode='L')
+        elif channels == 3:
+            pil_img = Image.fromarray(img_np, mode='RGB')
+        elif channels == 4:
+            pil_img = Image.fromarray(img_np, mode='RGBA')
+        else:
+            raise ValueError(f"Unsupported channel count: {channels}")
+
+        # Scale with PIL (uses CPU/system RAM)
+        scaled_pil = pil_img.resize((target_w, target_h), resample)
+
+        # Convert back to tensor
+        scaled_np = np.array(scaled_pil).astype(np.float32) / 255.0
+
+        # Handle grayscale
+        if channels == 1:
+            scaled_np = scaled_np[:, :, np.newaxis]
+
+        result_list.append(scaled_np)
+
+    # Stack batch and convert to tensor
+    result = np.stack(result_list, axis=0)
+    return torch.from_numpy(result)
+
+
+def tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
+    """Convert a single image tensor [H, W, C] to PIL Image."""
+    img_np = (tensor.cpu().numpy() * 255).astype(np.uint8)
+    channels = img_np.shape[2] if len(img_np.shape) == 3 else 1
+
+    if channels == 1:
+        return Image.fromarray(img_np[:, :, 0], mode='L')
+    elif channels == 3:
+        return Image.fromarray(img_np, mode='RGB')
+    elif channels == 4:
+        return Image.fromarray(img_np, mode='RGBA')
+    else:
+        raise ValueError(f"Unsupported channel count: {channels}")
+
+
+def pil_to_tensor(pil_img: Image.Image) -> torch.Tensor:
+    """Convert PIL Image to tensor [H, W, C] in range [0, 1]."""
+    img_np = np.array(pil_img).astype(np.float32) / 255.0
+    if len(img_np.shape) == 2:  # Grayscale
+        img_np = img_np[:, :, np.newaxis]
+    return torch.from_numpy(img_np)
+
+
 def pil2tensor(image):
     """Convert PIL image to tensor in the correct format"""
     return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
@@ -1277,6 +1503,7 @@ class SmartResolutionCalc:
 
         # ===== LATENT OUTPUT (NEW: VAE ENCODING SUPPORT) =====
         # Auto-detection: VAE + image + transform mode → encode image, otherwise → empty latent
+        # Memory-aware: Uses tiled VAE encoding for large images to avoid GPU OOM
         latent_source = "Empty"  # Default for info output
 
         if vae is not None and image is not None and actual_mode != "empty":
@@ -1305,14 +1532,28 @@ class SmartResolutionCalc:
                     pixels = pixels.contiguous()
                     logger.debug(f"  Made contiguous")
 
-                # Encode with VAE (matches ComfyUI's VAEEncode node exactly)
-                logger.debug(f"  Calling vae.encode() with shape {pixels.shape}")
-                encoded = vae.encode(pixels)
+                # Check if we should use tiled VAE encoding for memory efficiency
+                img_height, img_width = pixels.shape[1], pixels.shape[2]
+                use_tiled = should_use_tiled_vae(img_width, img_height, pixels.shape[0])
+
+                if use_tiled:
+                    # Use tiled VAE encoding for large images
+                    logger.info(f"Using tiled VAE encoding for {img_width}×{img_height} image")
+                    print(f"[SmartResCalc] Using tiled VAE encoding for large image ({img_width}×{img_height})")
+
+                    # Tiled encoding with default tile size (512×512) and overlap (64)
+                    # These defaults work well for most VAEs
+                    encoded = vae.encode_tiled(pixels, tile_x=512, tile_y=512, overlap=64)
+                    latent_source = "VAE Tiled"
+                else:
+                    # Standard encoding for smaller images
+                    logger.debug(f"  Calling vae.encode() with shape {pixels.shape}")
+                    encoded = vae.encode(pixels)
+                    latent_source = "VAE Encoded"
 
                 # Wrap in latent dict format (ComfyUI standard)
                 latent = {"samples": encoded}
 
-                latent_source = "VAE Encoded"
                 logger.debug(f"VAE encoding successful, latent shape: {latent['samples'].shape}")
 
             except Exception as e:
@@ -1446,6 +1687,8 @@ class SmartResolutionCalc:
         Transform input image to target dimensions using bilinear interpolation (distort mode).
         Scales image to exactly fit target dimensions without preserving aspect ratio.
 
+        Memory-aware: Uses CPU scaling for large images to avoid GPU OOM errors.
+
         Args:
             image: Input tensor [batch, height, width, channels]
             target_width: Target width in pixels
@@ -1454,24 +1697,46 @@ class SmartResolutionCalc:
         Returns:
             Transformed tensor [batch, target_height, target_width, channels]
         """
-        # Convert NHWC -> NCHW for interpolate
-        samples = image.movedim(-1, 1)
+        batch_size, source_height, source_width, channels = image.shape
 
-        # Use ComfyUI's standard upscale function
-        # Method: "bilinear" (fast, good quality, general purpose)
-        # Crop: "disabled" (scale to fit, no cropping)
-        output = comfy.utils.common_upscale(
-            samples,
-            target_width,
-            target_height,
-            "bilinear",
-            "disabled"
-        )
+        # Check if we should use CPU scaling for memory efficiency
+        if should_use_cpu_scaling(source_width, source_height, target_width, target_height,
+                                  channels, batch_size):
+            # Use CPU/PIL scaling - leverages system RAM (127GB available)
+            logger.info(f"Using CPU scaling for {source_width}×{source_height} → {target_width}×{target_height}")
+            print(f"[SmartResCalc] Using CPU scaling for large image ({source_width}×{source_height} → {target_width}×{target_height})")
+            return cpu_scale_image(image, target_width, target_height, method="lanczos")
 
-        # Convert back NCHW -> NHWC
-        output = output.movedim(1, -1)
+        # Standard GPU path for smaller images
+        try:
+            # Convert NHWC -> NCHW for interpolate
+            samples = image.movedim(-1, 1)
 
-        return output
+            # Use ComfyUI's standard upscale function
+            # Method: "bilinear" (fast, good quality, general purpose)
+            # Crop: "disabled" (scale to fit, no cropping)
+            output = comfy.utils.common_upscale(
+                samples,
+                target_width,
+                target_height,
+                "bilinear",
+                "disabled"
+            )
+
+            # Convert back NCHW -> NHWC
+            output = output.movedim(1, -1)
+            return output
+
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
+            # GPU OOM - fallback to CPU scaling
+            logger.warning(f"GPU scaling failed ({e}), falling back to CPU scaling")
+            print(f"[SmartResCalc] GPU OOM during scaling, using CPU fallback")
+
+            # Clear GPU memory before CPU operation
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            return cpu_scale_image(image, target_width, target_height, method="lanczos")
 
     def transform_image_scale_pad(
         self,
