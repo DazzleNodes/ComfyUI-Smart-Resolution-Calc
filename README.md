@@ -13,7 +13,7 @@ Smart Resolution Calculator brings intuitive dimension control to ComfyUI workfl
 
 ![Smart Resolution Calculator in action](docs/images/Smart-Res-Calculator-node_outputs_and-ClownSharKSampler.jpg)
 
-*Example workflow showing the Smart Resolution Calculator with enabled image input but disabled "image dims" ("AR Only" mode off), SmartResCalc changes image aspect ratio from 1:1 to 4:5, WIDTH enabled initially conforming to 1024px, SCALE at 1.10x (1024px\*1.1 = 1126.4px), divisible by 16 (1126.4px/16 = ⌊70.375⌋ → 70\*16 = 1120px), calculating new height from aspect ratio 4:5 (1480px), and outputting 1120×1408. The info output shows "Latent: VAE Encoded" indicating VAE encoding is active. Output "latent" connects to KSampler for img2img workflow.*
+*Example workflow showing the Smart Resolution Calculator with enabled image input but disabled "image dims" ("AR Only" mode off), SmartResCalc changes image aspect ratio from 1:1 to 4:5, WIDTH enabled initially conforming to 1024px, SCALE at 1.10x (1024px\*1.1 = 1126.4px), divisible by 16 (1126.4px/16 = ⌊70.375⌋ → 70\*16 = 1120px), calculating new height from aspect ratio 4:5 (1408px), and outputting 1120×1408. The info output shows "Latent: VAE Encoded" indicating VAE encoding is active. Output "latent" connects to KSampler for img2img workflow.*
 
 ## Features
 
