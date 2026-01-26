@@ -5,6 +5,28 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] - 2025-01-26
+
+### Fixed
+- **Image Mode Default Crash** - Fixed crash when image_mode widget not in kwargs
+  - Previous behavior: `image_mode` defaulted to `{'on': True}` causing crash when no image connected
+  - New behavior: Defaults to `{'on': False}` - image mode disabled unless explicitly enabled
+  - Root cause: When image mode enabled but no image connected, calculator returned `None` dimensions
+  - Added safeguard: Pending states (None dimensions) now fall back to defaults with dropdown AR
+
+### Technical
+- **Python Changes** (`py/smart_resolution_calc.py`):
+  - Line 999: Changed `image_mode` default from `{'on': True, 'value': 0}` to `{'on': False, 'value': 0}`
+  - Line 1000: Changed `use_image` default from `True` to `False`
+  - Lines 1119-1127: Added safeguard to detect pending states and recalculate without image mode
+  - Added debug logging for image_mode state (gated by `COMFY_DEBUG_SMART_RES_CALC` env var)
+
+### Developer
+- **Pre-commit Hook Improvements** (`scripts/hooks/pre-commit`):
+  - Added `cd` to repo root before calling update script (fixes path resolution issues)
+  - Always stage version.py to ensure inclusion in commits
+  - Fixed regex patterns: properly escape dots for file extension matching
+
 ## [0.6.5] - 2025-11-12
 
 ### Fixed

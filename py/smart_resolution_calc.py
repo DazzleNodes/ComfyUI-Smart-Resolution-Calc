@@ -996,9 +996,12 @@ class SmartResolutionCalc:
         # image_mode widget: {on: bool, value: 0|1} - 0=AR Only, 1=Exact Dims
         mode_info = None
         override_warning = False
-        image_mode = kwargs.get('image_mode', {'on': True, 'value': 0})  # Default: enabled, AR Only
-        use_image = image_mode.get('on', True) if isinstance(image_mode, dict) else True
+        image_mode = kwargs.get('image_mode', {'on': False, 'value': 0})  # Default: DISABLED, AR Only
+        use_image = image_mode.get('on', False) if isinstance(image_mode, dict) else False
         exact_dims = image_mode.get('value', 0) == 1 if isinstance(image_mode, dict) else False
+
+        # Debug: Log image_mode state
+        logger.debug(f"image_mode from kwargs: {image_mode}, use_image={use_image}, exact_dims={exact_dims}, image={'connected' if image is not None else 'None'}")
 
         if image is not None and use_image:
             # Extract dimensions from first image in batch
@@ -1115,6 +1118,16 @@ class SmartResolutionCalc:
         # Create calculator and get dimension source
         calculator = DimensionSourceCalculator()
         result = calculator.calculate_dimension_source(widgets, runtime_context)
+
+        # Handle pending states (image mode enabled but no image connected)
+        # Fall back to defaults with dropdown AR when baseW/baseH are None
+        if result['baseW'] is None or result['baseH'] is None:
+            logger.warning(f"[Calculator] Pending state detected ({result['mode']}), falling back to defaults")
+            print(f"[SmartResCalc] WARNING: Image mode enabled but no image connected - using defaults")
+            # Recalculate without image mode to get valid dimensions
+            widgets_fallback = widgets.copy()
+            widgets_fallback['image_mode_enabled'] = False
+            result = calculator.calculate_dimension_source(widgets_fallback, runtime_context)
 
         # Extract base dimensions and metadata from calculator result
         w = result['baseW']
