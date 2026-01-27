@@ -9,6 +9,9 @@ current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 # Get the repository root
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
+# CRITICAL: Change to repository root before calling update script
+cd "$REPO_ROOT" 2>/dev/null || true
+
 # PART 1: Update version.py
 # -------------------------
 UPDATE_SCRIPT="$REPO_ROOT/scripts/update-version.sh"
@@ -19,20 +22,12 @@ if [ -f "$UPDATE_SCRIPT" ]; then
     UPDATE_EXIT=$?
     
     if [ $UPDATE_EXIT -eq 0 ]; then
-        # Success - either updated or already current
-        # Check if version.py was actually modified
-        if git diff --cached --name-only | grep -q "version.py"; then
-            echo "✓ Version updated for commit"
-        else
-            # No changes to version.py - it was already up to date
-            # This is fine, just silent success
-            :
-        fi
+        # Success - always stage version.py to ensure it's included in this commit
+        git add version.py
+        echo "✓ Version updated and staged for commit"
     else
         # Real error occurred
         echo "⚠ Warning: Version update failed but continuing"
-        # Optionally show the error in verbose mode
-        # echo "  Error: $UPDATE_OUTPUT"
     fi
 fi
 
@@ -58,7 +53,7 @@ esac
 has_private_content=0
 for file in $(git diff --cached --name-only); do
     # Check against all private content patterns from BranchContext
-    if echo "$file" | grep -q -E "^.*.*/__private__.*|^.*.*/private_.*|^.*..*~|^.*.backup|^.*.bak|^.*.log|^.*.tmp|^.*~|^.env.*|^.env.local$|^.env.private$|^.repokit.json$|^CLAUDE.md$|^Clipboard Text.*|^convos/|^credentials/|^logs/|^logs/.*|^logs/.*.*/.*|^nul$|^private/|^private/claude/|^private/docs/|^private/notes/|^private/temp/|^revisions/|^revisions/.*|^revisions/.*.*/.*|^secrets/|^test-runs/|^test_runs/"; then
+    if echo "$file" | grep -q -E "^.*.*/__private__.*|^.*.*/private_.*|^.*..*~|^.*\.backup$|^.*\.bak$|^.*\.log$|^.*\.tmp$|^.*~$|^.env.*|^.env.local$|^.env.private$|^.repokit.json$|^CLAUDE.md$|^Clipboard Text.*|^convos/|^credentials/|^logs/|^logs/.*|^logs/.*.*/.*|^nul$|^private/|^private/claude/|^private/docs/|^private/notes/|^private/temp/|^revisions/|^revisions/.*|^revisions/.*.*/.*|^secrets/|^test-runs/|^test_runs/"; then
         if [ $has_private_content -eq 0 ]; then
             echo ""
             echo "❌ COMMIT BLOCKED - Private Content Protection"
