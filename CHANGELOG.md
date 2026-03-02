@@ -5,6 +5,40 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] - 2026-03-01
+
+### Fixed
+- **Empty latent channel mismatch** - Fixed crash when VAE-decoding empty latent with non-SD1.5 models
+  - `create_latent()` hardcoded 4 channels, causing `RuntimeError: tensor size mismatch` with
+    FLUX (16ch), patchified (16ch), Cosmos (128ch), and other non-4-channel VAEs
+  - Now queries `vae.latent_channels` when VAE is connected, falls back to 4 for compatibility
+- **Empty latent spatial ratio mismatch** - Fixed decoded image being 2x expected dimensions
+  - `create_latent()` hardcoded `height//8` spatial downscale, wrong for patchified VAEs (16x),
+    Stable Cascade (32x), and other non-8x models
+  - Now queries `vae.spacial_compression_encode()` for the actual ratio, falls back to 8x
+- **Missing latent metadata** - Added `downscale_ratio_spacial` key to empty latent dict
+  - Matches ComfyUI's `EmptyLatentImage` output format
+  - Enables `fix_empty_latent_channels()` to correct shape when latent flows through KSampler
+- **Test assertion for missing image edge case** - Fixed `test_edge_case_missing_image()` expectation
+  - Test expected `defaults_with_ar` (priority 6), but calculator correctly returns `ar_only_pending` (priority 4)
+  - The fallback to defaults happens in the caller (`calculate_dimensions()`), not the calculator
+  - Now asserts correct pending state: mode, priority, and None dimensions
+
+### Technical
+- **Python Changes** (`py/smart_resolution_calc.py`):
+  - `create_latent()`: Added `vae` parameter, queries `latent_channels` and `spacial_compression_encode()`
+  - Both call sites (VAE-encode failure fallback and no-image empty latent) now pass `vae=vae`
+  - Defensive `hasattr` checks ensure graceful fallback if VAE API changes
+- **Test fix** (`tests/test_dimension_source_calculator.py`):
+  - `test_edge_case_missing_image()`: Corrected assertion from `defaults_with_ar`/priority 6 to `ar_only_pending`/priority 4
+  - Added assertions for None dimensions in pending state
+- **Gitignore** (`.gitignore`):
+  - Added pattern for numbered backup variants of README screenshots
+
+### Design
+- `2026-03-01__21-59-13__empty-latent-generation-bug-analysis.md`
+- `2026-03-01__22-15-39__latent-spatial-ratio-2x-decode-bug.md`
+
 ## [0.6.6] - 2025-01-26
 
 ### Fixed

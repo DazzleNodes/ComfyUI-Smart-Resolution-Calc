@@ -594,10 +594,13 @@ def test_edge_case_missing_image():
     print(f"Description: {result['description']}")
     print(f"Active Sources: {result['activeSources']}")
 
-    # Should fall back to defaults when USE IMAGE DIMS enabled but no image connected
-    # Note: Falls back to Priority 6 (defaults) since MEGAPIXEL widget isn't actually used without image
-    assert result['mode'] == 'defaults_with_ar', f"Expected fallback to 'defaults_with_ar', got '{result['mode']}'"
-    assert result['priority'] == 6, f"Expected fallback to priority 6, got {result['priority']}"
+    # Calculator reports pending state when image mode enabled but no image connected.
+    # The fallback to defaults happens in the caller (calculate_dimensions() lines 1122-1130),
+    # not in the calculator itself. The calculator correctly reports the true system state.
+    assert result['mode'] == 'ar_only_pending', f"Expected pending state 'ar_only_pending', got '{result['mode']}'"
+    assert result['priority'] == 4, f"Expected priority 4 (image mode), got {result['priority']}"
+    assert result['baseW'] is None, f"Expected None width in pending state, got {result['baseW']}"
+    assert result['baseH'] is None, f"Expected None height in pending state, got {result['baseH']}"
 
     print("\n✅ Edge case test PASSED")
 

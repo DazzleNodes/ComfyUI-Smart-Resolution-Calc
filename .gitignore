@@ -155,3 +155,6 @@ private/notes/
 
 # Performance tests (copied temporarily for testing, not distributed)
 web/tests/
+
+# Numbered backup variants of README screenshots (base file without number is tracked)
+docs/images/Smart-Res-Calculator-node_outputs_and-ClownSharKSampler[0-9]*.jpg

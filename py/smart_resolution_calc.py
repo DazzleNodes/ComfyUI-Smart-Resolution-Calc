@@ -1334,13 +1334,13 @@ class SmartResolutionCalc:
                 logger.error(f"VAE encoding failed: {e}")
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 print(f"[SmartResCalc] WARNING: VAE encoding failed ({e}), using empty latent")
-                latent = self.create_latent(w, h, batch_size)
+                latent = self.create_latent(w, h, batch_size, vae=vae)
                 latent_source = "Empty (VAE failed)"
         else:
             # Generate empty latent for txt2img workflows (backward compatible)
             # Reasons: VAE not connected, no input image, or mode is "empty"
             logger.debug(f"Generating empty latent (txt2img workflow)")
-            latent = self.create_latent(w, h, batch_size)
+            latent = self.create_latent(w, h, batch_size, vae=vae)
             latent_source = "Empty"
 
         # Format divisibility info
@@ -1822,15 +1822,27 @@ class SmartResolutionCalc:
         # Convert to tensor
         return pil2tensor(image)
 
-    def create_latent(self, width, height, batch_size=1):
+    def create_latent(self, width, height, batch_size=1, vae=None):
         """
-        Create latent tensor compatible with SD/Flux models.
+        Create empty latent tensor compatible with the connected model.
 
-        Latent dimensions are downsampled by 8x from pixel dimensions.
-        Format: [batch_size, 4_channels, height//8, width//8]
+        Queries the VAE for both latent_channels and spatial compression ratio
+        to support all model types (SD1.5=4ch/8x, FLUX=16ch/8x, patchified
+        VAEs=16ch/16x, Cascade=16ch/32x, etc.). Falls back to 4 channels and
+        8x spatial when no VAE is connected (matches ComfyUI EmptyLatentImage).
+
+        Format: [batch_size, channels, height//spatial, width//spatial]
         """
-        latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
-        return {"samples": latent}
+        channels = 4
+        spatial_divisor = 8
+        if vae is not None:
+            if hasattr(vae, 'latent_channels'):
+                channels = vae.latent_channels
+            if hasattr(vae, 'spacial_compression_encode'):
+                spatial_divisor = vae.spacial_compression_encode()
+
+        latent = torch.zeros([batch_size, channels, height // spatial_divisor, width // spatial_divisor], device=self.device)
+        return {"samples": latent, "downscale_ratio_spacial": spatial_divisor}
 
 
 NODE_CLASS_MAPPINGS = {
