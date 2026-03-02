@@ -3,6 +3,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![ComfyUI Registry](https://img.shields.io/badge/ComfyUI-Registry-green.svg)](https://registry.comfy.org/publishers/djdarcy/nodes/comfyui-smart-resolution-calc)
 [![GitHub release](https://img.shields.io/github/v/release/DazzleNodes/ComfyUI-Smart-Resolution-Calc?include_prereleases&label=version)](https://github.com/DazzleNodes/ComfyUI-Smart-Resolution-Calc/releases)
+[![Installs](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/djdarcy/5df99ad3a380360fa8d72813eb0d2ce7/raw/installs.json)](https://dazzlenodes.github.io/ComfyUI-Smart-Resolution-Calc/stats/#installs)
+[![Views](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/djdarcy/5df99ad3a380360fa8d72813eb0d2ce7/raw/views.json)](https://dazzlenodes.github.io/ComfyUI-Smart-Resolution-Calc/stats/#views)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Flexible resolution and latent generation for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) with compact custom widgets. Specify any combination of dimensions and aspect ratio - the node calculates missing values automatically.

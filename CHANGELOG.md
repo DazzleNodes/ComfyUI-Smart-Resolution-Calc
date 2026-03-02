@@ -5,6 +5,16 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - 2026-03-01
+
+### Added
+- **Traffic analytics via ghtraf** - Integrated [GitHub Traffic Tracker](https://github.com/djdarcy/github-traffic-tracker) for download/clone/view tracking
+  - Daily collection via GitHub Actions workflow (`traffic-badges.yml`)
+  - Gist-backed storage with shields.io badge endpoints
+  - Static HTML dashboard at `docs/stats/`
+- **README badges** - Added Installs and Views badges linking to traffic dashboard
+- **Project config** - Added `.ghtraf.json` for traffic tracker configuration
+
 ## [0.6.7] - 2026-03-01
 
 ### Fixed

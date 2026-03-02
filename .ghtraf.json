@@ -1,0 +1,13 @@
+{
+  "owner": "DazzleNodes",
+  "repo": "ComfyUI-Smart-Resolution-Calc",
+  "created": "2025-10-19",
+  "display_name": "Smart Resolution Calculator",
+  "badge_gist_id": "5df99ad3a380360fa8d72813eb0d2ce7",
+  "archive_gist_id": "1efb0d77d6671fc64e91e72f204e1817",
+  "dashboard_dir": "docs/stats",
+  "schema_version": 1,
+  "ci_workflows": [
+    "publish-to-registry.yml"
+  ]
+}
