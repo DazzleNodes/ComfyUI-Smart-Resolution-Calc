@@ -5,6 +5,36 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-06
+
+### Added
+- **DazNoise extended fill types** - 5 additional noise fill patterns when [dazzle-comfy-plasma-fast](https://github.com/DazzleNodes/dazzle-comfy-plasma-fast) or [DazzleNodes](https://github.com/DazzleNodes/DazzleNodes) is installed
+  - `DazNoise: Pink` — Brightness-biased noise (cube root transformation)
+  - `DazNoise: Brown` — Extreme brightness-biased noise (double cube root)
+  - `DazNoise: Plasma` — Organic cloud-like patterns (diamond-square subdivision)
+  - `DazNoise: Greyscale` — Monochrome noise mapped to RGB channels
+  - `DazNoise: Gaussian` — Wide Gaussian noise via OmniNoise (mean=0.5, std=0.25)
+  - Automatic detection — options appear/hide based on package availability
+  - Graceful fallback to Gaussian noise if dependency removed after workflow saved
+- **Custom fill image input** - New optional `fill_image` IMAGE input
+  - Overrides `fill_type` dropdown when connected
+  - Accepts any image source (OmniNoise, preprocessors, etc.) as custom fill
+  - Scaled to match target dimensions automatically
+
+### Technical
+- **Python Changes** (`py/smart_resolution_calc.py`):
+  - `_get_plasma_fast()`: Detects dazzle-comfy-plasma-fast via `NODE_CLASS_MAPPINGS` in `sys.modules`, with importlib fallback
+  - `_generate_daznoise()`: Routes fill types to generator classes using per-type method names
+  - `create_empty_image()`: Extended with DazNoise routing and `fill_image` override
+  - `transform_image_scale_pad()`, `transform_image_crop_pad()`: Accept `fill_image` parameter
+
+### Documentation
+- `docs/extended-fill-types.md` — Detailed guide for DazNoise fill patterns and fill_image usage
+- `README.md` — Added feature bullet with links
+
+### Design
+- `2026-03-06__16-19-45__dev-workflow-adding-plasma-fast-fill-types.md`
+
 ## [0.6.8] - 2026-03-01
 
 ### Added

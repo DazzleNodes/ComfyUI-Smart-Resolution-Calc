@@ -26,6 +26,7 @@ Smart Resolution Calculator brings intuitive dimension control to ComfyUI workfl
   - **transform (scale/crop)**: Scale to cover target, crop excess (maintains aspect ratio)
   - **transform (scale/pad)**: Scale to fit inside target, pad remainder (maintains aspect ratio)
 - **Empty image generation** - Create images with 5 fill patterns (black, white, custom color, noise, random)
+- **Extended fill types** - 5 additional DazNoise fills (Pink, Brown, Plasma, Greyscale, Gaussian) when [dazzle-comfy-plasma-fast](https://github.com/DazzleNodes/dazzle-comfy-plasma-fast) or [DazzleNodes](https://github.com/DazzleNodes/DazzleNodes) is installed, plus a `fill_image` input for custom fill from any source ([details](docs/extended-fill-types.md))
 - **Interactive tooltips** - Hover over widget labels for quick help, extended explanations, and links to documentation
 - **One-click resolution setup** - Toggle dimensions you want, node calculates the rest
 - **5 calculation modes** - Width+Height, Width+AR, Height+AR, Megapixels+AR, or defaults
@@ -232,6 +233,7 @@ localStorage.removeItem('VERBOSE_SMART_RES_CALC');
 
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
 - **[Image Input Guide](docs/image-input.md)** - Detailed documentation for image dimension extraction feature
+- **[Extended Fill Types](docs/extended-fill-types.md)** - DazNoise fill patterns and custom fill_image input
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup and contribution guidelines
 
 ## Contributing

@@ -5,6 +5,7 @@ import comfy.model_management
 import comfy.utils
 import logging
 import os
+import random as py_random
 from math import gcd
 
 # Configure debug logging
@@ -22,6 +23,125 @@ if not logger.handlers:
 
 # Always log when module is loaded
 print("[SmartResCalc] Module loaded, DEBUG_ENABLED =", DEBUG_ENABLED)
+
+
+# ===== Optional dependency: dazzle-comfy-plasma-fast noise generators =====
+_plasma_fast_module = None
+
+# Extended fill types available when dazzle-comfy-plasma-fast is installed
+DAZNOISE_FILL_TYPES = [
+    "DazNoise: Pink", "DazNoise: Brown", "DazNoise: Plasma",
+    "DazNoise: Greyscale", "DazNoise: Gaussian",
+]
+
+# Maps DazNoise fill_type values to (NODE_CLASS_MAPPINGS key, method_name, extra_kwargs)
+_DAZNOISE_TYPE_MAP = {
+    "DazNoise: Pink": ("JDC_PinkNoise", "generate_noise", {}),
+    "DazNoise: Brown": ("JDC_BrownNoise", "generate_noise", {}),
+    "DazNoise: Plasma": ("JDC_Plasma", "generate_plasma", {"turbulence": 2.75}),
+    "DazNoise: Greyscale": ("JDC_GreyNoise", "generate_noise", {}),
+    "DazNoise: Gaussian": ("JDC_OmniNoise", "generate_noise", {
+        "noise_type": "Random", "random_distribution": "Gaussian (Centered Gray)",
+    }),
+}
+
+
+def _get_plasma_fast():
+    """Detect and return dazzle-comfy-plasma-fast's NODE_CLASS_MAPPINGS if available.
+
+    Searches sys.modules for a module with NODE_CLASS_MAPPINGS containing JDC_OmniNoise
+    (a reliable indicator of dazzle-comfy-plasma-fast). Falls back to path-based importlib.
+    Only caches positive results — re-checks each call until found, since
+    DazzleNodes may load smart-resolution-calc before dazzle-comfy-plasma-fast.
+
+    Returns:
+        dict (NODE_CLASS_MAPPINGS) or None
+    """
+    global _plasma_fast_module
+    if _plasma_fast_module is not None:
+        return _plasma_fast_module
+
+    import sys
+
+    # Check sys.modules for module with NODE_CLASS_MAPPINGS containing our target nodes.
+    # We check for NODE_CLASS_MAPPINGS (ComfyUI-specific dict) to avoid false positives
+    # from PyTorch's torch.ops which returns True for hasattr() on any attribute name.
+    for name, mod in list(sys.modules.items()):
+        if mod is None:
+            continue
+        mappings = getattr(mod, 'NODE_CLASS_MAPPINGS', None)
+        if isinstance(mappings, dict) and 'JDC_OmniNoise' in mappings:
+            _plasma_fast_module = mappings
+            logger.debug(f"Found dazzle-comfy-plasma-fast via sys.modules: {name}")
+            print(f"[SmartResCalc] Detected dazzle-comfy-plasma-fast (DazNoise fill types enabled)")
+            return mappings
+
+    # Fallback: try known file paths with importlib
+    import importlib.util
+    try:
+        import folder_paths
+        base = folder_paths.base_path
+        candidates = [
+            os.path.join(base, 'custom_nodes', 'dazzle-comfy-plasma-fast', 'nodes.py'),
+            os.path.join(base, 'custom_nodes', 'DazzleNodes', 'nodes', 'dazzle-comfy-plasma-fast', 'nodes.py'),
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                spec = importlib.util.spec_from_file_location("_plasma_fast_nodes", path)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                mappings = getattr(mod, 'NODE_CLASS_MAPPINGS', None)
+                if isinstance(mappings, dict):
+                    _plasma_fast_module = mappings
+                    logger.debug(f"Found dazzle-comfy-plasma-fast via path: {path}")
+                    print(f"[SmartResCalc] Detected dazzle-comfy-plasma-fast (DazNoise fill types enabled)")
+                    return mappings
+    except Exception as e:
+        logger.debug(f"Path-based detection failed: {e}")
+
+    return None
+
+
+def _generate_daznoise(fill_type, width, height):
+    """Generate noise using dazzle-comfy-plasma-fast generators.
+
+    Args:
+        fill_type: A DazNoise fill type string (e.g., "DazNoise: Pink")
+        width: Image width
+        height: Image height
+
+    Returns:
+        Tensor of shape (1, height, width, 3) with values 0.0-1.0,
+        or None if generator is unavailable.
+    """
+    mappings = _get_plasma_fast()
+    if mappings is None:
+        return None
+
+    node_id, method_name, extra_kwargs = _DAZNOISE_TYPE_MAP[fill_type]
+    generator_class = mappings.get(node_id)
+    if generator_class is None:
+        logger.warning(f"Node '{node_id}' not found in dazzle-comfy-plasma-fast NODE_CLASS_MAPPINGS")
+        return None
+
+    generator = generator_class()
+    seed = py_random.randint(0, 2**32 - 1)
+    generate_fn = getattr(generator, method_name)
+
+    try:
+        result = generate_fn(
+            width=width, height=height,
+            value_min=-1, value_max=-1,
+            red_min=-1, red_max=-1,
+            green_min=-1, green_max=-1,
+            blue_min=-1, blue_max=-1,
+            seed=seed,
+            **extra_kwargs
+        )
+        return result[0]  # Unwrap from (tensor,) tuple
+    except Exception as e:
+        logger.warning(f"DazNoise generation failed for '{fill_type}': {e}")
+        return None
 
 
 def pil2tensor(image):
@@ -640,6 +760,14 @@ class SmartResolutionCalc:
     """
 
     @classmethod
+    def _get_fill_type_options(cls):
+        """Build fill_type dropdown options, extending with DazNoise types if available."""
+        base = ["black", "white", "custom_color", "noise", "random"]
+        if _get_plasma_fast():
+            base.extend(DAZNOISE_FILL_TYPES)
+        return base
+
+    @classmethod
     def INPUT_TYPES(cls):
         aspect_ratios = [
             "1:1 (Square - Instagram/Profile)",
@@ -699,13 +827,16 @@ class SmartResolutionCalc:
                     "default": "auto",
                     "tooltip": "Image output mode:\n• auto: Smart default (transform (distort) if image input, empty otherwise)\n• empty: Generate new image with fill pattern\n• transform (distort): Scale to exact dimensions (ignores aspect ratio)\n• transform (crop/pad): No scaling, crop if larger or pad if smaller\n• transform (scale/crop): Scale to cover target (maintains AR), crop excess\n• transform (scale/pad): Scale to fit inside target (maintains AR), pad remainder"
                 }),
-                "fill_type": (["black", "white", "custom_color", "noise", "random"], {
+                "fill_type": (cls._get_fill_type_options(), {
                     "default": "black",
-                    "tooltip": "Fill pattern for empty images:\n• black: Solid black (#000000)\n• white: Solid white (#FFFFFF)\n• custom_color: Use fill_color hex value\n• noise: Gaussian noise (camera-like, centered around gray)\n• random: Uniform random pixels (TV static, full color range)"
+                    "tooltip": "Fill pattern for empty images and padding:\n• black: Solid black (#000000)\n• white: Solid white (#FFFFFF)\n• custom_color: Use fill_color hex value\n• noise: Gaussian noise (camera-like, centered around gray)\n• random: Uniform random pixels (TV static, full color range)\n\nWith DazzleNodes/dazzle-comfy-plasma-fast installed:\n• DazNoise: Pink — Brightness-biased noise (cube root)\n• DazNoise: Brown — Extreme brightness-biased noise\n• DazNoise: Plasma — Organic cloud-like patterns\n• DazNoise: Greyscale — Monochrome noise mapped to RGB\n• DazNoise: Gaussian — Wide Gaussian noise (centered gray, std=0.25)"
                 }),
                 "fill_color": ("STRING", {
                     "default": "#522525",
                     "tooltip": "Hex color code for custom_color fill type.\nFormat: #RRGGBB (e.g., #FF0000=red, #00FF00=green, #0000FF=blue)\nWith or without # prefix. Only used when fill_type is 'custom_color'."
+                }),
+                "fill_image": ("IMAGE", {
+                    "tooltip": "Optional custom fill image. When connected, overrides fill_type for padding/empty areas.\nConnect any noise generator (e.g., DazNoise OmniNoise) for custom fill patterns.\nThe image will be scaled to match target dimensions."
                 }),
             },
             # Custom widgets added via JavaScript - declare in hidden so ComfyUI passes them to Python
@@ -945,7 +1076,7 @@ class SmartResolutionCalc:
     def calculate_dimensions(self, aspect_ratio, divisible_by, custom_ratio=False,
                             custom_aspect_ratio="16:9", batch_size=1, scale=1.0,
                             image=None, vae=None, output_image_mode="none", fill_type="black",
-                            fill_color="#808080", **kwargs):
+                            fill_color="#808080", fill_image=None, **kwargs):
         """
         Calculate dimensions based on active toggle inputs from custom widgets.
 
@@ -1240,7 +1371,7 @@ class SmartResolutionCalc:
         # Generate actual image output based on mode
         if actual_mode == "empty":
             # Generate image with specified fill pattern at calculated dimensions
-            output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size)
+            output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
             logger.debug(f"Generated empty image: {w}×{h}, fill={fill_type}")
 
         elif actual_mode == "transform (distort)":
@@ -1252,17 +1383,17 @@ class SmartResolutionCalc:
             else:
                 # No image connected - fallback to empty image with current fill settings
                 logger.warning("Transform (distort) mode selected but no image connected, generating empty image")
-                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size)
+                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
         elif actual_mode == "transform (crop/pad)":
             if image is not None:
                 # No scaling - crop if larger, pad if smaller
-                output_image = self.transform_image_crop_pad(image, w, h, fill_type, fill_color)
+                output_image = self.transform_image_crop_pad(image, w, h, fill_type, fill_color, fill_image)
                 logger.debug(f"Transformed (crop/pad) input image to {w}×{h}")
             else:
                 # No image connected - fallback to empty image with current fill settings
                 logger.warning("Transform (crop/pad) mode selected but no image connected, generating empty image")
-                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size)
+                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
         elif actual_mode == "transform (scale/crop)":
             if image is not None:
@@ -1272,21 +1403,21 @@ class SmartResolutionCalc:
             else:
                 # No image connected - fallback to empty image with current fill settings
                 logger.warning("Transform (scale/crop) mode selected but no image connected, generating empty image")
-                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size)
+                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
         elif actual_mode == "transform (scale/pad)":
             if image is not None:
                 # Scale to fit inside target (maintaining AR), pad remainder
-                output_image = self.transform_image_scale_pad(image, w, h, fill_type, fill_color)
+                output_image = self.transform_image_scale_pad(image, w, h, fill_type, fill_color, fill_image)
                 logger.debug(f"Transformed (scale/pad) input image to {w}×{h}")
             else:
                 # No image connected - fallback to empty image with current fill settings
                 logger.warning("Transform (scale/pad) mode selected but no image connected, generating empty image")
-                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size)
+                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
         else:  # Safety fallback for invalid mode values
             logger.warning(f"Invalid output_image_mode '{actual_mode}', using empty image")
-            output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size)
+            output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
         # ===== LATENT OUTPUT (NEW: VAE ENCODING SUPPORT) =====
         # Auto-detection: VAE + image + transform mode → encode image, otherwise → empty latent
@@ -1393,7 +1524,8 @@ class SmartResolutionCalc:
         height: int,
         fill_type: str = "black",
         fill_color: str = "#808080",
-        batch_size: int = 1
+        batch_size: int = 1,
+        fill_image: torch.Tensor = None
     ) -> torch.Tensor:
         """
         Create empty image with specified fill pattern.
@@ -1401,13 +1533,25 @@ class SmartResolutionCalc:
         Args:
             width: Image width in pixels
             height: Image height in pixels
-            fill_type: Fill pattern - "black", "white", "custom_color", "noise", "random"
+            fill_type: Fill pattern - "black", "white", "custom_color", "noise", "random",
+                       or DazNoise types when dazzle-comfy-plasma-fast is available
             fill_color: Hex color string for "custom_color" mode (e.g., "#FF0000")
             batch_size: Number of images in batch
+            fill_image: Optional custom fill image tensor. When provided, overrides fill_type.
 
         Returns:
             Tensor of shape [batch_size, height, width, 3] with values 0.0-1.0
         """
+        # Priority: fill_image overrides fill_type when connected
+        if fill_image is not None:
+            # Scale the fill_image to target dimensions
+            image = self.transform_image(fill_image, width, height)
+            # Handle batch size mismatch
+            if image.shape[0] < batch_size:
+                image = image.repeat(batch_size, 1, 1, 1)[:batch_size]
+            logger.debug(f"Using fill_image ({fill_image.shape[2]}x{fill_image.shape[1]}) scaled to {width}x{height}")
+            return image
+
         # Create base tensor
         if fill_type == "black":
             # All zeros (black)
@@ -1446,6 +1590,22 @@ class SmartResolutionCalc:
         elif fill_type == "random":
             # Uniform random values [0.0, 1.0]
             image = torch.rand((batch_size, height, width, 3))
+
+        elif fill_type.startswith("DazNoise:"):
+            # Extended noise from dazzle-comfy-plasma-fast
+            noise_tensor = _generate_daznoise(fill_type, width, height)
+            if noise_tensor is not None:
+                # Generator returns (1, H, W, 3) — repeat for batch
+                if batch_size > 1:
+                    image = noise_tensor.repeat(batch_size, 1, 1, 1)
+                else:
+                    image = noise_tensor
+            else:
+                # Fallback: dazzle-comfy-plasma-fast unavailable at execution time
+                logger.warning(f"'{fill_type}' requires dazzle-comfy-plasma-fast (not found), using Gaussian noise")
+                print(f"[SmartResCalc] WARNING: {fill_type} unavailable, falling back to Gaussian noise")
+                image = torch.randn((batch_size, height, width, 3)) * 0.1 + 0.5
+                image = torch.clamp(image, 0.0, 1.0)
 
         else:
             # Fallback to black for unknown types
@@ -1492,7 +1652,8 @@ class SmartResolutionCalc:
         target_width: int,
         target_height: int,
         fill_type: str = "black",
-        fill_color: str = "#808080"
+        fill_color: str = "#808080",
+        fill_image: torch.Tensor = None
     ) -> torch.Tensor:
         """
         Transform input image to target dimensions using scale/pad strategy.
@@ -1510,6 +1671,7 @@ class SmartResolutionCalc:
             target_height: Target height in pixels
             fill_type: Fill pattern for padding areas
             fill_color: Hex color for custom_color fill
+            fill_image: Optional custom fill image tensor
 
         Returns:
             Transformed tensor [batch, target_height, target_width, channels]
@@ -1546,7 +1708,7 @@ class SmartResolutionCalc:
 
         # Create canvas with target dimensions filled with specified pattern
         # Use batch size from input image, not the parameter
-        canvas = self.create_empty_image(target_width, target_height, fill_type, fill_color, batch_size)
+        canvas = self.create_empty_image(target_width, target_height, fill_type, fill_color, batch_size, fill_image)
 
         # Calculate centering offsets
         offset_x = (target_width - scale_width) // 2
@@ -1569,7 +1731,8 @@ class SmartResolutionCalc:
         target_width: int,
         target_height: int,
         fill_type: str = "black",
-        fill_color: str = "#808080"
+        fill_color: str = "#808080",
+        fill_image: torch.Tensor = None
     ) -> torch.Tensor:
         """
         Transform input image to target dimensions using pure crop/pad (NO scaling).
@@ -1591,6 +1754,7 @@ class SmartResolutionCalc:
             target_height: Target height in pixels
             fill_type: Fill pattern for padding areas
             fill_color: Hex color for custom_color fill
+            fill_image: Optional custom fill image tensor
 
         Returns:
             Transformed tensor [batch, target_height, target_width, channels]
@@ -1655,7 +1819,7 @@ class SmartResolutionCalc:
             return cropped
 
         # Create canvas with target dimensions
-        canvas = self.create_empty_image(target_width, target_height, fill_type, fill_color, batch_size)
+        canvas = self.create_empty_image(target_width, target_height, fill_type, fill_color, batch_size, fill_image)
 
         # Place cropped image in canvas at correct position
         canvas[:, pad_top:pad_top+cropped.shape[1], pad_left:pad_left+cropped.shape[2], :] = cropped
