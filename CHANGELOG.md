@@ -5,6 +5,25 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-03-14
+
+### Changed
+- **Latent noise output uses raw `torch.randn()`** instead of VAE-encoding pixel noise
+  - VAE-encoded noise produces abstract art because it lives on the VAE's learned manifold,
+    not in the Gaussian noise space that diffusion models expect
+  - Raw latent noise is proper iid Gaussian noise seeded by `fill_seed`, producing
+    prompt-adherent images identical to standard seed-based generation
+  - The `fill_type` dropdown now only affects the IMAGE output (visual preview), not
+    the LATENT output — the latent is always seeded Gaussian regardless of fill_type
+  - This is functional but limited: the visual noise pattern does not influence generation
+  - Future: spectral blending will inject our noise patterns' spatial structure into
+    the latent while maintaining Gaussian statistics for prompt adherence
+- **Debug prints converted to logger.debug()** — all diagnostic output now gated behind
+  `COMFY_DEBUG_SMART_RES_CALC=true` environment variable
+
+### Design
+- `2026-03-14__08-13-48__dev-workflow-latent-noise-space-mismatch.md`
+
 ## [0.8.0] - 2026-03-14
 
 ### Added

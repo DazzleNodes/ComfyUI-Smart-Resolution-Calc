@@ -1524,64 +1524,70 @@ class SmartResolutionCalc:
             or fill_type.startswith("DazNoise:")
         )
 
-        should_vae_encode = (
-            vae is not None
-            and (
-                # Path 1: Image connected with transform mode
-                (image is not None and actual_mode != "empty")
-                # Path 2: No image but fill has meaningful content
-                or (image is None and has_nontrivial_fill)
-            )
+        # Three latent output paths:
+        # 1. Image attached + VAE → VAE-encode the transformed image (img2img)
+        # 2. No image + noise fill + VAE → raw latent noise (txt2img with seed control)
+        # 3. Otherwise → empty zeros latent
+        should_vae_encode_image = (
+            vae is not None and image is not None and actual_mode != "empty"
+        )
+        should_generate_raw_noise = (
+            vae is not None and image is None and has_nontrivial_fill
         )
 
-        if should_vae_encode:
-            # Check latent cache: if image was cached, latent might be too
-            if (self._noise_cache_key == cache_key and self._noise_cache_latent is not None
-                    and image is None):
+        if should_vae_encode_image:
+            # Path 1: VAE-encode the transformed image for img2img workflows
+            try:
+                logger.debug(f"VAE connected with image, encoding output_image")
+                pixels = output_image
+                if pixels.shape[3] > 3:
+                    pixels = pixels[:, :, :, :3]
+                if not pixels.is_contiguous():
+                    pixels = pixels.contiguous()
+
+                logger.debug(f"  Calling vae.encode() with shape {pixels.shape}")
+                encoded = vae.encode(pixels)
+                latent = {"samples": encoded}
+                latent_source = "VAE Encoded"
+                logger.debug(f"VAE encoding successful, latent shape: {latent['samples'].shape}")
+
+            except Exception as e:
+                import traceback
+                logger.error(f"VAE encoding failed: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                print(f"[SmartResCalc] WARNING: VAE encoding failed ({e}), using empty latent")
+                latent = self.create_latent(w, h, batch_size, vae=vae)
+                latent_source = "Empty (VAE failed)"
+
+        elif should_generate_raw_noise:
+            # Path 2: Generate raw Gaussian noise in latent space (for sampler consumption)
+            # NOT VAE-encoded — this is proper diffusion noise (torch.randn) that
+            # samplers can use directly. The IMAGE output still shows the visual
+            # noise pattern for preview purposes.
+            #
+            # Note: Decoding this latent via VAEDecode will produce random-looking output.
+            # Use the IMAGE output to preview the noise pattern instead.
+
+            # Check cache first
+            if (self._noise_cache_key == cache_key and self._noise_cache_latent is not None):
                 latent = self._noise_cache_latent
-                latent_source = f"VAE Encoded ({fill_type}) [cached]"
-                logger.debug(f"Using cached VAE-encoded latent")
-                print(f"[SmartResCalc] Using cached VAE-encoded latent (skipping VAE encode)")
+                latent_source = f"Raw Noise ({fill_type}) [cached]"
+                logger.debug(f"Using cached raw noise latent")
             else:
-                # VAE-encode the output_image (transformed image or noise-filled image)
-                try:
-                    logger.debug(f"VAE connected, preparing to encode output_image")
-                    logger.debug(f"  output_image shape: {output_image.shape}")
-                    logger.debug(f"  output_image dtype: {output_image.dtype}")
-                    logger.debug(f"  output_image device: {output_image.device}")
-                    logger.debug(f"  output_image is_contiguous: {output_image.is_contiguous()}")
+                # Create the latent shape (handles 5D for video VAEs)
+                latent = self.create_latent(w, h, batch_size, vae=vae)
 
-                    # Prepare pixels for VAE encoding
-                    pixels = output_image
-                    if pixels.shape[3] > 3:
-                        pixels = pixels[:, :, :, :3]
-                        logger.debug(f"  Trimmed to RGB: {pixels.shape}")
+                # Seed and fill with Gaussian noise instead of zeros
+                if seed_active and actual_seed >= 0:
+                    torch.manual_seed(actual_seed)
+                latent["samples"] = torch.randn_like(latent["samples"])
+                latent["use_as_noise"] = True
+                latent_source = f"Raw Noise ({fill_type})"
+                logger.debug(f"Generated raw latent noise: shape={latent['samples'].shape}, "
+                             f"mean={latent['samples'].mean():.4f}, std={latent['samples'].std():.4f}")
 
-                    if not pixels.is_contiguous():
-                        pixels = pixels.contiguous()
-                        logger.debug(f"  Made contiguous")
-
-                    logger.debug(f"  Calling vae.encode() with shape {pixels.shape}")
-                    encoded = vae.encode(pixels)
-
-                    latent = {"samples": encoded}
-
-                    if image is not None:
-                        latent_source = "VAE Encoded"
-                    else:
-                        latent_source = f"VAE Encoded ({fill_type})"
-                        latent["use_as_noise"] = True
-                        # Cache the latent for reuse
-                        self._noise_cache_latent = latent
-                    logger.debug(f"VAE encoding successful, latent shape: {latent['samples'].shape}")
-
-                except Exception as e:
-                    import traceback
-                    logger.error(f"VAE encoding failed: {e}")
-                    logger.error(f"Traceback: {traceback.format_exc()}")
-                    print(f"[SmartResCalc] WARNING: VAE encoding failed ({e}), using empty latent")
-                    latent = self.create_latent(w, h, batch_size, vae=vae)
-                    latent_source = "Empty (VAE failed)"
+                # Cache for reuse
+                self._noise_cache_latent = latent
         else:
             # Generate empty latent for txt2img workflows (backward compatible)
             # Reasons: VAE not connected, or fill is trivial (black/white/custom_color)

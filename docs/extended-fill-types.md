@@ -62,26 +62,37 @@ The **SEED widget** controls reproducibility of noise fills. When the seed toggl
 
 Note: When `fill_type` is `black`, `white`, or `custom_color`, the seed widget has no effect (these fills are deterministic regardless). When `fill_image` is connected, the seed is also irrelevant.
 
-## VAE Encoding of Noise Fills (v0.8.0+)
+## Latent Output Behavior (v0.8.1+)
 
-When a **VAE is connected** to the node and `fill_type` is a non-trivial noise pattern, the generated noise image is VAE-encoded into the **latent output**:
+The latent output depends on context:
 
-| Condition | Latent output |
-|-----------|--------------|
-| VAE connected + trivial fill (black/white/custom_color) | Empty zeros latent |
-| VAE connected + noise fill (noise/random/DazNoise) | VAE-encoded noise image |
-| VAE connected + `fill_image` connected | VAE-encoded fill image |
-| VAE not connected | Empty zeros latent (regardless of fill) |
+| Condition | IMAGE output | LATENT output |
+|-----------|-------------|--------------|
+| VAE + no image + noise fill | Visual noise pattern (DazNoise, etc.) | Raw `torch.randn()` Gaussian noise, seeded by fill_seed |
+| VAE + image + transform mode | Transformed image | VAE-encoded transformed image |
+| VAE + trivial fill (black/white/color) | Solid color image | Empty zeros latent |
+| No VAE connected | Fill pattern image | Empty zeros latent |
 
-The latent dict includes a `use_as_noise: True` flag when the noise fill is VAE-encoded. This flag is intended for downstream sampler integration (see below).
+The latent dict includes a `use_as_noise: True` flag when noise fill is active. This flag is intended for downstream sampler integration (see below).
 
-**Caching**: DazNoise generation and VAE encoding are cached. If the seed, fill_type, and dimensions are unchanged between runs, the cached result is reused (saves ~10s for expensive patterns like Plasma).
+**Caching**: Noise image generation and latent results are cached. If the seed, fill_type, and dimensions are unchanged between runs, the cached result is reused (saves ~10s for expensive patterns like Plasma).
 
-### Important: VAE-Encoded Noise vs Diffusion Noise
+### What fill_type Controls
 
-VAE-encoded noise images are NOT the same as the Gaussian noise that diffusion models expect for sampling. VAE-encoded noise lives in the VAE's learned latent manifold, while diffusion noise is raw `torch.randn()`. At denoise=1.0, using VAE-encoded noise as the sampler's starting noise produces abstract art rather than prompt-adherent images.
+- **IMAGE output**: `fill_type` controls the visual pattern (Plasma blobs, Gaussian noise, etc.). Use the IMAGE output to preview or for img2img workflows at low denoise.
+- **LATENT output**: `fill_type` does NOT affect the latent when no image is attached. The latent is always seeded `torch.randn()` Gaussian noise — the same distribution diffusion models expect. The `fill_seed` widget controls which random noise pattern the latent contains.
 
-For txt2img workflows, a future update will generate raw latent-space noise directly (bypassing VAE encoding) to produce proper diffusion-compatible noise.
+In other words: changing `fill_type` from Plasma to Gaussian to Random produces different IMAGE outputs but identical LATENT outputs (given the same seed). The fill_type is a visual tool; the seed is the latent tool.
+
+### Why Not VAE-Encode the Noise Pattern?
+
+VAE-encoded noise lives on the VAE's learned latent manifold — a structured space that diffusion models interpret as "partially denoised images." When used as starting noise for sampling, the model tries to denoise this structured input rather than generating from the prompt, producing abstract art instead of prompt-adherent images.
+
+Raw `torch.randn()` noise is what diffusion models are trained to denoise. Using it produces proper prompt-adherent generation, just with a different seed than the sampler would normally use.
+
+### Future: Spectral Blending
+
+A future update will implement spectral blending — injecting the spatial structure of visual noise patterns (Plasma, etc.) into the latent noise while maintaining Gaussian statistics. This will allow fill_type to influence the spatial composition of generated images (e.g., Plasma blobs biasing where objects appear) while preserving full prompt adherence.
 
 ## Sampler Integration (Experimental)
 
