@@ -2731,6 +2731,9 @@ class SeedWidget {
         // Last seed tracking (for recall button)
         this.lastSeed = null;
 
+        // No randomizeMode flag — we mirror rgthree's approach:
+        // value=-1 means "random each time", recycle button recovers lastSeed
+
         // Mouse state
         this.mouseDowned = null;
         this.isMouseDownedAndOver = false;
@@ -2854,7 +2857,7 @@ class SeedWidget {
         const btnAlpha = isActive ? 1.0 : 0.5;  // Dim when OFF
         ctx.globalAlpha = btnAlpha;
 
-        // Button 1: Randomize Each Time (dice)
+        // Button 1: Randomize Each Time (dice) — highlighted when value is -1
         this._drawIconButton(ctx, btnStartX, y, btnSize, height, "🎲", "btnRandomize",
             this.value.value === SPECIAL_SEED_RANDOM && isActive);
 
@@ -3033,7 +3036,7 @@ class SeedWidget {
                 return true;
             }
 
-            // Randomize Each Time button
+            // Randomize Each Time button — sets value to -1 (like rgthree)
             if (this.isInBounds(pos, this.hitAreas.btnRandomize)) {
                 this.value.value = SPECIAL_SEED_RANDOM;
                 logger.debug(`SeedWidget: Randomize Each Time (value = -1)`);
@@ -3049,7 +3052,7 @@ class SeedWidget {
                 return true;
             }
 
-            // Recall Last Seed button
+            // Recall Last Seed button — sets value to lastSeed (locks the seed)
             if (this.isInBounds(pos, this.hitAreas.btnRecallLast)) {
                 if (this.lastSeed != null) {
                     this.value.value = this.lastSeed;
@@ -3112,21 +3115,38 @@ class SeedWidget {
 
     /**
      * Serialize value for workflow JSON.
-     * When toggle is ON, resolves special seed values (-1/-2/-3) before sending
-     * to Python, and stores the resolved seed as lastSeed for recall.
+     *
+     * Key behavior: when randomizeMode is active, generate a new random seed,
+     * update this.value.value to the actual seed used (so it's saved in the
+     * workflow JSON for reproducibility), and send the resolved value to Python.
+     * The randomizeMode flag persists so the NEXT queue generates a new random.
+     *
+     * This matches rgthree's approach: the workflow saved with a generated image
+     * always contains the actual seed used, even when "randomize each time" is on.
      */
     serializeValue(node, index) {
         if (this.value.on) {
-            const resolved = this.resolveActualSeed();
-            // Store resolved seed for recall button
-            this.lastSeed = resolved;
-            if (resolved !== this.value.value) {
-                logger.debug(`SeedWidget serialize: resolved ${this.value.value} -> ${resolved}, stored as lastSeed`);
+            let resolved;
+
+            // If lastSeed was already set by the serialize hook (same queue cycle),
+            // reuse it to ensure the prompt and workflow JSON have the SAME seed
+            if (this.lastSeed != null && SPECIAL_SEEDS.includes(this.value.value)) {
+                resolved = this.lastSeed;
+                logger.debug(`SeedWidget serializeValue: reusing lastSeed ${resolved} from serialize hook`);
+            } else {
+                resolved = this.resolveActualSeed();
+                this.lastSeed = resolved;
+                if (resolved !== this.value.value) {
+                    logger.debug(`SeedWidget serializeValue: resolved ${this.value.value} -> ${resolved}`);
+                }
             }
-            // Send the resolved value to Python
-            const resolvedData = { on: true, value: resolved };
-            logger.debug(`serializeValue called: ${this.name} (index ${index}) =`, resolvedData);
-            return resolvedData;
+
+            // Send resolved value to Python, but keep this.value.value unchanged
+            // (widget stays at -1 for "random each time" mode)
+            // User clicks recycle button to see/lock the actual seed
+            const data = { on: true, value: resolved };
+            logger.debug(`serializeValue called: ${this.name} (index ${index}) =`, data);
+            return data;
         }
 
         // OFF mode: passthrough, store lastSeed if value is a real seed
@@ -4897,7 +4917,51 @@ app.registerExtension({
                         widgetsByName[widget.name] = widget.value;
                     });
                 }
+                // Resolve seed widget value for workflow JSON (like rgthree's API hijacking)
+                // The widget stays at -1 (random mode) but the saved workflow contains
+                // the actual seed used, so reloading from an image recovers the exact seed.
+                const seedWidget = this.widgets ? this.widgets.find(w => w instanceof SeedWidget) : null;
+                console.log(`[SERIALIZE-SEED] seedWidget found: ${!!seedWidget}, on: ${seedWidget?.value?.on}, value: ${seedWidget?.value?.value}, lastSeed: ${seedWidget?.lastSeed}`);
+                if (seedWidget && seedWidget.value.on) {
+                    let seedToSave = seedWidget.value.value;
+
+                    // If value is a special seed (-1/-2/-3), resolve it NOW and store
+                    // as lastSeed so serializeValue uses the SAME resolved value
+                    console.log(`[SERIALIZE-SEED] seedToSave: ${seedToSave}, isSpecial: ${SPECIAL_SEEDS.includes(seedToSave)}`);
+                    if (SPECIAL_SEEDS.includes(seedToSave)) {
+                        const resolved = seedWidget.resolveActualSeed();
+                        seedWidget.lastSeed = resolved;
+                        seedToSave = resolved;
+                        console.log(`[SERIALIZE] Resolved special seed ${seedWidget.value.value} -> ${resolved}`);
+                    } else if (seedWidget.lastSeed != null) {
+                        // Use lastSeed from previous serializeValue call
+                        seedToSave = seedWidget.lastSeed;
+                    }
+
+                    if (seedToSave !== seedWidget.value.value) {
+                        widgetsByName[seedWidget.name] = {
+                            on: seedWidget.value.on,
+                            value: seedToSave
+                        };
+                        console.log(`[SERIALIZE] Wrote seed ${seedToSave} to widgets_values_by_name`);
+                    }
+                }
+
                 data.widgets_values_by_name = widgetsByName;
+
+                // Also fix the positional widgets_values array (used by image metadata)
+                // This ensures the actual seed is saved in the image's embedded workflow too
+                if (seedWidget && seedWidget.lastSeed != null && data.widgets_values) {
+                    const seedIndex = this.widgets ? this.widgets.indexOf(seedWidget) : -1;
+                    if (seedIndex !== -1 && seedIndex < data.widgets_values.length) {
+                        data.widgets_values[seedIndex] = {
+                            on: seedWidget.value.on,
+                            value: seedWidget.lastSeed
+                        };
+                        console.log(`[SERIALIZE] Also fixed widgets_values[${seedIndex}] = ${seedWidget.lastSeed}`);
+                    }
+                }
+
                 if (visibilityLogger.debugEnabled) {
                     visibilityLogger.debug('[SERIALIZE] Saved widgets by name:', widgetsByName);
                 }
@@ -4966,10 +5030,18 @@ app.registerExtension({
                     let restoredCount = 0;
                     let skippedCount = 0;
 
+                    // Log all fill_seed widgets to check for duplicates
+                    const seedWidgets = this.widgets.filter(w => w.name === 'fill_seed');
+                    console.log(`[CONFIGURE] Found ${seedWidgets.length} widgets named 'fill_seed': ${seedWidgets.map(w => w.type).join(', ')}`);
+                    console.log(`[CONFIGURE] widgets_values_by_name.fill_seed = ${JSON.stringify(info.widgets_values_by_name.fill_seed)}`);
+
                     this.widgets.forEach(widget => {
                         if (info.widgets_values_by_name[widget.name] !== undefined) {
                             widget.value = info.widgets_values_by_name[widget.name];
                             restoredCount++;
+                            if (widget.name === 'fill_seed') {
+                                console.log(`[CONFIGURE] Restored fill_seed: ${JSON.stringify(widget.value)}, widget type: ${widget.type}, instanceof SeedWidget: ${widget instanceof SeedWidget}`);
+                            }
                             if (visibilityLogger.debugEnabled) {
                                 visibilityLogger.debug(`[NAME-BASED-RESTORE] Restored ${widget.name} = ${JSON.stringify(widget.value)}`);
                             }

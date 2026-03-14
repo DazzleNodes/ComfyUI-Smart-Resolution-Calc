@@ -5,6 +5,22 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-03-14
+
+### Fixed
+- **Seed value preserved in saved workflows** — when using "randomize each time" (-1),
+  the actual seed used is now saved in the workflow JSON embedded in generated images.
+  Previously, workflows saved with -1 and users couldn't recover the seed from reloaded images.
+  - `serialize` hook writes resolved `lastSeed` into both `widgets_values_by_name` and
+    positional `widgets_values` array
+  - `serializeValue` resolves -1 to actual seed before sending to Python, stores as `lastSeed`
+  - `configure` correctly restores the actual seed value on workflow load
+  - Matches rgthree Seed's behavior: widget shows -1 during generation, saved workflow
+    contains actual seed, recycle button recovers it
+
+### Design
+- `2026-03-14__17-17-30__dev-workflow-seed-serialization-fix.md`
+
 ## [0.8.2] - 2026-03-14
 
 ### Added
