@@ -152,6 +152,80 @@ def _generate_daznoise(fill_type, width, height):
         return None
 
 
+def spectral_noise_blend(pattern, gaussian, alpha=0.5, cutoff=0.2):
+    """Blend structured noise pattern into Gaussian noise via spectral interpolation.
+
+    Injects the low-frequency spatial structure of `pattern` into `gaussian` noise
+    while preserving Gaussian statistics at each frequency bin. Uses power-preserving
+    quadrature weights (sin/cos) to maintain correct variance.
+
+    Args:
+        pattern: Structured noise tensor (same shape as gaussian). Can be any
+                 distribution — will be normalized to match Gaussian power.
+        gaussian: Pure Gaussian noise tensor (torch.randn output).
+        alpha: Blend strength 0.0-1.0. 0.0=pure Gaussian, 1.0=maximum blend.
+        cutoff: Low-frequency cutoff as fraction of Nyquist (0.0-1.0).
+                0.2 = blob-scale structure (~5 latent pixels = ~40 pixel-space pixels).
+
+    Returns:
+        Blended tensor with approximately N(0,1) per-channel statistics.
+    """
+    import math
+
+    if alpha <= 0.0:
+        return gaussian
+    alpha = min(alpha, 1.0)
+
+    H, W_spatial = gaussian.shape[-2], gaussian.shape[-1]
+    device = gaussian.device
+    dtype = gaussian.dtype
+
+    # Ensure pattern is on the same device as gaussian
+    pattern = pattern.to(device=device, dtype=dtype)
+
+    # FFT both inputs (operates on last two dims = spatial H, W)
+    F_gaussian = torch.fft.rfft2(gaussian, dim=(-2, -1))
+    F_pattern = torch.fft.rfft2(pattern, dim=(-2, -1))
+
+    # Normalize pattern FFT to match Gaussian expected power (global RMS)
+    expected_rms = (H * W_spatial) ** 0.5
+    pattern_rms = torch.sqrt(
+        (torch.abs(F_pattern) ** 2).mean(dim=(-2, -1), keepdim=True) + 1e-8
+    )
+    F_pattern_norm = F_pattern * (expected_rms / (pattern_rms + 1e-8))
+
+    # Build radial frequency mask with Gaussian rolloff
+    freq_h = torch.fft.fftfreq(H, device=device, dtype=dtype)
+    freq_w = torch.fft.rfftfreq(W_spatial, device=device, dtype=dtype)
+    Fu, Fv = torch.meshgrid(freq_h, freq_w, indexing="ij")
+    radial_norm = torch.sqrt(Fu ** 2 + Fv ** 2) / 0.5  # normalize: 1.0 = Nyquist
+
+    W_mask = torch.exp(-0.5 * (radial_norm / cutoff) ** 2)
+    # Expand to broadcast over batch and channel dims
+    while W_mask.ndim < F_gaussian.ndim:
+        W_mask = W_mask.unsqueeze(0)
+
+    # Power-preserving quadrature blend at full strength
+    # sin^2 + cos^2 = 1 guarantees power preservation at each frequency bin
+    W_q = torch.sin(W_mask * (math.pi / 2))
+    one_minus_W_q = torch.cos(W_mask * (math.pi / 2))
+    F_full_blend = W_q * F_pattern_norm + one_minus_W_q * F_gaussian
+
+    # Interpolate between pure Gaussian and full blend by alpha
+    F_blended = (1.0 - alpha) * F_gaussian + alpha * F_full_blend
+
+    # IFFT back to spatial domain
+    blended = torch.fft.irfft2(F_blended, s=(H, W_spatial), dim=(-2, -1))
+
+    # Post-blend per-channel normalization to unit std (safety correction)
+    # This is the universal rule from the literature: always renormalize after
+    # any spectral manipulation to maintain N(0,1) statistics
+    std = blended.std(dim=(-2, -1), keepdim=True)
+    blended = blended / (std + 1e-8)
+
+    return blended
+
+
 def pil2tensor(image):
     """Convert PIL image to tensor in the correct format"""
     return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
@@ -835,6 +909,13 @@ class SmartResolutionCalc:
                     "default": "black",
                     "tooltip": "Fill pattern for empty images, padding, and latent generation:\n• black: Solid black (#000000)\n• white: Solid white (#FFFFFF)\n• custom_color: Use fill_color hex value\n• noise: Gaussian noise (camera-like, centered around gray)\n• random: Uniform random pixels (TV static, full color range)\n\nWith DazzleNodes/dazzle-comfy-plasma-fast installed:\n• DazNoise: Pink — Brightness-biased noise (cube root)\n• DazNoise: Brown — Extreme brightness-biased noise\n• DazNoise: Plasma — Organic cloud-like patterns\n• DazNoise: Greyscale — Monochrome noise mapped to RGB\n• DazNoise: Gaussian — Wide Gaussian noise (centered gray, std=0.25)\n\nWhen VAE is connected, non-trivial fills (noise, random, DazNoise) are\nVAE-encoded into the latent output for use as starting latent in KSampler."
                 }),
+                "blend_strength": ("FLOAT", {
+                    "default": 0.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.05,
+                    "tooltip": "Spectral blend strength for noise-to-latent pipeline.\nControls how much the fill_type noise pattern's spatial structure\ninfluences the latent output.\n\n0.0 = Pure Gaussian noise (no pattern influence)\n0.1-0.3 = Subtle structural influence\n0.3-0.5 = Moderate (recommended for most patterns)\n0.5-0.7 = Strong influence (may reduce prompt adherence)\n0.7-1.0 = Very strong (pattern dominates composition)\n\nOnly active when fill_type is a noise pattern (noise, random, DazNoise).\nHas no effect when fill_type is black/white/custom_color."
+                }),
                 # Image output parameters (hidden by JavaScript until image input connected)
                 "output_image_mode": (["auto", "empty", "transform (distort)", "transform (crop/pad)", "transform (scale/crop)", "transform (scale/pad)"], {
                     "default": "auto",
@@ -1102,7 +1183,8 @@ class SmartResolutionCalc:
     def calculate_dimensions(self, aspect_ratio, divisible_by, custom_ratio=False,
                             custom_aspect_ratio="16:9", batch_size=1, scale=1.0,
                             image=None, vae=None, output_image_mode="auto", fill_type="black",
-                            fill_color="#808080", fill_image=None, fill_seed=None, **kwargs):
+                            fill_color="#808080", blend_strength=0.0, fill_image=None,
+                            fill_seed=None, **kwargs):
         """
         Calculate dimensions based on active toggle inputs from custom widgets.
 
@@ -1568,10 +1650,14 @@ class SmartResolutionCalc:
             # Note: Decoding this latent via VAEDecode will produce random-looking output.
             # Use the IMAGE output to preview the noise pattern instead.
 
+            # Build cache key that includes blend_strength
+            noise_cache_key = (cache_key, blend_strength)
+
             # Check cache first
-            if (self._noise_cache_key == cache_key and self._noise_cache_latent is not None):
+            if (self._noise_cache_key == noise_cache_key and self._noise_cache_latent is not None):
                 latent = self._noise_cache_latent
-                latent_source = f"Raw Noise ({fill_type}) [cached]"
+                blend_label = f" blend={blend_strength}" if blend_strength > 0 else ""
+                latent_source = f"Raw Noise ({fill_type}{blend_label}) [cached]"
                 logger.debug(f"Using cached raw noise latent")
             else:
                 # Create the latent shape (handles 5D for video VAEs)
@@ -1580,13 +1666,55 @@ class SmartResolutionCalc:
                 # Seed and fill with Gaussian noise instead of zeros
                 if seed_active and actual_seed >= 0:
                     torch.manual_seed(actual_seed)
-                latent["samples"] = torch.randn_like(latent["samples"])
+                gaussian_noise = torch.randn_like(latent["samples"])
+
+                if blend_strength > 0.0:
+                    # Spectral blending: inject spatial structure from noise pattern
+                    # Resize output_image to latent spatial dimensions as pattern source
+                    latent_h, latent_w = latent["samples"].shape[-2], latent["samples"].shape[-1]
+                    latent_channels = latent["samples"].shape[1]
+
+                    # output_image is [B, H, W, C] (ComfyUI format) — convert to [B, C, h, w]
+                    pattern_pixel = output_image.permute(0, 3, 1, 2)  # [B, 3, H, W]
+
+                    # Resize to latent spatial dims
+                    pattern_resized = torch.nn.functional.interpolate(
+                        pattern_pixel, size=(latent_h, latent_w), mode='bilinear', align_corners=False
+                    )  # [B, 3, latent_h, latent_w]
+
+                    # Expand/tile to match latent channel count (e.g., 3 RGB → 16 latent channels)
+                    if pattern_resized.shape[1] < latent_channels:
+                        repeats = (latent_channels + pattern_resized.shape[1] - 1) // pattern_resized.shape[1]
+                        pattern_resized = pattern_resized.repeat(1, repeats, 1, 1)[:, :latent_channels]
+
+                    # Handle 5D video latents: add temporal dim
+                    if gaussian_noise.ndim == 5:
+                        pattern_resized = pattern_resized.unsqueeze(2)  # [B, C, 1, h, w]
+
+                    # Normalize pattern to zero-mean before blending
+                    pattern_resized = pattern_resized - pattern_resized.mean()
+
+                    # Apply spectral blending
+                    latent["samples"] = spectral_noise_blend(
+                        pattern_resized, gaussian_noise,
+                        alpha=blend_strength, cutoff=0.2
+                    )
+                    blend_label = f" blend={blend_strength}"
+                    latent_source = f"Spectral Noise ({fill_type}{blend_label})"
+                    logger.debug(f"Spectral blend: alpha={blend_strength}, cutoff=0.2, "
+                                 f"shape={latent['samples'].shape}, "
+                                 f"mean={latent['samples'].mean():.4f}, std={latent['samples'].std():.4f}")
+                else:
+                    # Pure Gaussian noise (no blending)
+                    latent["samples"] = gaussian_noise
+                    latent_source = f"Raw Noise ({fill_type})"
+                    logger.debug(f"Generated raw latent noise: shape={latent['samples'].shape}, "
+                                 f"mean={latent['samples'].mean():.4f}, std={latent['samples'].std():.4f}")
+
                 latent["use_as_noise"] = True
-                latent_source = f"Raw Noise ({fill_type})"
-                logger.debug(f"Generated raw latent noise: shape={latent['samples'].shape}, "
-                             f"mean={latent['samples'].mean():.4f}, std={latent['samples'].std():.4f}")
 
                 # Cache for reuse
+                self._noise_cache_key = noise_cache_key
                 self._noise_cache_latent = latent
         else:
             # Generate empty latent for txt2img workflows (backward compatible)

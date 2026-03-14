@@ -36,7 +36,7 @@ Smart Resolution Calculator brings intuitive dimension control to ComfyUI workfl
 - **Direct latent output** - No separate Empty Latent Image node needed; supports all VAE types including video VAEs (Wan/Qwen)
 - **VAE encoding support (v0.6+)** - Optional VAE input for img2img workflows; automatically encodes image output to latent
 - **Seed widget (v0.8+)** - Reproducible noise fills with randomize/fix/recall controls; mirrors rgthree Seed behavior
-- **Noise-to-latent pipeline (v0.8+)** - Non-trivial fills (noise, DazNoise) are VAE-encoded into latent output with `use_as_noise` flag for sampler integration
+- **Spectral blending (v0.8.2+)** - Inject noise pattern spatial structure into latent noise for composition control while maintaining prompt adherence ([details](docs/spectral-blending.md))
 - **23 preset aspect ratios** - From 1:1 to 32:9, plus custom ratio support
 - **Visual preview** - See exact dimensions and aspect ratio before generation
 - **Divisibility control** - Ensures compatibility with SD/Flux models (8/16/32/64)

@@ -5,6 +5,37 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-03-14
+
+### Added
+- **Spectral blending** — inject noise pattern spatial structure into latent noise while
+  maintaining Gaussian statistics for prompt-adherent generation
+  - New `blend_strength` parameter (0.0-1.0): controls how much the fill_type pattern's
+    spatial layout influences the generated image composition
+  - Power-preserving quadrature blend (sin/cos weights) in the frequency domain
+  - Gaussian rolloff mask at 0.2 Nyquist cutoff for low-frequency structure injection
+  - Per-channel post-blend normalization ensures N(0,1) statistics
+  - Different noise types tolerate different blend strengths:
+    - DazNoise: Plasma — up to ~0.17 (strong low-frequency structure)
+    - DazNoise: Gaussian — up to ~0.4+ (flatter spectrum, more tolerant)
+  - At the coherence boundary, noise pattern acts as a style transfer via initial noise
+  - Same seed + different fill_type = diverse compositions of the same "character"
+
+### Technical
+- **Python Changes** (`py/smart_resolution_calc.py`):
+  - `spectral_noise_blend()`: FFT-based blending with power normalization, quadrature weights,
+    Gaussian rolloff mask, and per-channel std correction (~50 lines)
+  - `blend_strength` FLOAT parameter in optional inputs (default 0.0, backward compatible)
+  - Pattern resized to latent dims via bilinear interpolation, tiled across latent channels
+  - Device-aware: pattern tensor moved to match gaussian device before FFT
+  - Cache key includes blend_strength for proper invalidation
+- **JavaScript Changes** (`web/smart_resolution_calc.js`):
+  - Seed widget repositioned after blend_strength (not fill_type) to prevent widget
+    serialization conflicts
+
+### Design
+- `2026-03-14__09-26-37__dev-workflow-spectral-blending-implementation.md`
+
 ## [0.8.1] - 2026-03-14
 
 ### Changed

@@ -4063,17 +4063,26 @@ app.registerExtension({
                 this.addCustomWidget(seedWidget);
                 // this.addCustomWidget(modeStatusWidget);
 
-                // Reposition seed widget: move it right after fill_type
+                // Reposition seed widget: move it right after blend_strength
+                // (visual order: fill_type → blend_strength → SEED → output_image_mode)
                 // addCustomWidget() puts it at the end, so splice it to the correct position
                 const seedAddedIndex = this.widgets.indexOf(seedWidget);
                 if (seedAddedIndex !== -1) {
                     this.widgets.splice(seedAddedIndex, 1);
                 }
-                const fillTypeWidgetRef = this.widgets.find(w => w.name === "fill_type");
-                if (fillTypeWidgetRef) {
-                    const fillTypeIdx = this.widgets.indexOf(fillTypeWidgetRef);
-                    this.widgets.splice(fillTypeIdx + 1, 0, seedWidget);
-                    logger.debug(`Repositioned seed widget after fill_type at index ${fillTypeIdx + 1}`);
+                const blendStrengthRef = this.widgets.find(w => w.name === "blend_strength");
+                if (blendStrengthRef) {
+                    const blendIdx = this.widgets.indexOf(blendStrengthRef);
+                    this.widgets.splice(blendIdx + 1, 0, seedWidget);
+                    logger.debug(`Repositioned seed widget after blend_strength at index ${blendIdx + 1}`);
+                } else {
+                    // Fallback: after fill_type if blend_strength doesn't exist
+                    const fillTypeWidgetRef = this.widgets.find(w => w.name === "fill_type");
+                    if (fillTypeWidgetRef) {
+                        const fillTypeIdx = this.widgets.indexOf(fillTypeWidgetRef);
+                        this.widgets.splice(fillTypeIdx + 1, 0, seedWidget);
+                        logger.debug(`Repositioned seed widget after fill_type at index ${fillTypeIdx + 1}`);
+                    }
                 }
 
                 logger.debug('Added 7 custom widgets to node (image mode + copy button + dimensions + scale + seed)');
