@@ -5,6 +5,70 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-14
+
+### Added
+- **Seed widget** — New SeedWidget for reproducible noise fills, modeled after rgthree Seed
+  - Toggle ON = active (special values -1/-2/-3 interpreted, RNG seeded)
+  - Toggle OFF = passthrough (literal value, no RNG seeding)
+  - Three action buttons: Randomize (set -1), New Fixed Random, Recall Last Seed
+  - Last-seed tracking via JS `serializeValue` resolution
+  - Tooltip with usage documentation
+- **`seed` output** — New INT output replaces vestigial `resolution` STRING output (slot 3)
+  - Returns the actual seed used for noise generation
+  - When seed widget is OFF, returns the literal value (passthrough)
+- **5D latent tensor support** — `create_latent()` detects video VAEs (`latent_dim=3`)
+  and produces `[batch, channels, 1, h//s, w//s]` for Wan/Qwen/HunyuanVideo models
+  - Fixes `IndexError: tuple index out of range` crash when VAE-decoding empty latents
+- **VAE-encoding of noise fills** — When VAE is connected and `fill_type` is non-trivial
+  (noise, random, DazNoise variants, or fill_image), the fill image is VAE-encoded into
+  the latent output instead of returning empty zeros
+  - Sets `use_as_noise: True` flag in latent dict for downstream sampler integration
+- **Noise generation caching** — DazNoise and VAE-encoded latent results are cached
+  and reused when seed, fill_type, and dimensions are unchanged (saves ~10s per run)
+- **`IS_CHANGED` implementation** — Forces re-execution when seed widget is active,
+  preventing stale cache results across runs
+
+### Changed
+- **`fill_type` always visible** — Promoted from hidden widget group; now visible even
+  when no image input is connected, enabling noise fill selection for latent-only workflows
+- **Widget order** — `fill_type` moved before `output_image_mode` in Python INPUT_TYPES;
+  seed widget positioned after `fill_type` via JS splice
+- **`output_image_mode` default** — Changed from `"none"` (invalid) to `"auto"`, eliminating
+  the `Invalid output_image_mode 'none'` warning from Issue #8 widget corruption
+
+### Breaking Changes
+- **`resolution` output removed** — Replaced by `seed` (INT) at output slot 3. Workflows
+  using the `resolution` STRING output will need to be updated (can be reconstructed from
+  `width` + `height` outputs if needed)
+
+### Technical
+- **Python Changes** (`py/smart_resolution_calc.py`):
+  - `create_latent()`: Added `latent_dim` detection for 5D video VAE tensors
+  - Seed resolution logic: Handles `{on, value}` dict from SeedWidget hidden input
+  - RNG seeding positioned after preview generation, before image generation
+  - `_generate_daznoise()`: Enhanced debug logging (gated by `COMFY_DEBUG_SMART_RES_CALC`)
+  - Noise/latent caching via `_noise_cache_key`, `_noise_cache_image`, `_noise_cache_latent`
+- **JavaScript Changes** (`web/smart_resolution_calc.js`):
+  - New `SeedWidget` class (~300 lines): toggle, buttons, value display, serializeValue with
+    seed resolution and lastSeed tracking
+  - `fill_type` removed from `imageOutputWidgets` hide group
+  - Widget restore anchor changed from `batch_size` to `fill_type`
+- **Tooltip** (`web/tooltip_content.js`):
+  - Added `fill_seed` tooltip entry with toggle/button documentation
+
+### Upstream Integration Note
+- The `use_as_noise` latent flag enables downstream samplers to use the noise-filled latent
+  as initial noise instead of generating their own. This requires sampler-side support:
+  - **ClownsharKSampler** (RES4LYF): Set seed to `-2` and patch `beta/samplers.py` to check
+    for `use_as_noise` flag and propagate it through `latent_x`. Does NOT work out-of-the-box.
+  - **Standard KSampler**: Not supported (ignores the flag)
+
+### Design
+- `2026-03-13__21-56-36__dev-workflow-wan-vae-5d-latent-and-fill-type-visibility.md`
+- `2026-03-13__23-02-03__dev-workflow-fill-seed-widget-and-ksampler-noise-passthrough.md`
+- `2026-03-14__08-13-48__dev-workflow-latent-noise-space-mismatch.md`
+
 ## [0.7.0] - 2026-03-06
 
 ### Added

@@ -125,8 +125,12 @@ def _generate_daznoise(fill_type, width, height):
         return None
 
     generator = generator_class()
+    # py_random was seeded by fill_seed earlier, so this randint is deterministic
+    # when seed widget is ON. The py_random state determines the DazNoise seed.
     seed = py_random.randint(0, 2**32 - 1)
     generate_fn = getattr(generator, method_name)
+    logger.debug(f"DazNoise: fill_type='{fill_type}', node_id='{node_id}', method='{method_name}', "
+                 f"generator_seed={seed} (derived from py_random state), size={width}x{height}")
 
     try:
         result = generate_fn(
@@ -138,9 +142,13 @@ def _generate_daznoise(fill_type, width, height):
             seed=seed,
             **extra_kwargs
         )
-        return result[0]  # Unwrap from (tensor,) tuple
+        tensor = result[0]  # Unwrap from (tensor,) tuple
+        logger.debug(f"DazNoise result: shape={tensor.shape}, min={tensor.min():.4f}, max={tensor.max():.4f}, mean={tensor.mean():.4f}")
+        return tensor
     except Exception as e:
-        logger.warning(f"DazNoise generation failed for '{fill_type}': {e}")
+        logger.error(f"DazNoise generation failed for '{fill_type}': {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -822,14 +830,15 @@ class SmartResolutionCalc:
                 "vae": ("VAE", {
                     "tooltip": "Optional VAE for encoding image output to latent.\n• Connected: Encodes the IMAGE output to latent (for img2img workflows)\n• Disconnected: Generates empty latent (for txt2img workflows)\nConnect VAE to enable low-denoise img2img/inpainting/outpainting."
                 }),
-                # NEW: Image output parameters (hidden by JavaScript until output connected)
+                # fill_type is always visible (controls latent fill even without input image)
+                "fill_type": (cls._get_fill_type_options(), {
+                    "default": "black",
+                    "tooltip": "Fill pattern for empty images, padding, and latent generation:\n• black: Solid black (#000000)\n• white: Solid white (#FFFFFF)\n• custom_color: Use fill_color hex value\n• noise: Gaussian noise (camera-like, centered around gray)\n• random: Uniform random pixels (TV static, full color range)\n\nWith DazzleNodes/dazzle-comfy-plasma-fast installed:\n• DazNoise: Pink — Brightness-biased noise (cube root)\n• DazNoise: Brown — Extreme brightness-biased noise\n• DazNoise: Plasma — Organic cloud-like patterns\n• DazNoise: Greyscale — Monochrome noise mapped to RGB\n• DazNoise: Gaussian — Wide Gaussian noise (centered gray, std=0.25)\n\nWhen VAE is connected, non-trivial fills (noise, random, DazNoise) are\nVAE-encoded into the latent output for use as starting latent in KSampler."
+                }),
+                # Image output parameters (hidden by JavaScript until image input connected)
                 "output_image_mode": (["auto", "empty", "transform (distort)", "transform (crop/pad)", "transform (scale/crop)", "transform (scale/pad)"], {
                     "default": "auto",
                     "tooltip": "Image output mode:\n• auto: Smart default (transform (distort) if image input, empty otherwise)\n• empty: Generate new image with fill pattern\n• transform (distort): Scale to exact dimensions (ignores aspect ratio)\n• transform (crop/pad): No scaling, crop if larger or pad if smaller\n• transform (scale/crop): Scale to cover target (maintains AR), crop excess\n• transform (scale/pad): Scale to fit inside target (maintains AR), pad remainder"
-                }),
-                "fill_type": (cls._get_fill_type_options(), {
-                    "default": "black",
-                    "tooltip": "Fill pattern for empty images and padding:\n• black: Solid black (#000000)\n• white: Solid white (#FFFFFF)\n• custom_color: Use fill_color hex value\n• noise: Gaussian noise (camera-like, centered around gray)\n• random: Uniform random pixels (TV static, full color range)\n\nWith DazzleNodes/dazzle-comfy-plasma-fast installed:\n• DazNoise: Pink — Brightness-biased noise (cube root)\n• DazNoise: Brown — Extreme brightness-biased noise\n• DazNoise: Plasma — Organic cloud-like patterns\n• DazNoise: Greyscale — Monochrome noise mapped to RGB\n• DazNoise: Gaussian — Wide Gaussian noise (centered gray, std=0.25)"
                 }),
                 "fill_color": ("STRING", {
                     "default": "#522525",
@@ -846,13 +855,25 @@ class SmartResolutionCalc:
                 "dimension_megapixel": "DIMENSION_WIDGET",
                 "dimension_width": "DIMENSION_WIDGET",
                 "dimension_height": "DIMENSION_WIDGET",
+                "fill_seed": "SEED_WIDGET",  # {on: bool, value: number} - seed widget state
             },
         }
 
-    RETURN_TYPES = ("FLOAT", "INT", "INT", "STRING", "IMAGE", "IMAGE", "LATENT", "STRING")
-    RETURN_NAMES = ("megapixels", "width", "height", "resolution", "preview", "image", "latent", "info")
+    RETURN_TYPES = ("FLOAT", "INT", "INT", "INT", "IMAGE", "IMAGE", "LATENT", "STRING")
+    RETURN_NAMES = ("megapixels", "width", "height", "seed", "preview", "image", "latent", "info")
     FUNCTION = "calculate_dimensions"
     CATEGORY = "DazzleNodes"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # Force re-execution when seed is active to prevent stale cache
+        # This is needed because noise fills are non-deterministic (or seeded),
+        # and ComfyUI's cache doesn't know about our internal RNG state
+        fill_seed = kwargs.get('fill_seed')
+        if fill_seed is not None and isinstance(fill_seed, dict):
+            if fill_seed.get('on', False):
+                return float("NaN")  # Always re-execute when seed is active
+        return ""  # Default: let ComfyUI cache normally
 
     @staticmethod
     def get_image_dimensions_from_path(image_path):
@@ -997,6 +1018,11 @@ class SmartResolutionCalc:
 
     def __init__(self):
         self.device = comfy.model_management.intermediate_device()
+        # Cache for expensive noise generation (DazNoise, etc.)
+        # Keyed on (fill_type, seed, width, height, batch_size) — reuse if unchanged
+        self._noise_cache_key = None
+        self._noise_cache_image = None
+        self._noise_cache_latent = None
 
     def format_aspect_ratio(self, width, height):
         """
@@ -1075,8 +1101,8 @@ class SmartResolutionCalc:
 
     def calculate_dimensions(self, aspect_ratio, divisible_by, custom_ratio=False,
                             custom_aspect_ratio="16:9", batch_size=1, scale=1.0,
-                            image=None, vae=None, output_image_mode="none", fill_type="black",
-                            fill_color="#808080", fill_image=None, **kwargs):
+                            image=None, vae=None, output_image_mode="auto", fill_type="black",
+                            fill_color="#808080", fill_image=None, fill_seed=None, **kwargs):
         """
         Calculate dimensions based on active toggle inputs from custom widgets.
 
@@ -1094,6 +1120,9 @@ class SmartResolutionCalc:
             output_image_mode: Image output transformation mode
             fill_type: Fill pattern for empty images
             fill_color: Hex color for custom fill
+            fill_seed: Seed widget data {on: bool, value: number} for noise RNG (hidden)
+                 • on=True: Seeds RNG for reproducible noise fills
+                 • on=False: Passthrough, no RNG seeding
             **kwargs: Widget data from JavaScript containing dimension toggles
 
         kwargs contains widget data from JavaScript:
@@ -1112,7 +1141,7 @@ class SmartResolutionCalc:
         5. None active → default to 1.0 MP + aspect ratio
 
         Returns:
-            Tuple: (megapixels, width, height, resolution, preview, image, latent, info)
+            Tuple: (megapixels, width, height, seed, preview, image, latent, info)
         """
 
         # ALWAYS log that function was called (critical diagnostic)
@@ -1341,14 +1370,57 @@ class SmartResolutionCalc:
             info_detail = f"{info_detail_base} | MP: {mp:.2f}"
 
         # Generate outputs
-        resolution = f"{w} x {h}"
+        resolution = f"{w} x {h}"  # Used for preview display and logging
+
+        # ===== SEED RESOLUTION =====
+        # Resolve fill_seed from custom SeedWidget: {on: bool, value: number}
+        # ON mode: interpret special values (-1=random, -2=inc, -3=dec), seed RNG
+        # OFF mode: passthrough literal value, no RNG seeding
+        seed_active = False
+        actual_seed = 0
+
+        if fill_seed is not None and isinstance(fill_seed, dict):
+            # Custom widget: {on: bool, value: number}
+            seed_active = fill_seed.get('on', False)
+            seed_value = int(fill_seed.get('value', -1))
+
+            if seed_active:
+                # ON mode: interpret special values
+                if seed_value in (-1, -2, -3):
+                    # Random / increment / decrement: generate new random
+                    # (increment/decrement tracking is JS-side via lastSeed)
+                    actual_seed = py_random.randint(0, 1125899906842624)
+                else:
+                    actual_seed = seed_value
+
+                # Don't seed globally here — seed right before noise generation
+                # in create_empty_image() to avoid preview/other code consuming the state
+                logger.debug(f"Fill seed active: will seed RNG with {actual_seed}")
+            else:
+                # OFF mode: passthrough literal value, no RNG seeding
+                actual_seed = seed_value
+                logger.debug(f"Fill seed OFF: passthrough value {actual_seed}")
+        else:
+            # No seed data (backward compat)
+            actual_seed = 0
+            logger.debug("No fill_seed data, using default (unseeded)")
 
         # ===== PREVIEW OUTPUT (UNCHANGED) =====
         # Always generate preview grid visualization (1024x1024)
         # This output is NEVER modified - maintains exact current behavior
         preview = self.create_preview_image(w, h, resolution, ratio_display, mp)
 
-        # ===== IMAGE OUTPUT (NEW) =====
+        # ===== IMAGE OUTPUT =====
+        # Seed RNG right before image generation (after preview, before noise fill)
+        # This ensures the seeded state isn't consumed by preview or other code
+        if seed_active and actual_seed >= 0:
+            torch.manual_seed(actual_seed)
+            py_random.seed(actual_seed)
+            logger.debug(f"Seeded torch and py_random with {actual_seed} (right before image generation, py_random will determine DazNoise seed)")
+
+        # DEBUG: Log actual values received from JS to diagnose Issue #8 corruption
+        logger.debug(f"Inputs: output_image_mode='{output_image_mode}', fill_type='{fill_type}', fill_color='{fill_color}', seed_active={seed_active}, actual_seed={actual_seed}")
+
         # Smart defaults: "auto" mode selects based on input image presence
         # Widgets hidden by JavaScript when IMAGE output not connected
         actual_mode = output_image_mode
@@ -1369,10 +1441,27 @@ class SmartResolutionCalc:
             actual_mode = "empty"
 
         # Generate actual image output based on mode
+        logger.debug(f"actual_mode='{actual_mode}', about to generate image")
+
+        # Cache key for noise generation (used by both image and latent caching)
+        cache_key = (fill_type, actual_seed if seed_active else None, w, h, batch_size,
+                     fill_image is not None)
+
         if actual_mode == "empty":
-            # Generate image with specified fill pattern at calculated dimensions
-            output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
-            logger.debug(f"Generated empty image: {w}×{h}, fill={fill_type}")
+            if self._noise_cache_key == cache_key and self._noise_cache_image is not None:
+                output_image = self._noise_cache_image
+                logger.debug(f"Using cached noise image ({fill_type}, seed={actual_seed}, {w}x{h})")
+                print(f"[SmartResCalc] Using cached noise image (skipping {fill_type} generation)")
+            else:
+                # Generate image with specified fill pattern at calculated dimensions
+                logger.debug(f"Calling create_empty_image({w}, {h}, '{fill_type}', ...)")
+                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
+                logger.debug(f"output_image: shape={output_image.shape}, min={output_image.min():.4f}, max={output_image.max():.4f}, mean={output_image.mean():.4f}")
+                # Cache the result
+                self._noise_cache_key = cache_key
+                self._noise_cache_image = output_image
+                self._noise_cache_latent = None  # Invalidate latent cache (will be rebuilt)
+                logger.debug(f"Cached noise image ({fill_type}, seed={actual_seed}, {w}x{h})")
 
         elif actual_mode == "transform (distort)":
             if image is not None:
@@ -1419,57 +1508,83 @@ class SmartResolutionCalc:
             logger.warning(f"Invalid output_image_mode '{actual_mode}', using empty image")
             output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
-        # ===== LATENT OUTPUT (NEW: VAE ENCODING SUPPORT) =====
-        # Auto-detection: VAE + image + transform mode → encode image, otherwise → empty latent
+        # ===== LATENT OUTPUT (VAE ENCODING SUPPORT) =====
+        # Three paths:
+        # 1. VAE + image + transform mode → encode transformed image
+        # 2. VAE + non-trivial fill (noise/DazNoise/random/fill_image) → encode filled image
+        # 3. Otherwise → empty latent (zeros)
         latent_source = "Empty"  # Default for info output
 
-        if vae is not None and image is not None and actual_mode != "empty":
-            # VAE connected with valid image transform - encode the output_image to latent
-            try:
-                # Debug: Log tensor info for troubleshooting
-                logger.debug(f"VAE connected, preparing to encode output_image")
-                logger.debug(f"  output_image shape: {output_image.shape}")
-                logger.debug(f"  output_image dtype: {output_image.dtype}")
-                logger.debug(f"  output_image device: {output_image.device}")
-                logger.debug(f"  output_image is_contiguous: {output_image.is_contiguous()}")
+        # Determine if fill content is worth VAE-encoding
+        # Trivial fills (black/white/custom_color) produce uniform images that don't benefit
+        # from VAE encoding — use zeros latent instead (faster, equivalent for KSampler)
+        has_nontrivial_fill = (
+            fill_image is not None
+            or fill_type in ("noise", "random")
+            or fill_type.startswith("DazNoise:")
+        )
 
-                # Prepare pixels for VAE encoding
-                # VAE.encode expects: [batch, height, width, channels] in range [0,1]
-                # Take only RGB channels (first 3) to handle RGBA images
-                pixels = output_image
+        should_vae_encode = (
+            vae is not None
+            and (
+                # Path 1: Image connected with transform mode
+                (image is not None and actual_mode != "empty")
+                # Path 2: No image but fill has meaningful content
+                or (image is None and has_nontrivial_fill)
+            )
+        )
 
-                # Ensure we have the right number of channels
-                if pixels.shape[3] > 3:
-                    # More than 3 channels (e.g., RGBA) - take only RGB
-                    pixels = pixels[:, :, :, :3]
-                    logger.debug(f"  Trimmed to RGB: {pixels.shape}")
+        if should_vae_encode:
+            # Check latent cache: if image was cached, latent might be too
+            if (self._noise_cache_key == cache_key and self._noise_cache_latent is not None
+                    and image is None):
+                latent = self._noise_cache_latent
+                latent_source = f"VAE Encoded ({fill_type}) [cached]"
+                logger.debug(f"Using cached VAE-encoded latent")
+                print(f"[SmartResCalc] Using cached VAE-encoded latent (skipping VAE encode)")
+            else:
+                # VAE-encode the output_image (transformed image or noise-filled image)
+                try:
+                    logger.debug(f"VAE connected, preparing to encode output_image")
+                    logger.debug(f"  output_image shape: {output_image.shape}")
+                    logger.debug(f"  output_image dtype: {output_image.dtype}")
+                    logger.debug(f"  output_image device: {output_image.device}")
+                    logger.debug(f"  output_image is_contiguous: {output_image.is_contiguous()}")
 
-                # Ensure tensor is contiguous (required by some VAEs)
-                if not pixels.is_contiguous():
-                    pixels = pixels.contiguous()
-                    logger.debug(f"  Made contiguous")
+                    # Prepare pixels for VAE encoding
+                    pixels = output_image
+                    if pixels.shape[3] > 3:
+                        pixels = pixels[:, :, :, :3]
+                        logger.debug(f"  Trimmed to RGB: {pixels.shape}")
 
-                # Encode with VAE (matches ComfyUI's VAEEncode node exactly)
-                logger.debug(f"  Calling vae.encode() with shape {pixels.shape}")
-                encoded = vae.encode(pixels)
+                    if not pixels.is_contiguous():
+                        pixels = pixels.contiguous()
+                        logger.debug(f"  Made contiguous")
 
-                # Wrap in latent dict format (ComfyUI standard)
-                latent = {"samples": encoded}
+                    logger.debug(f"  Calling vae.encode() with shape {pixels.shape}")
+                    encoded = vae.encode(pixels)
 
-                latent_source = "VAE Encoded"
-                logger.debug(f"VAE encoding successful, latent shape: {latent['samples'].shape}")
+                    latent = {"samples": encoded}
 
-            except Exception as e:
-                # Graceful fallback: VAE encoding failed, use empty latent
-                import traceback
-                logger.error(f"VAE encoding failed: {e}")
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                print(f"[SmartResCalc] WARNING: VAE encoding failed ({e}), using empty latent")
-                latent = self.create_latent(w, h, batch_size, vae=vae)
-                latent_source = "Empty (VAE failed)"
+                    if image is not None:
+                        latent_source = "VAE Encoded"
+                    else:
+                        latent_source = f"VAE Encoded ({fill_type})"
+                        latent["use_as_noise"] = True
+                        # Cache the latent for reuse
+                        self._noise_cache_latent = latent
+                    logger.debug(f"VAE encoding successful, latent shape: {latent['samples'].shape}")
+
+                except Exception as e:
+                    import traceback
+                    logger.error(f"VAE encoding failed: {e}")
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    print(f"[SmartResCalc] WARNING: VAE encoding failed ({e}), using empty latent")
+                    latent = self.create_latent(w, h, batch_size, vae=vae)
+                    latent_source = "Empty (VAE failed)"
         else:
             # Generate empty latent for txt2img workflows (backward compatible)
-            # Reasons: VAE not connected, no input image, or mode is "empty"
+            # Reasons: VAE not connected, or fill is trivial (black/white/custom_color)
             logger.debug(f"Generating empty latent (txt2img workflow)")
             latent = self.create_latent(w, h, batch_size, vae=vae)
             latent_source = "Empty"
@@ -1500,12 +1615,18 @@ class SmartResolutionCalc:
             'image_ar' in info_so_far             # "image_ar" identifier
         )
 
+        # Format seed info for display (only when seed is active/ON)
+        seed_info = f"Seed: {actual_seed}" if seed_active else ""
+
         if not has_ar_mention:
             # AR not mentioned yet, add it explicitly
             info = f"{base_info} | AR: {calculated_ar} | Div: {div_info} | Latent: {latent_source}"
         else:
             # AR already mentioned in mode or detail, don't duplicate
             info = f"{base_info} | Div: {div_info} | Latent: {latent_source}"
+
+        if seed_info:
+            info = f"{info} | {seed_info}"
 
         # Add override warning if exact dims mode overrides manual settings
         if exact_dims and override_warning:
@@ -1515,8 +1636,8 @@ class SmartResolutionCalc:
         print(f"[SmartResCalc] RESULT: {info}, resolution={resolution}")
         logger.debug(f"Returning: mp={mp}, w={w}, h={h}, resolution={resolution}, info={info}")
 
-        # Return: (megapixels, width, height, resolution, PREVIEW, IMAGE, latent, info)
-        return (mp, w, h, resolution, preview, output_image, latent, info)
+        # Return: (megapixels, width, height, seed, PREVIEW, IMAGE, latent, info)
+        return (mp, w, h, actual_seed, preview, output_image, latent, info)
 
     def create_empty_image(
         self,
@@ -1995,7 +2116,9 @@ class SmartResolutionCalc:
         VAEs=16ch/16x, Cascade=16ch/32x, etc.). Falls back to 4 channels and
         8x spatial when no VAE is connected (matches ComfyUI EmptyLatentImage).
 
-        Format: [batch_size, channels, height//spatial, width//spatial]
+        Format depends on VAE type:
+        - 2D VAEs (SD1.5, FLUX, etc.): [batch, channels, h//spatial, w//spatial]
+        - 3D/Video VAEs (Wan, Qwen, etc.): [batch, channels, 1, h//spatial, w//spatial]
         """
         channels = 4
         spatial_divisor = 8
@@ -2005,7 +2128,20 @@ class SmartResolutionCalc:
             if hasattr(vae, 'spacial_compression_encode'):
                 spatial_divisor = vae.spacial_compression_encode()
 
-        latent = torch.zeros([batch_size, channels, height // spatial_divisor, width // spatial_divisor], device=self.device)
+        latent_h = height // spatial_divisor
+        latent_w = width // spatial_divisor
+
+        # Video/3D VAEs (Wan, Qwen, Hunyuan Video) have latent_dim=3 and expect
+        # 5D tensors with a temporal dimension. For single-image generation we use
+        # temporal=1. Without this, VAE.decode() crashes because its memory_used_decode
+        # lambda accesses shape[4] which doesn't exist on a 4D tensor.
+        if vae is not None and getattr(vae, 'latent_dim', 2) == 3:
+            latent = torch.zeros([batch_size, channels, 1, latent_h, latent_w], device=self.device)
+            logger.debug(f"Created 5D latent for video VAE: {latent.shape} (latent_dim=3)")
+        else:
+            latent = torch.zeros([batch_size, channels, latent_h, latent_w], device=self.device)
+            logger.debug(f"Created 4D latent: {latent.shape}")
+
         return {"samples": latent, "downscale_ratio_spacial": spatial_divisor}
 
 

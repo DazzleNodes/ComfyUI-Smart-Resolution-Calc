@@ -33,8 +33,10 @@ Smart Resolution Calculator brings intuitive dimension control to ComfyUI workfl
 - **Scale multiplier** - Scale dimensions up/down (0-7x) with custom widget and real-time preview
 - **Compact custom widgets** - rgthree-style controls with inline toggles
 - **Values preserved when toggled off** - Change your mind without losing settings
-- **Direct latent output** - No separate Empty Latent Image node needed
+- **Direct latent output** - No separate Empty Latent Image node needed; supports all VAE types including video VAEs (Wan/Qwen)
 - **VAE encoding support (v0.6+)** - Optional VAE input for img2img workflows; automatically encodes image output to latent
+- **Seed widget (v0.8+)** - Reproducible noise fills with randomize/fix/recall controls; mirrors rgthree Seed behavior
+- **Noise-to-latent pipeline (v0.8+)** - Non-trivial fills (noise, DazNoise) are VAE-encoded into latent output with `use_as_noise` flag for sampler integration
 - **23 preset aspect ratios** - From 1:1 to 32:9, plus custom ratio support
 - **Visual preview** - See exact dimensions and aspect ratio before generation
 - **Divisibility control** - Ensures compatibility with SD/Flux models (8/16/32/64)
@@ -155,11 +157,11 @@ Connect an IMAGE output to automatically extract dimensions or aspect ratio. See
 - `megapixels` (FLOAT) - Calculated or user-specified MP value
 - `width` (INT) - Final width after divisibility rounding
 - `height` (INT) - Final height after divisibility rounding
-- `resolution` (STRING) - Formatted string (e.g., "1920 x 1080")
+- `seed` (INT) - Actual seed used for noise generation (passthrough when seed widget is OFF)
 - `preview` (IMAGE) - Visual grid preview with dimensions and aspect ratio overlay
 - `image` (IMAGE) - Generated or transformed image at calculated dimensions (4 transform modes + empty)
-- `latent` (LATENT) - Ready-to-use latent tensor for sampling (empty latent for txt2img, or VAE-encoded image for img2img if VAE connected)
-- `info` (STRING) - Calculation mode, computed values, and latent source (e.g., "Latent: VAE Encoded" when VAE connected)
+- `latent` (LATENT) - Ready-to-use latent tensor for sampling (empty zeros for txt2img, VAE-encoded noise for noise fills, or VAE-encoded image for img2img)
+- `info` (STRING) - Calculation mode, computed values, seed, and latent source
 
 **Note**: `preview` is always a visualization grid, while `image` is the actual generated/transformed image output.
 
@@ -169,7 +171,7 @@ Connect an IMAGE output to automatically extract dimensions or aspect ratio. See
 2. Node checks which dimensions are active (priority order)
 3. Calculates missing values using aspect ratio
 4. Rounds to divisibility requirement (8/16/32/64)
-5. Generates latent tensor `[batch_size, 4, height//8, width//8]`
+5. Generates latent tensor (queries VAE for channels and spatial ratio; supports 5D tensors for video VAEs)
 6. Outputs dimensions, preview image, and latent
 
 **Priority Order** (first match wins):

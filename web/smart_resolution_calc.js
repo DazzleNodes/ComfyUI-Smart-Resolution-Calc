@@ -2695,6 +2695,449 @@ class DimensionWidget {
     }
 }
 
+// ===== Seed Widget Special Values (matching rgthree convention) =====
+const SPECIAL_SEED_RANDOM = -1;
+const SPECIAL_SEED_INCREMENT = -2;
+const SPECIAL_SEED_DECREMENT = -3;
+const SPECIAL_SEEDS = [SPECIAL_SEED_RANDOM, SPECIAL_SEED_INCREMENT, SPECIAL_SEED_DECREMENT];
+const SEED_MAX = 1125899906842624;  // Match rgthree's max
+
+/**
+ * Seed Widget
+ * Compact widget with toggle (LEFT), seed action buttons (CENTER-RIGHT), and value (RIGHT)
+ *
+ * Layout: [SEED] [toggle] ......... [dice][lock][recycle] [-][VALUE][+]
+ *
+ * Toggle semantics:
+ *   ON  = Active. Special values (-1/-2/-3) interpreted. Noise RNG seeded. Tracks lastSeed.
+ *   OFF = Passthrough. Value is literal. No RNG seeding. Buttons still work.
+ *
+ * Buttons (always clickable):
+ *   dice    = "Randomize Each Time" -- sets value to -1
+ *   lock    = "New Fixed Random" -- generates random >= 0, sets as value
+ *   recycle = "Recall Last Seed" -- sets value to lastSeed (grayed when none)
+ *
+ * Data: { on: boolean, value: number } (same structure as DimensionWidget)
+ */
+class SeedWidget {
+    constructor(name, defaultValue = -1, config = {}) {
+        this.name = name;
+        this.type = "custom";
+        this.value = {
+            on: true,
+            value: defaultValue
+        };
+
+        // Last seed tracking (for recall button)
+        this.lastSeed = null;
+
+        // Mouse state
+        this.mouseDowned = null;
+        this.isMouseDownedAndOver = false;
+
+        // Tooltip support
+        this.infoIcon = config.tooltipContent ? new InfoIcon(config.tooltipContent) : null;
+
+        // Hit areas for mouse interaction (updated during draw)
+        this.hitAreas = {
+            toggle: { x: 0, y: 0, width: 0, height: 0 },
+            btnRandomize: { x: 0, y: 0, width: 0, height: 0 },
+            btnFixRandom: { x: 0, y: 0, width: 0, height: 0 },
+            btnRecallLast: { x: 0, y: 0, width: 0, height: 0 },
+            valueDec: { x: 0, y: 0, width: 0, height: 0 },
+            valueInc: { x: 0, y: 0, width: 0, height: 0 },
+            valueEdit: { x: 0, y: 0, width: 0, height: 0 }
+        };
+
+        // Tooltip state for hovering over buttons
+        this._hoveredButton = null;
+    }
+
+    /**
+     * Generate a random seed value in [0, SEED_MAX]
+     */
+    generateRandomSeed() {
+        let seed = Math.floor(Math.random() * SEED_MAX);
+        // Avoid special values
+        if (SPECIAL_SEEDS.includes(seed)) {
+            seed = 0;
+        }
+        return seed;
+    }
+
+    /**
+     * Resolve the actual seed to use (handles special values when ON)
+     * Called before queue to determine the real seed for RNG seeding.
+     * Returns the value as-is when toggle is OFF.
+     */
+    resolveActualSeed() {
+        if (!this.value.on) {
+            // OFF mode: passthrough, no interpretation
+            return this.value.value;
+        }
+
+        const inputSeed = Number(this.value.value);
+
+        if (!SPECIAL_SEEDS.includes(inputSeed)) {
+            // Fixed seed (>= 0 or < -3): use as-is
+            return inputSeed;
+        }
+
+        // Special value interpretation (ON mode only)
+        let resolved = null;
+
+        if (typeof this.lastSeed === "number" && !SPECIAL_SEEDS.includes(this.lastSeed)) {
+            if (inputSeed === SPECIAL_SEED_INCREMENT) {
+                resolved = this.lastSeed + 1;
+            } else if (inputSeed === SPECIAL_SEED_DECREMENT) {
+                resolved = this.lastSeed - 1;
+            }
+        }
+
+        // If still null or resolved to a special value, generate random
+        if (resolved == null || SPECIAL_SEEDS.includes(resolved)) {
+            resolved = this.generateRandomSeed();
+        }
+
+        return resolved;
+    }
+
+    /**
+     * Draw the seed widget
+     */
+    draw(ctx, node, width, y, height) {
+        const margin = 15;
+        const innerMargin = 3;
+        const midY = y + height / 2;
+        const isActive = this.value.on;
+
+        ctx.save();
+
+        // Draw background (rounded)
+        ctx.fillStyle = "#1e1e1e";
+        ctx.beginPath();
+        ctx.roundRect(margin, y + 1, width - margin * 2, height - 2, 4);
+        ctx.fill();
+
+        let posX = margin + innerMargin;
+
+        // Draw toggle switch (LEFT side)
+        const toggleWidth = height * 1.5;
+        this.drawToggle(ctx, posX, y, height, isActive);
+        this.hitAreas.toggle = { x: posX, y: y, width: toggleWidth, height: height };
+        posX += toggleWidth + innerMargin * 2;
+
+        // Draw label
+        ctx.fillStyle = isActive ? "#ffffff" : "#888888";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.font = "13px sans-serif";
+        const labelText = "SEED";
+        const labelTextWidth = ctx.measureText(labelText).width;
+        ctx.fillText(labelText, posX, midY);
+
+        // Set tooltip trigger area on label
+        if (this.infoIcon) {
+            this.infoIcon.setHitArea(posX, y, labelTextWidth, height);
+        }
+
+        // ===== RIGHT SIDE: Buttons + Value =====
+        // Layout from right: [margin][+][VALUE][-][btnRecall][btnFix][btnRandom]
+        const numberWidth = 160;  // Wider than DimensionWidget to fit 16-digit seed values
+        const btnSize = 18;
+        const btnGap = 2;
+        const totalBtnWidth = btnSize * 3 + btnGap * 2;
+        const numberX = width - margin - numberWidth - innerMargin;
+        const btnStartX = numberX - totalBtnWidth - innerMargin;
+
+        // Draw three icon buttons
+        const btnAlpha = isActive ? 1.0 : 0.5;  // Dim when OFF
+        ctx.globalAlpha = btnAlpha;
+
+        // Button 1: Randomize Each Time (dice)
+        this._drawIconButton(ctx, btnStartX, y, btnSize, height, "🎲", "btnRandomize",
+            this.value.value === SPECIAL_SEED_RANDOM && isActive);
+
+        // Button 2: New Fixed Random (lock)
+        this._drawIconButton(ctx, btnStartX + btnSize + btnGap, y, btnSize, height, "🔒", "btnFixRandom", false);
+
+        // Button 3: Recall Last Seed (recycle)
+        const hasLastSeed = this.lastSeed != null;
+        this._drawIconButton(ctx, btnStartX + (btnSize + btnGap) * 2, y, btnSize, height, "♻️", "btnRecallLast",
+            false, !hasLastSeed);
+
+        ctx.globalAlpha = 1.0;
+
+        // Draw number controls (RIGHT side)
+        if (isActive) {
+            this.drawNumberWidget(ctx, numberX, y, numberWidth, height, true);
+        } else {
+            // Grayed out value (still clickable)
+            ctx.fillStyle = "#555555";
+            ctx.textAlign = "center";
+            ctx.font = "12px monospace";
+            const displayValue = this._formatSeedValue(this.value.value);
+            ctx.fillText(displayValue, numberX + numberWidth / 2, midY);
+            this.hitAreas.valueEdit = { x: numberX, y: y, width: numberWidth, height: height };
+            this.hitAreas.valueDec = { x: 0, y: 0, width: 0, height: 0 };
+            this.hitAreas.valueInc = { x: 0, y: 0, width: 0, height: 0 };
+        }
+
+        ctx.restore();
+    }
+
+    /**
+     * Draw a small icon button and set its hit area
+     */
+    _drawIconButton(ctx, x, y, size, rowHeight, icon, hitAreaKey, isHighlighted, isDisabled = false) {
+        const midY = y + rowHeight / 2;
+        const btnY = y + (rowHeight - size) / 2;
+
+        ctx.save();
+
+        // Button background
+        if (isDisabled) {
+            ctx.fillStyle = "#2a2a2a";
+        } else if (isHighlighted) {
+            ctx.fillStyle = "#3a5a3a";  // Green-ish highlight for active state
+        } else {
+            ctx.fillStyle = "#3a3a3a";
+        }
+        ctx.beginPath();
+        ctx.roundRect(x, btnY, size, size, 3);
+        ctx.fill();
+
+        // Icon text
+        ctx.fillStyle = isDisabled ? "#555555" : "#ffffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "11px sans-serif";
+        ctx.fillText(icon, x + size / 2, midY);
+
+        ctx.restore();
+
+        // Set hit area
+        this.hitAreas[hitAreaKey] = { x: x, y: y, width: size, height: rowHeight };
+    }
+
+    /**
+     * Format seed value for display — show label + literal value
+     * so users know both what it means and what gets passed through
+     */
+    _formatSeedValue(value) {
+        const v = Math.round(value);
+        if (v === SPECIAL_SEED_RANDOM) return "Rnd: -1";
+        if (v === SPECIAL_SEED_INCREMENT) return "Inc: -2";
+        if (v === SPECIAL_SEED_DECREMENT) return "Dec: -3";
+        return String(v);
+    }
+
+    /**
+     * Draw toggle switch (same as DimensionWidget)
+     */
+    drawToggle(ctx, x, y, height, state) {
+        const radius = height * 0.36;
+        const bgWidth = height * 1.5;
+
+        ctx.save();
+
+        ctx.beginPath();
+        ctx.roundRect(x + 4, y + 4, bgWidth - 8, height - 8, height * 0.5);
+        ctx.globalAlpha = 0.25;
+        ctx.fillStyle = "rgba(255,255,255,0.45)";
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+
+        const circleX = state ? x + height : x + height * 0.5;
+        ctx.beginPath();
+        ctx.arc(circleX, y + height * 0.5, radius, 0, Math.PI * 2);
+        ctx.fillStyle = state ? "#4CAF50" : "#888888";
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    /**
+     * Draw number input with +/- buttons (same pattern as DimensionWidget)
+     */
+    drawNumberWidget(ctx, x, y, width, height, isActive) {
+        const buttonWidth = 18;
+        const midY = y + height / 2;
+
+        ctx.save();
+
+        ctx.fillStyle = isActive ? "#2a2a2a" : "#1a1a1a";
+        ctx.beginPath();
+        ctx.roundRect(x, y + 2, width, height - 4, 3);
+        ctx.fill();
+
+        // Decrement [-]
+        ctx.fillStyle = "#444444";
+        ctx.beginPath();
+        ctx.roundRect(x + 2, y + 3, buttonWidth, height - 6, 2);
+        ctx.fill();
+        this.hitAreas.valueDec = { x: x, y: y, width: buttonWidth + 4, height: height };
+
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "14px sans-serif";
+        ctx.fillText("\u2212", x + buttonWidth / 2 + 2, midY);
+
+        // Value display
+        const valueX = x + buttonWidth + 4;
+        const valueWidth = width - (buttonWidth + 4) * 2;
+        this.hitAreas.valueEdit = { x: valueX, y: y, width: valueWidth, height: height };
+
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.font = "12px monospace";
+        const displayValue = this._formatSeedValue(this.value.value);
+        ctx.fillText(displayValue, valueX + valueWidth / 2, midY);
+
+        // Increment [+]
+        ctx.fillStyle = "#444444";
+        ctx.beginPath();
+        ctx.roundRect(x + width - buttonWidth - 2, y + 3, buttonWidth, height - 6, 2);
+        ctx.fill();
+        this.hitAreas.valueInc = { x: x + width - buttonWidth - 4, y: y, width: buttonWidth + 4, height: height };
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("+", x + width - buttonWidth / 2 - 2, midY);
+
+        ctx.restore();
+    }
+
+    /**
+     * Handle mouse events
+     */
+    mouse(event, pos, node) {
+        // Check info icon first (tooltip on label)
+        if (this.infoIcon) {
+            const canvasBounds = { width: node.size[0], height: node.size[1] };
+            if (this.infoIcon.mouse(event, pos, canvasBounds, node.pos)) {
+                node.setDirtyCanvas(true);
+                return true;
+            }
+        }
+
+        if (event.type === "pointerdown") {
+            this.mouseDowned = [...pos];
+            this.isMouseDownedAndOver = true;
+
+            // Toggle click
+            if (this.isInBounds(pos, this.hitAreas.toggle)) {
+                this.value.on = !this.value.on;
+                logger.debug(`SeedWidget toggle: ${this.value.on}`);
+                node.setDirtyCanvas(true);
+                return true;
+            }
+
+            // Randomize Each Time button
+            if (this.isInBounds(pos, this.hitAreas.btnRandomize)) {
+                this.value.value = SPECIAL_SEED_RANDOM;
+                logger.debug(`SeedWidget: Randomize Each Time (value = -1)`);
+                node.setDirtyCanvas(true);
+                return true;
+            }
+
+            // New Fixed Random button
+            if (this.isInBounds(pos, this.hitAreas.btnFixRandom)) {
+                this.value.value = this.generateRandomSeed();
+                logger.debug(`SeedWidget: New Fixed Random (value = ${this.value.value})`);
+                node.setDirtyCanvas(true);
+                return true;
+            }
+
+            // Recall Last Seed button
+            if (this.isInBounds(pos, this.hitAreas.btnRecallLast)) {
+                if (this.lastSeed != null) {
+                    this.value.value = this.lastSeed;
+                    logger.debug(`SeedWidget: Recall Last Seed (value = ${this.lastSeed})`);
+                    node.setDirtyCanvas(true);
+                }
+                return true;
+            }
+
+            // Value editing (always allowed, matching DimensionWidget ALWAYS behavior)
+            // Decrement
+            if (this.isInBounds(pos, this.hitAreas.valueDec)) {
+                this.value.value = Math.round(this.value.value) - 1;
+                node.setDirtyCanvas(true);
+                return true;
+            }
+
+            // Increment
+            if (this.isInBounds(pos, this.hitAreas.valueInc)) {
+                this.value.value = Math.round(this.value.value) + 1;
+                node.setDirtyCanvas(true);
+                return true;
+            }
+
+            // Value edit (click to type)
+            if (this.isInBounds(pos, this.hitAreas.valueEdit)) {
+                const canvas = app.canvas;
+                const currentValue = Math.round(this.value.value);
+                canvas.prompt("Seed (-1=rnd, -2=inc, -3=dec)", String(currentValue), (newValue) => {
+                    const parsed = parseInt(newValue);
+                    if (!isNaN(parsed)) {
+                        this.value.value = parsed;
+                        node.setDirtyCanvas(true);
+                    }
+                }, event);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if position is within bounds
+     */
+    isInBounds(pos, bounds) {
+        if (!bounds) return false;
+        return pos[0] >= bounds.x &&
+               pos[0] <= bounds.x + bounds.width &&
+               pos[1] >= bounds.y &&
+               pos[1] <= bounds.y + bounds.height;
+    }
+
+    /**
+     * Compute size for layout
+     */
+    computeSize(width) {
+        return [width, 24];
+    }
+
+    /**
+     * Serialize value for workflow JSON.
+     * When toggle is ON, resolves special seed values (-1/-2/-3) before sending
+     * to Python, and stores the resolved seed as lastSeed for recall.
+     */
+    serializeValue(node, index) {
+        if (this.value.on) {
+            const resolved = this.resolveActualSeed();
+            // Store resolved seed for recall button
+            this.lastSeed = resolved;
+            if (resolved !== this.value.value) {
+                logger.debug(`SeedWidget serialize: resolved ${this.value.value} -> ${resolved}, stored as lastSeed`);
+            }
+            // Send the resolved value to Python
+            const resolvedData = { on: true, value: resolved };
+            logger.debug(`serializeValue called: ${this.name} (index ${index}) =`, resolvedData);
+            return resolvedData;
+        }
+
+        // OFF mode: passthrough, store lastSeed if value is a real seed
+        if (this.value.value >= 0) {
+            this.lastSeed = this.value.value;
+        }
+        logger.debug(`serializeValue called: ${this.name} (index ${index}) =`, this.value);
+        return this.value;
+    }
+}
+
 /**
  * Image Mode Widget
  * Compact widget with toggle (LEFT) and mode selector (RIGHT)
@@ -3595,6 +4038,12 @@ app.registerExtension({
                     valueBehavior: ValueBehavior.ALWAYS
                 });
 
+                // Add custom seed widget (for fill noise reproducibility)
+                const seedWidget = new SeedWidget("fill_seed", -1, {
+                    tooltipContent: TOOLTIP_CONTENT.fill_seed
+                });
+                this.seedWidgetInstance = seedWidget;
+
                 // Add custom scale widget
                 const scaleWidget = new ScaleWidget("scale", 1.0);
                 this.scaleWidgetInstance = scaleWidget; // Store reference for updateModeWidget
@@ -3611,10 +4060,24 @@ app.registerExtension({
                 this.addCustomWidget(widthWidget);
                 this.addCustomWidget(heightWidget);
                 this.addCustomWidget(scaleWidget);
+                this.addCustomWidget(seedWidget);
                 // this.addCustomWidget(modeStatusWidget);
 
-                logger.debug('Added 6 custom widgets to node (image mode + copy button + dimensions + scale)');
-                logger.debug('Widget names:', imageModeWidget.name, copyButton.name, mpWidget.name, widthWidget.name, heightWidget.name, scaleWidget.name);
+                // Reposition seed widget: move it right after fill_type
+                // addCustomWidget() puts it at the end, so splice it to the correct position
+                const seedAddedIndex = this.widgets.indexOf(seedWidget);
+                if (seedAddedIndex !== -1) {
+                    this.widgets.splice(seedAddedIndex, 1);
+                }
+                const fillTypeWidgetRef = this.widgets.find(w => w.name === "fill_type");
+                if (fillTypeWidgetRef) {
+                    const fillTypeIdx = this.widgets.indexOf(fillTypeWidgetRef);
+                    this.widgets.splice(fillTypeIdx + 1, 0, seedWidget);
+                    logger.debug(`Repositioned seed widget after fill_type at index ${fillTypeIdx + 1}`);
+                }
+
+                logger.debug('Added 7 custom widgets to node (image mode + copy button + dimensions + scale + seed)');
+                logger.debug('Widget names:', imageModeWidget.name, copyButton.name, mpWidget.name, widthWidget.name, heightWidget.name, scaleWidget.name, seedWidget.name);
 
                 // Add image source validation method to node (Scenario 2: Invalid Source Detection)
                 // Called by DimensionSourceManager to detect disabled sources through chain traversal
@@ -3935,18 +4398,20 @@ app.registerExtension({
                 // ===== NEW: Conditional visibility for image output parameters =====
                 // Hide image output parameters until "image" output (position 5) is connected
 
-                // Store references to image output widgets
+                // Store references to image output widgets (hidden/shown based on image input)
+                // NOTE: fill_type is NOT tracked here - it stays always visible because it
+                // controls latent fill even without an input image (noise, DazNoise, random, etc.)
                 // NOTE: fill_color is NOT tracked here - it stays visible (but rendered as size 0)
                 // to act as a value storage and stable anchor for the color picker button
                 this.imageOutputWidgets = {
                     output_image_mode: this.widgets.find(w => w.name === "output_image_mode"),
-                    fill_type: this.widgets.find(w => w.name === "fill_type"),
                     image_mode: this.widgets.find(w => w.name === "image_mode"),
                     copy_from_image: this.widgets.find(w => w.name === "copy_from_image")
                 };
 
                 // Debug: Log initial widget references to verify correct widgets found
                 if (visibilityLogger.debugEnabled) {
+                    const fillTypeRef = this.widgets.find(w => w.name === "fill_type");
                     visibilityLogger.debug('[WidgetInit] Initial widget references:', {
                         output_image_mode: {
                             name: this.imageOutputWidgets.output_image_mode?.name,
@@ -3955,10 +4420,11 @@ app.registerExtension({
                             index: this.widgets.indexOf(this.imageOutputWidgets.output_image_mode)
                         },
                         fill_type: {
-                            name: this.imageOutputWidgets.fill_type?.name,
-                            type: this.imageOutputWidgets.fill_type?.type,
-                            value: this.imageOutputWidgets.fill_type?.value,
-                            index: this.widgets.indexOf(this.imageOutputWidgets.fill_type)
+                            name: fillTypeRef?.name,
+                            type: fillTypeRef?.type,
+                            value: fillTypeRef?.value,
+                            index: this.widgets.indexOf(fillTypeRef),
+                            alwaysVisible: true
                         }
                     });
                 }
@@ -3966,8 +4432,7 @@ app.registerExtension({
                 // Store original widget types, indices, and default values for restore
                 this.imageOutputWidgetIndices = {};
                 this.imageOutputWidgetValues = {
-                    output_image_mode: "auto",
-                    fill_type: "black"
+                    output_image_mode: "auto"
                 };
 
                 // ===== Color picker button widget =====
@@ -4084,29 +4549,30 @@ app.registerExtension({
                         // SOLUTION 5: Hybrid Anchor + Sequential Insertion
                         // Use batch_size as stable anchor, insert sequentially to account for index shifts
 
-                        const batchSizeWidget = this.widgets.find(w => w.name === "batch_size");
+                        // Anchor: fill_type is always visible (never hidden).
+                        // Insert output_image_mode after fill_type when image is connected.
+                        const fillTypeWidget = this.widgets.find(w => w.name === "fill_type");
                         const fillColorWidget = this.widgets.find(w => w.name === "fill_color");
-                        const batchSizeIndex = batchSizeWidget ? this.widgets.indexOf(batchSizeWidget) : -1;
+                        const fillTypeIndex = fillTypeWidget ? this.widgets.indexOf(fillTypeWidget) : -1;
 
-                        if (batchSizeIndex === -1) {
-                            visibilityLogger.error("Cannot find batch_size widget anchor");
+                        if (fillTypeIndex === -1) {
+                            visibilityLogger.error("Cannot find fill_type widget anchor");
                             return;
                         }
 
                         if (visibilityLogger.debugEnabled) {
-                            visibilityLogger.debug(`batch_size found at index ${batchSizeIndex}`);
+                            visibilityLogger.debug(`fill_type found at index ${fillTypeIndex}`);
                             visibilityLogger.debug('[WidgetRestore] Widget references:', {
                                 output_image_mode: this.imageOutputWidgets.output_image_mode?.name,
-                                fill_type: this.imageOutputWidgets.fill_type?.name,
                                 color_picker_button: this.imageOutputWidgets.color_picker_button?.name || 'button'
                             });
                             visibilityLogger.debug('[WidgetRestore] Saved values:', this.imageOutputWidgetValues);
                         }
 
-                        // Start inserting after batch_size
-                        let currentIndex = batchSizeIndex + 1;
+                        // Start inserting after fill_type (which is always visible)
+                        let currentIndex = fillTypeIndex + 1;
 
-                        // 1. Insert output_image_mode first
+                        // 1. Insert output_image_mode after fill_type
                         const outputWidget = this.imageOutputWidgets.output_image_mode;
                         if (visibilityLogger.debugEnabled) {
                             visibilityLogger.debug(`[WidgetRestore] output_image_mode widget:`, {
@@ -4149,57 +4615,14 @@ app.registerExtension({
                             }
                         }
 
-                        // 2. Insert fill_type second
-                        const fillTypeWidget = this.imageOutputWidgets.fill_type;
-                        if (visibilityLogger.debugEnabled) {
-                            visibilityLogger.debug(`[WidgetRestore] fill_type widget:`, {
-                                name: fillTypeWidget?.name,
-                                type: fillTypeWidget?.type,
-                                value: fillTypeWidget?.value,
-                                options: fillTypeWidget?.options?.values
-                            });
-                        }
-                        if (fillTypeWidget && this.widgets.indexOf(fillTypeWidget) === -1) {
-                            // Restore saved value with validation (v0.5.0 corruption protection)
-                            const savedValue = this.imageOutputWidgetValues.fill_type;
-                            if (savedValue !== undefined) {
-                                const validation = validateWidgetValue('fill_type', savedValue, 'restore');
-                                if (!validation.valid) {
-                                    logCorruptionDiagnostics(validation.warnings, {
-                                        widget: 'fill_type',
-                                        savedValue: savedValue,
-                                        widgetIndex: this.widgets.indexOf(fillTypeWidget),
-                                        operation: 'restore (showing widgets)'
-                                    });
-                                }
-                                fillTypeWidget.value = validation.correctedValue;
-                            }
-
-                            this.widgets.splice(currentIndex, 0, fillTypeWidget);
-                            fillTypeWidget.type = fillTypeWidget.origType || "combo";
-                            if (visibilityLogger.debugEnabled) {
-                                visibilityLogger.debug(`Inserted fill_type at index ${currentIndex}, value: ${fillTypeWidget.value}`);
-                            }
-                            currentIndex++; // Move insertion point forward
-                        } else if (fillTypeWidget) {
-                            // Already visible, update currentIndex to point after it
-                            const existingIndex = this.widgets.indexOf(fillTypeWidget);
-                            if (existingIndex >= currentIndex) {
-                                currentIndex = existingIndex + 1;
-                            }
-                            if (visibilityLogger.debugEnabled) {
-                                visibilityLogger.debug(`fill_type already visible at ${existingIndex}`);
-                            }
-                        }
-
-                        // 3. fill_color should already be in array (invisible)
+                        // 2. fill_color should already be in array (invisible)
                         //    Find it and position button after it
                         const fillColorIndex = fillColorWidget ? this.widgets.indexOf(fillColorWidget) : -1;
                         if (fillColorIndex !== -1) {
                             currentIndex = fillColorIndex + 1;
                             visibilityLogger.debug(`fill_color found at index ${fillColorIndex}, button will go at ${currentIndex}`);
 
-                            // 4. Insert color picker button
+                            // 3. Insert color picker button
                             const buttonWidget = this.imageOutputWidgets.color_picker_button;
                             if (buttonWidget && this.widgets.indexOf(buttonWidget) === -1) {
                                 // Button widget doesn't have a primitive value to restore
@@ -4216,7 +4639,7 @@ app.registerExtension({
                                 visibilityLogger.debug(`color_picker_button already visible at ${existingIndex}`);
                             }
 
-                            // 5. Insert image_mode (USE IMAGE DIMS?) toggle
+                            // 4. Insert image_mode (USE IMAGE DIMS?) toggle
                             const imageModeWidget = this.imageOutputWidgets.image_mode;
                             if (imageModeWidget && this.widgets.indexOf(imageModeWidget) === -1) {
                                 // Custom widget - don't modify type property or value (must stay "custom" for custom draw/mouse)
@@ -4232,7 +4655,7 @@ app.registerExtension({
                                 visibilityLogger.debug(`image_mode already visible at ${existingIndex}`);
                             }
 
-                            // 6. Insert copy_from_image button
+                            // 5. Insert copy_from_image button
                             const copyButtonWidget = this.imageOutputWidgets.copy_from_image;
                             if (copyButtonWidget && this.widgets.indexOf(copyButtonWidget) === -1) {
                                 // Custom widget - don't modify type property (must stay "custom" for mouse/draw events)
@@ -4242,7 +4665,7 @@ app.registerExtension({
                                 visibilityLogger.debug(`copy_from_image already visible at ${this.widgets.indexOf(copyButtonWidget)}`);
                             }
 
-                            // 7. After ALL widgets restored, refresh image dimensions
+                            // 6. After ALL widgets restored, refresh image dimensions
                             // CRITICAL: Must happen AFTER image_mode widget restored, otherwise refreshImageDimensions
                             // can't find the widget and returns early thinking USE_IMAGE is disabled
                             // See: 2025-11-11__20-09-38__full-postmortem_reconnect-timing-root-cause.md

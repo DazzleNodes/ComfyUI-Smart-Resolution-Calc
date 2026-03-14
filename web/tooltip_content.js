@@ -96,6 +96,27 @@ export const TOOLTIP_CONTENT = {
      * aspect_ratio widget (Native ComfyUI combo)
      * Low Priority - Mostly self-explanatory, but interaction rules unclear
      */
+    /**
+     * SEED widget (SeedWidget)
+     * High Priority - New concept, toggle semantics need explanation
+     */
+    fill_seed: {
+        quick: "Seed for reproducible noise fills. ON = seeds RNG, OFF = passthrough",
+        full: "SEED controls noise fill reproducibility.\n\n" +
+              "Toggle ON: Seeds the RNG for fill_type noise patterns.\n" +
+              "  Same seed + same fill_type = identical noise every time.\n" +
+              "  Special values: -1 = new random each queue,\n" +
+              "  -2 = last seed + 1, -3 = last seed - 1\n\n" +
+              "Toggle OFF: Value passes through literally. No RNG seeding.\n" +
+              "  Useful for routing raw values to other nodes.\n\n" +
+              "Buttons (always work in both modes):\n" +
+              "  Dice = set to -1 (randomize each time when ON)\n" +
+              "  Lock = generate a new random seed value\n" +
+              "  Recycle = recall the last seed actually used",
+        docsUrl: null,
+        hoverDelay: 250
+    },
+
     aspect_ratio: {
         quick: "Aspect ratio for calculations (ignored if both W+H set)",
         full: "ASPECT RATIO determines image proportions.\n\n" +

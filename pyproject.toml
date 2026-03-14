@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-smart-resolution-calc"
 description = "Flexible resolution and latent generation for ComfyUI with toggle-based dimension inputs and automatic calculation of missing values"
-version = "0.7.0"
+version = "0.8.0"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
