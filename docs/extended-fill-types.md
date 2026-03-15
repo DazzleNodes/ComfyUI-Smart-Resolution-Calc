@@ -141,5 +141,7 @@ Detection is automatic. The node checks for the presence of `dazzle-comfy-plasma
 
 ## Version History
 
+- **v0.8.4**: Fixed seed serialization — workflow reload recovers actual seed used
+- **v0.8.2**: Spectral blending, noise caching
 - **v0.8.0**: Seed widget, VAE encoding of noise fills, noise caching, `fill_type` always visible, sampler integration docs
 - **v0.7.0**: Added DazNoise extended fill types and fill_image input

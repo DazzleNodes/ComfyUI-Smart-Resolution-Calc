@@ -120,6 +120,7 @@ See [extended-fill-types.md](extended-fill-types.md#sampler-integration-experime
 
 ## Version History
 
+- **v0.8.4**: Fixed seed serialization — actual seed saved in workflow JSON for reproducibility
 - **v0.8.2**: Added spectral blending with `blend_strength` parameter
 - **v0.8.1**: Raw `torch.randn()` latent noise (no pattern influence)
 - **v0.8.0**: Seed widget, 5D VAE support, noise-to-latent pipeline

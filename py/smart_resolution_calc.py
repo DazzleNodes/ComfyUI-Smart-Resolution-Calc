@@ -1455,35 +1455,37 @@ class SmartResolutionCalc:
         resolution = f"{w} x {h}"  # Used for preview display and logging
 
         # ===== SEED RESOLUTION =====
-        # Resolve fill_seed from custom SeedWidget: {on: bool, value: number}
-        # ON mode: interpret special values (-1=random, -2=inc, -3=dec), seed RNG
-        # OFF mode: passthrough literal value, no RNG seeding
+        # The JS SeedWidget resolves special values (-1=random, -2=inc, -3=dec)
+        # to actual seed numbers BEFORE sending to Python via serializeValue().
+        # Python should always receive a real seed number (>= 0) when seed is ON.
+        #
+        # The -1/-2/-3 fallback below is VESTIGIAL — it exists only as a safety net
+        # for edge cases where JS doesn't resolve (e.g., old workflows, direct API
+        # calls). Under normal operation, this branch should never be hit.
         seed_active = False
         actual_seed = 0
 
         if fill_seed is not None and isinstance(fill_seed, dict):
-            # Custom widget: {on: bool, value: number}
             seed_active = fill_seed.get('on', False)
             seed_value = int(fill_seed.get('value', -1))
 
             if seed_active:
-                # ON mode: interpret special values
                 if seed_value in (-1, -2, -3):
-                    # Random / increment / decrement: generate new random
-                    # (increment/decrement tracking is JS-side via lastSeed)
+                    # VESTIGIAL: JS should have resolved these before sending.
+                    # This fallback generates a Python-side random if JS didn't resolve.
+                    # Under normal operation this branch should NOT be reached.
+                    logger.warning(f"Received unresolved special seed value {seed_value} from JS — generating Python-side random (this is unexpected)")
                     actual_seed = py_random.randint(0, 1125899906842624)
                 else:
                     actual_seed = seed_value
 
-                # Don't seed globally here — seed right before noise generation
-                # in create_empty_image() to avoid preview/other code consuming the state
                 logger.debug(f"Fill seed active: will seed RNG with {actual_seed}")
             else:
                 # OFF mode: passthrough literal value, no RNG seeding
                 actual_seed = seed_value
                 logger.debug(f"Fill seed OFF: passthrough value {actual_seed}")
         else:
-            # No seed data (backward compat)
+            # No seed data (backward compat with pre-v0.8.0 workflows)
             actual_seed = 0
             logger.debug("No fill_seed data, using default (unseeded)")
 
