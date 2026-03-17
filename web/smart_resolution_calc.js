@@ -2972,7 +2972,12 @@ class SeedWidget {
 
         ctx.save();
 
-        ctx.fillStyle = isActive ? "#2a2a2a" : "#1a1a1a";
+        // Green tint when randomizeMode active — visual cue that seed changes each queue
+        if (this.randomizeMode && isActive) {
+            ctx.fillStyle = "#1a2a1a";
+        } else {
+            ctx.fillStyle = isActive ? "#2a2a2a" : "#1a1a1a";
+        }
         ctx.beginPath();
         ctx.roundRect(x, y + 2, width, height - 4, 3);
         ctx.fill();
@@ -4255,6 +4260,17 @@ app.registerExtension({
                     defaultScaleWidget.draw = () => {};  // Prevent it from rendering entirely
                     logger.debug('Hidden default scale widget (blocked draw method)');
                 }
+
+                // Set minimum width to prevent seed widget buttons from overflowing
+                const MIN_NODE_WIDTH = 320;
+                this.size[0] = Math.max(this.size[0], MIN_NODE_WIDTH);
+
+                // Enforce minimum width on resize
+                const originalOnResize = this.onResize;
+                this.onResize = function(size) {
+                    size[0] = Math.max(size[0], MIN_NODE_WIDTH);
+                    if (originalOnResize) originalOnResize.call(this, size);
+                };
 
                 // Set initial size (widgets will auto-adjust)
                 this.setSize(this.computeSize());

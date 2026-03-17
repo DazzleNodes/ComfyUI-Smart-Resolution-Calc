@@ -5,6 +5,15 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-03-17
+
+### Added
+- **Minimum node width** (320px) — prevents seed widget buttons from overflowing on narrow nodes
+- **Green tint on seed value** when randomize mode active — visual indicator that seed changes each queue
+
+### Fixed
+- **pyproject.toml version sync** — was stuck at 0.8.4, causing ComfyUI Registry publish to fail
+
 ## [0.8.4] - 2026-03-14
 
 ### Fixed
