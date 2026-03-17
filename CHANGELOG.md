@@ -5,6 +5,34 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-17
+
+### Overview
+The 0.9.x series is dedicated to JavaScript modularization — decomposing the 5,379-line
+monolith (`web/smart_resolution_calc.js`) into reusable, testable modules. No new features;
+purely structural refactoring with Playwright E2E test verification at every step.
+
+### Added
+- **Playwright E2E test suite** — automated browser testing against running ComfyUI
+  - `tests/e2e/smoke.spec.js`: 5 smoke tests (console errors, node loading, widgets, outputs, screenshot)
+  - `tests/e2e/widget-interaction.spec.js`: 9 interaction tests (tooltip hover activation,
+    delay timing, seed widget structure, randomize generation, button hit areas,
+    serialization roundtrip, seed value persistence)
+  - `playwright.config.js`: Chromium, localhost:8188, single worker (shared server)
+  - `package.json`: test scripts (npm test, test:smoke, test:headed, test:ui)
+
+### Changed
+- **Phase 2: TooltipSystem extraction** — first module extracted from monolith
+  - `web/components/TooltipSystem.js`: TooltipManager, InfoIcon, tooltipManager singleton,
+    wrapWidgetWithTooltip (~440 lines extracted)
+  - `web/smart_resolution_calc.js`: 5,379 -> 4,939 lines, imports from TooltipSystem.js
+  - All 14 Playwright tests pass after extraction
+
+### References
+- Issue #5: Refactor web/smart_resolution_calc.js into separate class modules
+- Issue #14: Refactor: Split large smart_resolution_calc.js file
+- Plan: `2026-03-17__00-15-00__claude-plan__js-refactor-playwright-testing.md`
+
 ## [0.8.5] - 2026-03-17
 
 ### Added

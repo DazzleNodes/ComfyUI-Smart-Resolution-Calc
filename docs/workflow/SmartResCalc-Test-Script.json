@@ -1,0 +1,587 @@
+{
+  "id": "1eb0f0a9-0221-4af8-8a6b-c42ef0a9df07",
+  "revision": 0,
+  "last_node_id": 15,
+  "last_link_id": 15,
+  "nodes": [
+    {
+      "id": 10,
+      "type": "LoadImage",
+      "pos": [
+        206.52666136985522,
+        280.8885015689151
+      ],
+      "size": [
+        282.798828125,
+        314.00000000000006
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "Node name for S&R": "LoadImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "Clipboard Image (1).jpg",
+        "image"
+      ]
+    },
+    {
+      "id": 12,
+      "type": "VAELoader",
+      "pos": [
+        244.7867204224674,
+        154.32104840000014
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            11,
+            14
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "Node name for S&R": "VAELoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "qwen_image_vae.safetensors"
+      ]
+    },
+    {
+      "id": 13,
+      "type": "PreviewImage",
+      "pos": [
+        947.6938412903868,
+        580.8161938678614
+      ],
+      "size": [
+        301.24393990977865,
+        350.93287200927716
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 12
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 15,
+      "type": "PreviewImage",
+      "pos": [
+        948.9944334124128,
+        188.4367100080545
+      ],
+      "size": [
+        299.0248790222165,
+        346.1293110321044
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 15
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 14,
+      "type": "VAEDecode",
+      "pos": [
+        902.2886127769817,
+        61.53329700617913
+      ],
+      "size": [
+        140,
+        46
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 13
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            15
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "Node name for S&R": "VAEDecode"
+      }
+    },
+    {
+      "id": 11,
+      "type": "SmartResolutionCalc",
+      "pos": [
+        570.4534074341861,
+        278.98773541171886
+      ],
+      "size": [
+        320,
+        638
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 10
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 11
+        },
+        {
+          "name": "fill_image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "megapixels",
+          "type": "FLOAT",
+          "links": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "preview",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            13
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SmartResolutionCalc",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "MEGAPIXEL & aspect_ratio & defaults (3:4)",
+        "3:4 (SD Video Portrait)",
+        "16",
+        false,
+        "Calculating...",
+        "5.2:2.5",
+        1,
+        1,
+        "DazNoise: Plasma",
+        "auto",
+        0,
+        {
+          "on": true,
+          "value": 439951112144291
+        },
+        "#522525",
+        null,
+        {
+          "on": false,
+          "value": 0
+        },
+        null,
+        {
+          "on": false,
+          "value": 1
+        },
+        {
+          "on": false,
+          "value": 1024
+        },
+        {
+          "on": false,
+          "value": 1024
+        },
+        1
+      ],
+      "widgets_values_by_name": {
+        "mode_status": "Calculating...",
+        "aspect_ratio": "3:4 (SD Video Portrait)",
+        "divisible_by": "16",
+        "custom_ratio": false,
+        "custom_aspect_ratio": "5.2:2.5",
+        "batch_size": 1,
+        "scale": 1,
+        "fill_type": "DazNoise: Plasma",
+        "output_image_mode": "auto",
+        "blend_strength": 0,
+        "fill_seed": {
+          "on": true,
+          "value": 439951112144291
+        },
+        "fill_color": "#522525",
+        "color_picker_button": null,
+        "image_mode": {
+          "on": false,
+          "value": 0
+        },
+        "copy_from_image": null,
+        "dimension_megapixel": {
+          "on": false,
+          "value": 1
+        },
+        "dimension_width": {
+          "on": false,
+          "value": 1024
+        },
+        "dimension_height": {
+          "on": false,
+          "value": 1024
+        }
+      },
+      "widgets_config": {
+        "scale": {
+          "leftStep": 0.05,
+          "rightStep": 0.1
+        },
+        "_serialization_diagnostics": {
+          "timestamp": "2026-03-17T04:45:17.288Z",
+          "widgetCount": 20,
+          "widgetPositions": {
+            "mode_status": 4,
+            "aspect_ratio": 1,
+            "divisible_by": 2,
+            "custom_ratio": 3,
+            "custom_aspect_ratio": 5,
+            "batch_size": 6,
+            "scale": 19,
+            "fill_type": 8,
+            "output_image_mode": 9,
+            "blend_strength": 10,
+            "fill_seed": 11,
+            "fill_color": 12,
+            "color_picker_button": 13,
+            "image_mode": 14,
+            "copy_from_image": 15,
+            "dimension_megapixel": 16,
+            "dimension_width": 17,
+            "dimension_height": 18
+          },
+          "widgetValues": {
+            "mode_status": {
+              "value": "Calculating...",
+              "type": "string",
+              "visible": true
+            },
+            "aspect_ratio": {
+              "value": "3:4 (SD Video Portrait)",
+              "type": "string",
+              "visible": true
+            },
+            "divisible_by": {
+              "value": "16",
+              "type": "string",
+              "visible": true
+            },
+            "custom_ratio": {
+              "value": false,
+              "type": "boolean",
+              "visible": true
+            },
+            "custom_aspect_ratio": {
+              "value": "5.2:2.5",
+              "type": "string",
+              "visible": true
+            },
+            "batch_size": {
+              "value": 1,
+              "type": "number",
+              "visible": true
+            },
+            "scale": {
+              "value": 1,
+              "type": "number",
+              "visible": true
+            },
+            "fill_type": {
+              "value": "DazNoise: Plasma",
+              "type": "string",
+              "visible": true
+            },
+            "output_image_mode": {
+              "value": "auto",
+              "type": "string",
+              "visible": true
+            },
+            "blend_strength": {
+              "value": 0,
+              "type": "number",
+              "visible": true
+            },
+            "fill_seed": {
+              "value": {
+                "on": true,
+                "value": 439951112144291
+              },
+              "type": "object",
+              "visible": true
+            },
+            "fill_color": {
+              "value": "#522525",
+              "type": "string",
+              "visible": true
+            },
+            "color_picker_button": {
+              "value": null,
+              "type": "object",
+              "visible": true
+            },
+            "image_mode": {
+              "value": {
+                "on": false,
+                "value": 0
+              },
+              "type": "object",
+              "visible": true
+            },
+            "copy_from_image": {
+              "value": null,
+              "type": "object",
+              "visible": true
+            },
+            "dimension_megapixel": {
+              "value": {
+                "on": false,
+                "value": 1
+              },
+              "type": "object",
+              "visible": true
+            },
+            "dimension_width": {
+              "value": {
+                "on": false,
+                "value": 1024
+              },
+              "type": "object",
+              "visible": true
+            },
+            "dimension_height": {
+              "value": {
+                "on": false,
+                "value": 1024
+              },
+              "type": "object",
+              "visible": true
+            }
+          },
+          "imageOutputWidgetsState": {
+            "output_image_mode": {
+              "inArray": true,
+              "arrayIndex": 9,
+              "currentValue": "auto",
+              "savedValue": "auto"
+            },
+            "image_mode": {
+              "inArray": true,
+              "arrayIndex": 14,
+              "currentValue": {
+                "on": false,
+                "value": 0
+              },
+              "savedValue": {
+                "on": false,
+                "value": 0
+              }
+            },
+            "copy_from_image": {
+              "inArray": true,
+              "arrayIndex": 15,
+              "currentValue": null,
+              "savedValue": null
+            },
+            "color_picker_button": {
+              "inArray": true,
+              "arrayIndex": 13,
+              "currentValue": null,
+              "savedValue": null
+            }
+          }
+        }
+      }
+    }
+  ],
+  "links": [
+    [
+      10,
+      10,
+      0,
+      11,
+      0,
+      "IMAGE"
+    ],
+    [
+      11,
+      12,
+      0,
+      11,
+      1,
+      "VAE"
+    ],
+    [
+      12,
+      11,
+      5,
+      13,
+      0,
+      "IMAGE"
+    ],
+    [
+      13,
+      11,
+      6,
+      14,
+      0,
+      "LATENT"
+    ],
+    [
+      14,
+      12,
+      0,
+      14,
+      1,
+      "VAE"
+    ],
+    [
+      15,
+      14,
+      0,
+      15,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.8264462809917358,
+      "offset": [
+        -161.29104614056308,
+        -64.80098574545059
+      ]
+    },
+    "workflowRendererVersion": "LG",
+    "ue_links": [],
+    "links_added_by_ue": [],
+    "frontendVersion": "1.41.20",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}
