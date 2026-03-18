@@ -261,8 +261,44 @@ class DazzleWidget {
     }
 }
 
+// =========================================================================
+// Widget Visibility Utilities
+// Hide/show widgets by overriding draw/computeSize/mouse instead of
+// array splice. Widgets stay in the array — no index drift, no state
+// corruption, no type property mutation.
+// See: 2025-11-11__10-47-00__canvas-corruption-fix-learnings.md
+// =========================================================================
+
+/**
+ * Hide a widget — suppress rendering while keeping it in the widgets array.
+ * Preserves original methods for restoration via showWidget().
+ */
+function hideWidget(widget) {
+    if (widget._hidden) return;
+    widget._hidden = true;
+    widget._origDraw = widget.draw;
+    widget._origComputeSize = widget.computeSize;
+    widget._origMouse = widget.mouse;
+    widget.draw = function() {};
+    widget.computeSize = function() { return [0, -4]; };
+    widget.mouse = function() { return false; };
+}
+
+/**
+ * Show a previously hidden widget — restore original methods.
+ */
+function showWidget(widget) {
+    if (!widget._hidden) return;
+    widget._hidden = false;
+    if (widget._origDraw) widget.draw = widget._origDraw;
+    if (widget._origComputeSize) widget.computeSize = widget._origComputeSize;
+    if (widget._origMouse) widget.mouse = widget._origMouse;
+}
+
 export {
     DazzleWidget,
+    hideWidget,
+    showWidget,
     WIDGET_MARGIN,
     WIDGET_INNER_MARGIN,
     WIDGET_BG_COLOR,

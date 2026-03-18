@@ -14,6 +14,9 @@
 import { DimensionSourceManager } from './managers/dimension_source_manager.js';
 import { logger, visibilityLogger, dimensionLogger } from './utils/debug_logger.js';
 
+// Widget visibility utilities (draw override, not array splice)
+import { hideWidget, showWidget } from './components/DazzleWidget.js';
+
 // Extracted components (Phase 2: TooltipSystem)
 import {
     TooltipManager,
@@ -517,32 +520,6 @@ app.registerExtension({
                     copy_from_image: this.widgets.find(w => w.name === "copy_from_image")
                 };
 
-                // Debug: Log initial widget references to verify correct widgets found
-                if (visibilityLogger.debugEnabled) {
-                    const fillTypeRef = this.widgets.find(w => w.name === "fill_type");
-                    visibilityLogger.debug('[WidgetInit] Initial widget references:', {
-                        output_image_mode: {
-                            name: this.imageOutputWidgets.output_image_mode?.name,
-                            type: this.imageOutputWidgets.output_image_mode?.type,
-                            value: this.imageOutputWidgets.output_image_mode?.value,
-                            index: this.widgets.indexOf(this.imageOutputWidgets.output_image_mode)
-                        },
-                        fill_type: {
-                            name: fillTypeRef?.name,
-                            type: fillTypeRef?.type,
-                            value: fillTypeRef?.value,
-                            index: this.widgets.indexOf(fillTypeRef),
-                            alwaysVisible: true
-                        }
-                    });
-                }
-
-                // Store original widget types, indices, and default values for restore
-                this.imageOutputWidgetIndices = {};
-                this.imageOutputWidgetValues = {
-                    output_image_mode: "auto"
-                };
-
                 // ===== Color picker button widget =====
                 // Create a dedicated button widget for color picking, separate from text widget
                 // Find fill_color widget (not tracked in imageOutputWidgets, stays visible as anchor)
@@ -575,9 +552,6 @@ app.registerExtension({
                     // Add button to image output widgets list
                     this.imageOutputWidgets.color_picker_button = colorPickerButton;
 
-                    // Store original widget index for button
-                    this.imageOutputWidgetIndices.color_picker_button = fillColorIndex + 1;
-
                     // Force canvas update to ensure widget becomes interactive immediately
                     this.setDirtyCanvas(true, true);
 
@@ -585,255 +559,66 @@ app.registerExtension({
                     this.setSize(this.computeSize());
                 }
 
-                // Save origType for each widget before any hide/show cycles
-                // CRITICAL: Must run AFTER all widgets are added to imageOutputWidgets
-                // This ensures custom widgets like color_picker_button get their type preserved
-                Object.keys(this.imageOutputWidgets).forEach(key => {
-                    const widget = this.imageOutputWidgets[key];
-                    if (widget) {
-                        widget.origType = widget.type;
-                        visibilityLogger.debug(`[OrigType] Saved ${key}: origType = "${widget.type}"`);
-                        // Store original index in widgets array
-                        this.imageOutputWidgetIndices[key] = this.widgets.indexOf(widget);
+                // ===== Widget Visibility System (v0.9.3 — draw override, no splice) =====
+                // Widgets stay in the array at all times. Hidden widgets have draw/computeSize/mouse
+                // overridden to no-ops. This eliminates index drift, state corruption, and type mutation.
+                // See: 2025-11-11__10-47-00__canvas-corruption-fix-learnings.md
 
-                        // Skip value initialization for custom widgets - they manage their own state
-                        // Custom widgets have complex value structures and internal state that should not be modified
-                        if (widget.type === "custom") {
-                            visibilityLogger.debug(`[ValueInit] Skipping value init for custom widget ${key} (type="${widget.type}")`);
-                        } else {
-                            // Initialize widget value if not already set (standard widgets only)
-                            if (widget.value === undefined || typeof widget.value === 'object') {
-                                widget.value = this.imageOutputWidgetValues[key];
-                            } else {
-                                // Use actual widget value if already initialized
-                                this.imageOutputWidgetValues[key] = widget.value;
-                            }
-                        }
-                    }
-                });
-
-                // Function to update widget visibility based on image input connection (v0.6.1)
+                // Function to update widget visibility based on image input connection
                 this.updateImageOutputVisibility = function() {
                     visibilityLogger.debug('=== updateImageOutputVisibility called ===');
 
-                    // Check if image INPUT has connections (v0.6.1 fix for img2img workflow visibility)
-                    // Changed from checking image OUTPUT to checking image INPUT because:
-                    // - With VAE encoding, INPUT image + VAE -> latent output uses these settings
-                    // - Users need control over output_image_mode/fill_type for img2img/outpainting
+                    // Check if image INPUT has a connection
                     const imageInput = this.inputs ? this.inputs.find(inp => inp.name === "image") : null;
-                    visibilityLogger.debug('Image input:', imageInput);
-                    visibilityLogger.debug('Image input link:', imageInput?.link);
-
-                    // Check if input has a connection (single link, not array like outputs)
                     const hasConnection = imageInput && imageInput.link != null;
-
                     visibilityLogger.debug(`Image input connected: ${hasConnection}`);
-                    visibilityLogger.debug('imageOutputWidgets keys:', Object.keys(this.imageOutputWidgets));
 
-                    // DIAGNOSTIC: Check link existence in graph (Phase 1 - Reconnect issue diagnosis)
-                    if (imageInput && imageInput.link != null) {
-                        const linkObject = this.graph.links[imageInput.link];
-                        visibilityLogger.debug('[RECONNECT-DEBUG] Link ID:', imageInput.link);
-                        visibilityLogger.debug('[RECONNECT-DEBUG] Link exists in graph.links:', !!linkObject);
-                        if (linkObject) {
-                            visibilityLogger.debug('[RECONNECT-DEBUG] Link origin_id:', linkObject.origin_id);
-                            visibilityLogger.debug('[RECONNECT-DEBUG] Link target_id:', linkObject.target_id);
-                            const sourceNode = this.graph.getNodeById(linkObject.origin_id);
-                            visibilityLogger.debug('[RECONNECT-DEBUG] Source node exists:', !!sourceNode);
-                            visibilityLogger.debug('[RECONNECT-DEBUG] Source node type:', sourceNode?.type);
-                        }
-                    }
-
-                    // Update ImageModeWidget's imageDisconnected property (v0.6.1)
+                    // Update ImageModeWidget's imageDisconnected property
                     // This property controls the asymmetric toggle behavior
                     const imageModeWidget = this.imageOutputWidgets.image_mode;
                     if (imageModeWidget) {
                         imageModeWidget.imageDisconnected = !hasConnection;
-                        visibilityLogger.debug(`Updated image_mode.imageDisconnected = ${imageModeWidget.imageDisconnected}`);
                     }
 
                     // Show/hide widgets based on connection status
                     if (hasConnection) {
-                        // SOLUTION 5: Hybrid Anchor + Sequential Insertion
-                        // Use batch_size as stable anchor, insert sequentially to account for index shifts
-
-                        // Anchor: fill_type is always visible (never hidden).
-                        // Insert output_image_mode after fill_type when image is connected.
-                        const fillTypeWidget = this.widgets.find(w => w.name === "fill_type");
-                        const fillColorWidget = this.widgets.find(w => w.name === "fill_color");
-                        const fillTypeIndex = fillTypeWidget ? this.widgets.indexOf(fillTypeWidget) : -1;
-
-                        if (fillTypeIndex === -1) {
-                            visibilityLogger.error("Cannot find fill_type widget anchor");
-                            return;
-                        }
-
-                        if (visibilityLogger.debugEnabled) {
-                            visibilityLogger.debug(`fill_type found at index ${fillTypeIndex}`);
-                            visibilityLogger.debug('[WidgetRestore] Widget references:', {
-                                output_image_mode: this.imageOutputWidgets.output_image_mode?.name,
-                                color_picker_button: this.imageOutputWidgets.color_picker_button?.name || 'button'
-                            });
-                            visibilityLogger.debug('[WidgetRestore] Saved values:', this.imageOutputWidgetValues);
-                        }
-
-                        // Start inserting after fill_type (which is always visible)
-                        let currentIndex = fillTypeIndex + 1;
-
-                        // 1. Insert output_image_mode after fill_type
-                        const outputWidget = this.imageOutputWidgets.output_image_mode;
-                        if (visibilityLogger.debugEnabled) {
-                            visibilityLogger.debug(`[WidgetRestore] output_image_mode widget:`, {
-                                name: outputWidget?.name,
-                                type: outputWidget?.type,
-                                value: outputWidget?.value,
-                                options: outputWidget?.options?.values
-                            });
-                        }
-                        if (outputWidget && this.widgets.indexOf(outputWidget) === -1) {
-                            // Restore saved value with validation (v0.5.0 corruption protection)
-                            const savedValue = this.imageOutputWidgetValues.output_image_mode;
-                            if (savedValue !== undefined) {
-                                const validation = validateWidgetValue('output_image_mode', savedValue, 'restore');
-                                if (!validation.valid) {
-                                    logCorruptionDiagnostics(validation.warnings, {
-                                        widget: 'output_image_mode',
-                                        savedValue: savedValue,
-                                        widgetIndex: this.widgets.indexOf(outputWidget),
-                                        operation: 'restore (showing widgets)'
-                                    });
-                                }
-                                outputWidget.value = validation.correctedValue;
+                        // Show all image-related widgets
+                        Object.keys(this.imageOutputWidgets).forEach(key => {
+                            const widget = this.imageOutputWidgets[key];
+                            if (widget) {
+                                showWidget(widget);
+                                visibilityLogger.debug(`Showing widget: ${key}`);
                             }
-
-                            this.widgets.splice(currentIndex, 0, outputWidget);
-                            outputWidget.type = outputWidget.origType || "combo";
-                            if (visibilityLogger.debugEnabled) {
-                                visibilityLogger.debug(`Inserted output_image_mode at index ${currentIndex}, value: ${outputWidget.value}`);
-                            }
-                            currentIndex++; // Move insertion point forward
-                        } else if (outputWidget) {
-                            // Already visible, update currentIndex to point after it
-                            const existingIndex = this.widgets.indexOf(outputWidget);
-                            if (existingIndex >= currentIndex) {
-                                currentIndex = existingIndex + 1;
-                            }
-                            if (visibilityLogger.debugEnabled) {
-                                visibilityLogger.debug(`output_image_mode already visible at ${existingIndex}`);
-                            }
-                        }
-
-                        // 2. fill_color should already be in array (invisible)
-                        //    Find it and position button after it
-                        const fillColorIndex = fillColorWidget ? this.widgets.indexOf(fillColorWidget) : -1;
-                        if (fillColorIndex !== -1) {
-                            currentIndex = fillColorIndex + 1;
-                            visibilityLogger.debug(`fill_color found at index ${fillColorIndex}, button will go at ${currentIndex}`);
-
-                            // 3. Insert color picker button
-                            const buttonWidget = this.imageOutputWidgets.color_picker_button;
-                            if (buttonWidget && this.widgets.indexOf(buttonWidget) === -1) {
-                                // Button widget doesn't have a primitive value to restore
-                                this.widgets.splice(currentIndex, 0, buttonWidget);
-                                const restoredType = buttonWidget.origType || "button";
-                                buttonWidget.type = restoredType;
-                                visibilityLogger.debug(`Inserted color_picker_button at index ${currentIndex}, type: "${restoredType}" (origType: "${buttonWidget.origType}")`);
-                                currentIndex++; // Move insertion point forward
-                            } else if (buttonWidget) {
-                                const existingIndex = this.widgets.indexOf(buttonWidget);
-                                if (existingIndex >= currentIndex) {
-                                    currentIndex = existingIndex + 1;
-                                }
-                                visibilityLogger.debug(`color_picker_button already visible at ${existingIndex}`);
-                            }
-
-                            // 4. Insert image_mode (USE IMAGE DIMS?) toggle
-                            const imageModeWidget = this.imageOutputWidgets.image_mode;
-                            if (imageModeWidget && this.widgets.indexOf(imageModeWidget) === -1) {
-                                // Custom widget - don't modify type property or value (must stay "custom" for custom draw/mouse)
-                                // ImageModeWidget manages its own state internally
-                                this.widgets.splice(currentIndex, 0, imageModeWidget);
-                                visibilityLogger.debug(`Inserted image_mode at index ${currentIndex}, type: "${imageModeWidget.type}"`);
-                                currentIndex++; // Move insertion point forward
-                            } else if (imageModeWidget) {
-                                const existingIndex = this.widgets.indexOf(imageModeWidget);
-                                if (existingIndex >= currentIndex) {
-                                    currentIndex = existingIndex + 1;
-                                }
-                                visibilityLogger.debug(`image_mode already visible at ${existingIndex}`);
-                            }
-
-                            // 5. Insert copy_from_image button
-                            const copyButtonWidget = this.imageOutputWidgets.copy_from_image;
-                            if (copyButtonWidget && this.widgets.indexOf(copyButtonWidget) === -1) {
-                                // Custom widget - don't modify type property (must stay "custom" for mouse/draw events)
-                                this.widgets.splice(currentIndex, 0, copyButtonWidget);
-                                visibilityLogger.debug(`Inserted copy_from_image at index ${currentIndex}, type: "${copyButtonWidget.type}"`);
-                            } else if (copyButtonWidget) {
-                                visibilityLogger.debug(`copy_from_image already visible at ${this.widgets.indexOf(copyButtonWidget)}`);
-                            }
-
-                            // 6. After ALL widgets restored, refresh image dimensions
-                            // CRITICAL: Must happen AFTER image_mode widget restored, otherwise refreshImageDimensions
-                            // can't find the widget and returns early thinking USE_IMAGE is disabled
-                            // See: 2025-11-11__20-09-38__full-postmortem_reconnect-timing-root-cause.md
-                            if (this.scaleWidgetInstance && this.scaleWidgetInstance.refreshImageDimensions) {
-                                logger.info('[Visibility] Widgets restored, triggering dimension refresh');
-                                this.scaleWidgetInstance.refreshImageDimensions(this);
-                            } else {
-                                logger.debug('[Visibility] No scale widget or refresh method found');
-                            }
-                        } else {
-                            visibilityLogger.error("Cannot find fill_color for button placement");
-                        }
-                    } else {
-                        // When hiding, remove in reverse order to avoid index shifts
-                        visibilityLogger.debug('HIDING WIDGETS - hasConnection is false');
-                        const widgetsToHide = Object.keys(this.imageOutputWidgets)
-                            .map(key => ({
-                                key,
-                                widget: this.imageOutputWidgets[key],
-                                currentIndex: this.widgets.indexOf(this.imageOutputWidgets[key])
-                            }))
-                            .filter(item => item.widget && item.currentIndex !== -1)
-                            .sort((a, b) => b.currentIndex - a.currentIndex); // Reverse order
-
-                        visibilityLogger.debug('Widgets to hide:', widgetsToHide.map(w => `${w.key} at index ${w.currentIndex}`));
-
-                        widgetsToHide.forEach(item => {
-                            // Hide widget - save current value with validation (v0.5.0 corruption protection)
-                            const currentValue = item.widget.value;
-                            const validation = validateWidgetValue(item.key, currentValue, 'save');
-
-                            if (!validation.valid) {
-                                logCorruptionDiagnostics(validation.warnings, {
-                                    widget: item.key,
-                                    currentValue: currentValue,
-                                    widgetIndex: item.currentIndex,
-                                    operation: 'save (hiding widgets)'
-                                });
-                            }
-
-                            // Save validated value
-                            this.imageOutputWidgetValues[item.key] = validation.correctedValue;
-                            visibilityLogger.debug(`Widget ${item.key} hidden from index ${item.currentIndex}, saved value: ${validation.correctedValue}`);
-
-                            this.widgets.splice(item.currentIndex, 1);
                         });
 
-                        // Update Mode(AR) for disconnect (backend state overridden, show defaults)
+                        // After showing widgets, refresh image dimensions
+                        // CRITICAL: Must happen AFTER image_mode widget is visible, otherwise
+                        // refreshImageDimensions can't find the widget and returns early
+                        // See: 2025-11-11__20-09-38__full-postmortem_reconnect-timing-root-cause.md
+                        if (this.scaleWidgetInstance && this.scaleWidgetInstance.refreshImageDimensions) {
+                            logger.info('[Visibility] Widgets shown, triggering dimension refresh');
+                            this.scaleWidgetInstance.refreshImageDimensions(this);
+                        }
+                    } else {
+                        // Hide all image-related widgets
+                        Object.keys(this.imageOutputWidgets).forEach(key => {
+                            const widget = this.imageOutputWidgets[key];
+                            if (widget) {
+                                hideWidget(widget);
+                                visibilityLogger.debug(`Hiding widget: ${key}`);
+                            }
+                        });
+
+                        // Update Mode(AR) for disconnect
                         // NOTE: For RECONNECT, updateModeWidget() is called in refreshImageDimensions()
-                        // after imageDimensionsCache is populated. This fixes timing issue where
-                        // runtime_context.image_info was empty on reconnect.
+                        // after imageDimensionsCache is populated (timing fix).
                         // See: 2025-11-11__20-09-38__full-postmortem_reconnect-timing-root-cause.md
                         if (this.updateModeWidget) {
                             this.updateModeWidget(true);  // Force refresh to bypass cache
-                            visibilityLogger.debug('Triggered updateModeWidget(forceRefresh=true) for disconnect');
                         }
                     }
 
                     // Resize node to accommodate shown/hidden widgets
-                    // Preserve width, only change height
                     const currentSize = this.size || this.computeSize();
                     const newSize = this.computeSize();
                     this.setSize([currentSize[0], newSize[1]]);

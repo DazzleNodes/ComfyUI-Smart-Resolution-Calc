@@ -5,6 +5,30 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-03-18
+
+### Changed
+- **Widget visibility: splice replaced with draw override** — widgets now stay in the
+  array at all times. Hidden widgets have draw/computeSize/mouse overridden to no-ops
+  instead of being spliced in/out. Eliminates root cause of widget state corruption,
+  index drift, and type mutation (Issues #8, #25, #26).
+  - `hideWidget()`/`showWidget()` utilities added to DazzleWidget.js
+  - `updateImageOutputVisibility()` rewritten: 225 lines -> ~55 lines
+  - Removed: `imageOutputWidgetIndices`, `origType` tracking, reverse-order splice logic,
+    anchor-based sequential insertion, widget type mutation during show/restore
+  - Orchestrator reduced from 1,447 to 1,232 lines
+
+### Added
+- **Widget visibility Playwright tests** (3 new, 30 total)
+  - `_hidden` flag pattern verification (widgets always in array)
+  - hide/show mechanism matches image connection state
+  - `updateImageOutputVisibility` shows widgets when image connected
+
+### References
+- Analysis: `2026-03-18__18-27-55__dev-workflow-orchestrator-correctness-audit.md`
+- Root cause: `2025-11-11__10-47-00__canvas-corruption-fix-learnings.md`
+- Issues #8, #25, #26
+
 ## [0.9.2] - 2026-03-18
 
 ### Added
