@@ -12,8 +12,8 @@
  *       TOOLTIP_CONTENT passed via constructor config
  */
 
+import { DazzleWidget, WIDGET_MARGIN, WIDGET_INNER_MARGIN, WIDGET_LABEL_FONT, WIDGET_LABEL_COLOR_ON, WIDGET_LABEL_COLOR_OFF } from './DazzleWidget.js';
 import { ToggleBehavior, ValueBehavior } from './WidgetValidation.js';
-import { InfoIcon } from './TooltipSystem.js';
 import { logger, dimensionLogger } from '../utils/debug_logger.js';
 
 /**
@@ -21,14 +21,9 @@ import { logger, dimensionLogger } from '../utils/debug_logger.js';
  * Compact widget with toggle (LEFT) and mode selector (RIGHT)
  * Answers the question "USE IMAGE DIMS?" with ON/OFF + AR Only/Exact Dims
  */
-class ImageModeWidget {
+class ImageModeWidget extends DazzleWidget {
     constructor(name = "image_mode", config = {}) {
-        this.name = name;
-        this.type = "custom";
-        this.value = {
-            on: false,  // Default: disabled
-            value: 0    // 0 = AR Only, 1 = Exact Dims
-        };
+        super(name, { on: false, value: 0 }, config);  // Default: disabled, 0 = AR Only, 1 = Exact Dims
 
         // Behavior configuration (both default to asymmetric/conditional for USE_IMAGE)
         // - Toggle: Can't enable without image (asymmetric)
@@ -43,18 +38,11 @@ class ImageModeWidget {
         // NOTE: Don't use 'disabled' - LiteGraph checks it and blocks mouse() calls
         this.imageDisconnected = false;  // False = image connected, True = no image
 
-        // Mouse state
-        this.mouseDowned = null;
-        this.isMouseDownedAndOver = false;
-
         // Hit areas
         this.hitAreas = {
             toggle: { x: 0, y: 0, width: 0, height: 0 },
             modeSelector: { x: 0, y: 0, width: 0, height: 0 }
         };
-
-        // Info icon for tooltip
-        this.infoIcon = config.tooltipContent ? new InfoIcon(config.tooltipContent) : null;
     }
 
     /**
@@ -63,36 +51,17 @@ class ImageModeWidget {
      * Note: Visual appearance unchanged when disabled, only blocks clicks
      */
     draw(ctx, node, width, y, height) {
-        const margin = 15;
-        const innerMargin = 3;
-        const midY = y + height / 2;
-
-        ctx.save();
-
-        // Background (normal appearance always)
-        ctx.fillStyle = "#1e1e1e";
-        ctx.beginPath();
-        ctx.roundRect(margin, y + 1, width - margin * 2, height - 2, 4);
-        ctx.fill();
-
-        let posX = margin + innerMargin;
-
-        // Draw toggle switch (LEFT) - matching DimensionWidget style
-        const toggleWidth = height * 1.5;
-        this.drawToggle(ctx, posX, y, height, this.value.on);
-
-        // Always set toggle hit area - mouse() handles asymmetric logic
-        // (allows turning OFF when disabled, blocks turning ON)
-        this.hitAreas.toggle = { x: posX, y, width: toggleWidth, height };
-
-        posX += toggleWidth + innerMargin * 2;
+        // Draw shared frame: background, toggle, set hitAreas.toggle
+        // (mouse() handles asymmetric logic — allows turning OFF when disabled, blocks turning ON)
+        const { posX: labelX, midY, margin, innerMargin } = this.drawWidgetFrame(ctx, node, width, y, height, this.value.on);
+        let posX = labelX;
 
         // Draw label (MIDDLE) - "USE IMAGE DIMS?"
         const labelText = "USE IMAGE DIMS?";
-        ctx.fillStyle = this.value.on ? "#ffffff" : "#888888";
+        ctx.fillStyle = this.value.on ? WIDGET_LABEL_COLOR_ON : WIDGET_LABEL_COLOR_OFF;
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.font = "13px sans-serif";
+        ctx.font = WIDGET_LABEL_FONT;
 
         // Measure text width to position icon correctly
         const labelTextWidth = ctx.measureText(labelText).width;
@@ -102,7 +71,7 @@ class ImageModeWidget {
 
         // Calculate mode selector position (RIGHT side)
         const modeWidth = 100;  // Fixed width for mode selector
-        const modeX = width - margin - modeWidth - innerMargin;
+        const modeX = width - WIDGET_MARGIN - modeWidth - WIDGET_INNER_MARGIN;
 
         // Draw mode selector (RIGHT)
         const modeText = this.modes[this.value.value];
@@ -136,32 +105,7 @@ class ImageModeWidget {
         ctx.restore();
     }
 
-    /**
-     * Draw toggle switch (matching DimensionWidget style exactly)
-     */
-    drawToggle(ctx, x, y, height, state) {
-        const radius = height * 0.36;
-        const bgWidth = height * 1.5;
-
-        ctx.save();
-
-        // Toggle track background
-        ctx.beginPath();
-        ctx.roundRect(x + 4, y + 4, bgWidth - 8, height - 8, height * 0.5);
-        ctx.globalAlpha = 0.25;
-        ctx.fillStyle = "rgba(255,255,255,0.45)";
-        ctx.fill();
-        ctx.globalAlpha = 1.0;
-
-        // Toggle circle (green when ON, gray when OFF)
-        const circleX = state ? x + height : x + height * 0.5;
-        ctx.beginPath();
-        ctx.arc(circleX, y + height * 0.5, radius, 0, Math.PI * 2);
-        ctx.fillStyle = state ? "#4CAF50" : "#888888";  // Green when ON, gray when OFF
-        ctx.fill();
-
-        ctx.restore();
-    }
+    // drawToggle() — inherited from DazzleWidget (matching DimensionWidget style exactly)
 
     /**
      * Handle mouse events
@@ -172,12 +116,7 @@ class ImageModeWidget {
      */
     mouse(event, pos, node) {
         // Check info icon first (before other interactions)
-        // Pass node position for coordinate conversion (node-local → canvas-global)
-        const canvasBounds = { width: node.size[0], height: node.size[1] };
-        if (this.infoIcon.mouse(event, pos, canvasBounds, node.pos)) {
-            node.setDirtyCanvas(true);
-            return true; // Icon handled the event
-        }
+        if (this.handleTooltipMouse(event, pos, node)) return true;
 
         if (event.type === "pointerdown") {
             logger.debug(`ImageModeWidget.mouse() - imageDisconnected: ${this.imageDisconnected}, value.on: ${this.value.on}, pos: [${pos[0]}, ${pos[1]}]`);
@@ -291,23 +230,8 @@ class ImageModeWidget {
         return false;
     }
 
-    /**
-     * Check if position is within bounds
-     */
-    isInBounds(pos, bounds) {
-        if (!bounds) return false;  // Guard against undefined bounds
-        return pos[0] >= bounds.x &&
-               pos[0] <= bounds.x + bounds.width &&
-               pos[1] >= bounds.y &&
-               pos[1] <= bounds.y + bounds.height;
-    }
-
-    /**
-     * Compute size for layout
-     */
-    computeSize(width) {
-        return [width, 24];  // Compact height matching DimensionWidget
-    }
+    // isInBounds() — inherited from DazzleWidget
+    // computeSize() — inherited from DazzleWidget (24px compact height matching DimensionWidget)
 
     /**
      * Serialize value for workflow JSON

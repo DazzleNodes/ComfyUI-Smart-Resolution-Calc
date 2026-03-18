@@ -9,6 +9,7 @@
  * - app (ComfyUI global) -- accessed at runtime
  */
 
+import { DazzleWidget } from './DazzleWidget.js';
 import { ImageDimensionUtils } from '../utils/ImageDimensionUtils.js';
 import { logger } from '../utils/debug_logger.js';
 
@@ -16,12 +17,12 @@ import { logger } from '../utils/debug_logger.js';
 /**
  * Copy from Image Button Widget
  * Simple button to extract dimensions from connected image and populate widgets
+ *
+ * Extends DazzleWidget for shared hit testing.
  */
-class CopyImageButton {
+class CopyImageButton extends DazzleWidget {
     constructor(name = "copy_from_image") {
-        this.name = name;
-        this.type = "custom";  // Must be "custom" for addCustomWidget to route mouse events
-        this.value = null;  // Buttons don't need a value
+        super(name, null, { height: 32 });  // Buttons don't need a value
 
         // Undo state
         this.undoStack = null;  // Stores previous values: {width: {on, value}, height: {on, value}}
@@ -349,17 +350,8 @@ class CopyImageButton {
         logger.debug("Showing instructions dialog (all auto-methods failed)");
     }
 
-    isInBounds(pos, bounds) {
-        if (!bounds) return false;
-        return pos[0] >= bounds.x &&
-               pos[0] <= bounds.x + bounds.width &&
-               pos[1] >= bounds.y &&
-               pos[1] <= bounds.y + bounds.height;
-    }
-
-    computeSize(width) {
-        return [width, 32];  // Button height
-    }
+    // isInBounds() — inherited from DazzleWidget
+    // computeSize() — inherited from DazzleWidget (32px height via config)
 
     serializeValue(node, index) {
         // Buttons don't serialize - they're action triggers

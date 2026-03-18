@@ -7,22 +7,24 @@
  *       node.widgets at runtime for display logic. No direct imports needed.
  */
 
+import { DazzleWidget } from './DazzleWidget.js';
 import { logger } from '../utils/debug_logger.js';
 
 /**
  * Mode Status Widget - Read-only display showing current dimension calculation mode
  * Positioned above aspect_ratio to provide at-a-glance mode visibility
  *
+ * Extends DazzleWidget for shared hit testing.
+ *
  * Performance optimizations:
  * - Caches text truncation to avoid ctx.measureText() loops at 60fps
  * - Uses ctx.roundRect() when available for simpler drawing
  * - Only recalculates displayText when value changes
  */
-class ModeStatusWidget {
+class ModeStatusWidget extends DazzleWidget {
     constructor(name = "mode_status") {
-        this.name = name;
-        this.type = "custom";
-        this.value = "Calculating...";  // Default text
+        super(name, "Calculating...", { height: 28 });
+
         this.conflicts = [];  // Calculation conflicts (AR mismatches, etc.)
         this.sourceWarning = null;  // Source validation warning (disconnect, disabled node, etc.) - SEPARATE from conflicts
         this._cachedDisplayText = null;  // Cached truncated text
@@ -189,9 +191,7 @@ class ModeStatusWidget {
         ctx.restore();
     }
 
-    computeSize(width) {
-        return [width, 28];  // Height matches other custom widgets
-    }
+    // computeSize() — inherited from DazzleWidget (28px height via config)
 
     // Update the mode display text and conflicts
     updateMode(modeDescription, conflicts = [], sourceWarning = null) {

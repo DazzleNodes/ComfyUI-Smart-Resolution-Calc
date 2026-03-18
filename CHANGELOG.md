@@ -5,7 +5,41 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-03-18
+
+### Added
+- **DazzleWidget base class** (`web/components/DazzleWidget.js`) — shared foundation for all
+  custom ComfyUI widgets with `isInBounds()`, `drawToggle()`, `drawNumberWidget()`,
+  `drawWidgetFrame()`, `computeSize()`, `handleTooltipMouse()`, and standard constructor
+- **Shared draw constants** — `WIDGET_MARGIN`, `WIDGET_INNER_MARGIN`, `WIDGET_BG_COLOR`,
+  `WIDGET_LABEL_FONT`, `WIDGET_LABEL_COLOR_ON/OFF`, `WIDGET_TOGGLE_COLOR_ON/OFF` exported
+  from DazzleWidget for consistent styling across all widgets
+
+### Changed
+- **All 7 interactive widget classes now extend DazzleWidget** — eliminates duplicated
+  `isInBounds` (8x), `drawToggle` (3x), `drawNumberWidget` (2x), `computeSize` (7x),
+  and constructor boilerplate
+- **`drawWidgetFrame()` template method** — DimensionWidget, SeedWidget, ImageModeWidget now
+  call `this.drawWidgetFrame()` for the shared draw skeleton (background, toggle, hit areas)
+  instead of duplicating the same 15 lines each
+- Establishes consistent widget interface for future DazzleNodes library extraction
+
+### References
+- Issue #5: Refactor web/smart_resolution_calc.js into separate class modules
+- Analysis: `2026-03-18__14-24-08__dev-workflow-js-widget-abstraction-strategy.md`
+- Plan: `2026-03-18__14-24-08__claude-plan__dazzle-widget-base-class.md`
+
 ## [0.9.1] - 2026-03-18
+
+### Changed
+- **Phases 7-10: Extract ModeStatusWidget, ImageModeWidget, ColorPickerButton, CopyImageButton**
+  - `web/components/ModeStatusWidget.js`: read-only mode display (~355 lines)
+  - `web/components/ImageModeWidget.js`: USE IMAGE DIMS toggle + mode selector (~301 lines)
+  - `web/components/ColorPickerButton.js`: color picker popup button (~197 lines)
+  - `web/components/CopyImageButton.js`: copy dimensions from connected image (~354 lines)
+  - `web/smart_resolution_calc.js`: 2,720 -> 1,447 lines (73% total reduction from original 5,379)
+  - All 9 widget classes now in separate ES6 modules under `web/components/`
+  - Extraction comment cruft cleaned from orchestrator (~58 lines removed)
 
 ### Changed
 - **Phases 3-6: Extract WidgetValidation, DimensionWidget, SeedWidget, ScaleWidget**

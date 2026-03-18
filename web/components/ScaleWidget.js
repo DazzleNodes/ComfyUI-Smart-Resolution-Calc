@@ -19,16 +19,16 @@
  * - app (ComfyUI global) -- accessed at runtime, not imported
  */
 
+import { DazzleWidget } from './DazzleWidget.js';
 import { InfoIcon } from './TooltipSystem.js';
 import { DimensionSourceManager } from '../managers/dimension_source_manager.js';
 import { logger, dimensionLogger } from '../utils/debug_logger.js';
 import { ImageDimensionUtils } from '../utils/ImageDimensionUtils.js';
 
-class ScaleWidget {
+class ScaleWidget extends DazzleWidget {
     constructor(name, defaultValue = 1.0, config = {}) {
-        this.name = name;
-        this.type = "custom";
-        this.value = defaultValue;
+        super(name, defaultValue, config);
+        // Note: infoIcon already set by DazzleWidget via config.tooltipContent
         this.min = 0.0;
         this.max = 7.0;
 
@@ -42,8 +42,7 @@ class ScaleWidget {
         this.rightStep = 0.1;   // Step size at/above 1.0x
         this.showingSettings = false;
 
-        // Mouse state
-        this.mouseDowned = null;
+        // Additional mouse state (beyond base class)
         this.isDragging = false;
         this.isHovering = false;
         this.tooltipTimeout = null;
@@ -71,8 +70,7 @@ class ScaleWidget {
         this.imageDimensionsCache = null;  // {width, height, timestamp, path}
         this.fetchingDimensions = false;   // Prevent concurrent fetches
 
-        // Tooltip support - label-based tooltip trigger
-        this.infoIcon = config.tooltipContent ? new InfoIcon(config.tooltipContent) : null;
+        // Tooltip support - infoIcon set by DazzleWidget via config.tooltipContent
     }
 
     /**
@@ -1127,19 +1125,10 @@ class ScaleWidget {
         this.value = Math.max(this.min, Math.min(this.max, newValue));
     }
 
-    /**
-     * Check if position is within bounds
-     */
-    isInBounds(pos, bounds) {
-        if (!bounds) return false;  // Guard against undefined bounds
-        return pos[0] >= bounds.x &&
-               pos[0] <= bounds.x + bounds.width &&
-               pos[1] >= bounds.y &&
-               pos[1] <= bounds.y + bounds.height;
-    }
+    // isInBounds() — inherited from DazzleWidget
 
     /**
-     * Compute size for layout
+     * Compute size for layout (custom — settings panel expands height)
      */
     computeSize(width) {
         // Base height: 24px slider

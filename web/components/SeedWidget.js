@@ -18,7 +18,7 @@
  * Data: { on: boolean, value: number } (same structure as DimensionWidget)
  */
 
-import { InfoIcon } from './TooltipSystem.js';
+import { DazzleWidget, WIDGET_MARGIN, WIDGET_INNER_MARGIN, WIDGET_LABEL_FONT, WIDGET_LABEL_COLOR_ON, WIDGET_LABEL_COLOR_OFF } from './DazzleWidget.js';
 import { logger } from '../utils/debug_logger.js';
 
 // ===== Seed Widget Special Values (matching rgthree convention) =====
@@ -28,14 +28,9 @@ const SPECIAL_SEED_DECREMENT = -3;
 const SPECIAL_SEEDS = [SPECIAL_SEED_RANDOM, SPECIAL_SEED_INCREMENT, SPECIAL_SEED_DECREMENT];
 const SEED_MAX = 1125899906842624;  // Match rgthree's max
 
-class SeedWidget {
+class SeedWidget extends DazzleWidget {
     constructor(name, defaultValue = -1, config = {}) {
-        this.name = name;
-        this.type = "custom";
-        this.value = {
-            on: true,
-            value: defaultValue
-        };
+        super(name, { on: true, value: defaultValue }, config);
 
         // Last seed tracking (for recall button)
         this.lastSeed = null;
@@ -45,13 +40,6 @@ class SeedWidget {
         // The value gets updated to the actual seed on each queue (for workflow saving)
         // but resets to -1 before the NEXT queue to trigger a new random.
         this.randomizeMode = false;
-
-        // Mouse state
-        this.mouseDowned = null;
-        this.isMouseDownedAndOver = false;
-
-        // Tooltip support
-        this.infoIcon = config.tooltipContent ? new InfoIcon(config.tooltipContent) : null;
 
         // Hit areas for mouse interaction (updated during draw)
         this.hitAreas = {
@@ -121,32 +109,17 @@ class SeedWidget {
      * Draw the seed widget
      */
     draw(ctx, node, width, y, height) {
-        const margin = 15;
-        const innerMargin = 3;
-        const midY = y + height / 2;
         const isActive = this.value.on;
 
-        ctx.save();
-
-        // Draw background (rounded)
-        ctx.fillStyle = "#1e1e1e";
-        ctx.beginPath();
-        ctx.roundRect(margin, y + 1, width - margin * 2, height - 2, 4);
-        ctx.fill();
-
-        let posX = margin + innerMargin;
-
-        // Draw toggle switch (LEFT side)
-        const toggleWidth = height * 1.5;
-        this.drawToggle(ctx, posX, y, height, isActive);
-        this.hitAreas.toggle = { x: posX, y: y, width: toggleWidth, height: height };
-        posX += toggleWidth + innerMargin * 2;
+        // Draw shared frame: background, toggle, set hitAreas.toggle
+        const { posX: labelX, midY, margin, innerMargin } = this.drawWidgetFrame(ctx, node, width, y, height, isActive);
+        let posX = labelX;
 
         // Draw label
-        ctx.fillStyle = isActive ? "#ffffff" : "#888888";
+        ctx.fillStyle = isActive ? WIDGET_LABEL_COLOR_ON : WIDGET_LABEL_COLOR_OFF;
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.font = "13px sans-serif";
+        ctx.font = WIDGET_LABEL_FONT;
         const labelText = "SEED";
         const labelTextWidth = ctx.measureText(labelText).width;
         ctx.fillText(labelText, posX, midY);
@@ -185,7 +158,13 @@ class SeedWidget {
 
         // Draw number controls (RIGHT side)
         if (isActive) {
-            this.drawNumberWidget(ctx, numberX, y, numberWidth, height, true);
+            // Green tint when randomizeMode active — visual cue that seed changes each queue
+            const backgroundColor = (this.randomizeMode && isActive) ? "#1a2a1a" : undefined;
+            const displayValue = this._formatSeedValue(this.value.value);
+            this.drawNumberWidget(ctx, numberX, y, numberWidth, height, true, {
+                displayValue,
+                backgroundColor
+            });
         } else {
             // Grayed out value (still clickable)
             ctx.fillStyle = "#555555";
@@ -247,99 +226,15 @@ class SeedWidget {
         return String(v);
     }
 
-    /**
-     * Draw toggle switch (same as DimensionWidget)
-     */
-    drawToggle(ctx, x, y, height, state) {
-        const radius = height * 0.36;
-        const bgWidth = height * 1.5;
-
-        ctx.save();
-
-        ctx.beginPath();
-        ctx.roundRect(x + 4, y + 4, bgWidth - 8, height - 8, height * 0.5);
-        ctx.globalAlpha = 0.25;
-        ctx.fillStyle = "rgba(255,255,255,0.45)";
-        ctx.fill();
-        ctx.globalAlpha = 1.0;
-
-        const circleX = state ? x + height : x + height * 0.5;
-        ctx.beginPath();
-        ctx.arc(circleX, y + height * 0.5, radius, 0, Math.PI * 2);
-        ctx.fillStyle = state ? "#4CAF50" : "#888888";
-        ctx.fill();
-
-        ctx.restore();
-    }
-
-    /**
-     * Draw number input with +/- buttons (same pattern as DimensionWidget)
-     */
-    drawNumberWidget(ctx, x, y, width, height, isActive) {
-        const buttonWidth = 18;
-        const midY = y + height / 2;
-
-        ctx.save();
-
-        // Green tint when randomizeMode active — visual cue that seed changes each queue
-        if (this.randomizeMode && isActive) {
-            ctx.fillStyle = "#1a2a1a";
-        } else {
-            ctx.fillStyle = isActive ? "#2a2a2a" : "#1a1a1a";
-        }
-        ctx.beginPath();
-        ctx.roundRect(x, y + 2, width, height - 4, 3);
-        ctx.fill();
-
-        // Decrement [-]
-        ctx.fillStyle = "#444444";
-        ctx.beginPath();
-        ctx.roundRect(x + 2, y + 3, buttonWidth, height - 6, 2);
-        ctx.fill();
-        this.hitAreas.valueDec = { x: x, y: y, width: buttonWidth + 4, height: height };
-
-        ctx.fillStyle = "#ffffff";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.font = "14px sans-serif";
-        ctx.fillText("\u2212", x + buttonWidth / 2 + 2, midY);
-
-        // Value display
-        const valueX = x + buttonWidth + 4;
-        const valueWidth = width - (buttonWidth + 4) * 2;
-        this.hitAreas.valueEdit = { x: valueX, y: y, width: valueWidth, height: height };
-
-        ctx.fillStyle = "#ffffff";
-        ctx.textAlign = "center";
-        ctx.font = "12px monospace";
-        const displayValue = this._formatSeedValue(this.value.value);
-        ctx.fillText(displayValue, valueX + valueWidth / 2, midY);
-
-        // Increment [+]
-        ctx.fillStyle = "#444444";
-        ctx.beginPath();
-        ctx.roundRect(x + width - buttonWidth - 2, y + 3, buttonWidth, height - 6, 2);
-        ctx.fill();
-        this.hitAreas.valueInc = { x: x + width - buttonWidth - 4, y: y, width: buttonWidth + 4, height: height };
-
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText("+", x + width - buttonWidth / 2 - 2, midY);
-
-        ctx.restore();
-    }
+    // drawToggle() — inherited from DazzleWidget (same as DimensionWidget)
+    // drawNumberWidget() — inherited from DazzleWidget; called with { displayValue, backgroundColor } options
 
     /**
      * Handle mouse events
      */
     mouse(event, pos, node) {
         // Check info icon first (tooltip on label)
-        if (this.infoIcon) {
-            const canvasBounds = { width: node.size[0], height: node.size[1] };
-            if (this.infoIcon.mouse(event, pos, canvasBounds, node.pos)) {
-                node.setDirtyCanvas(true);
-                return true;
-            }
-        }
+        if (this.handleTooltipMouse(event, pos, node)) return true;
 
         if (event.type === "pointerdown") {
             this.mouseDowned = [...pos];
@@ -415,23 +310,8 @@ class SeedWidget {
         return false;
     }
 
-    /**
-     * Check if position is within bounds
-     */
-    isInBounds(pos, bounds) {
-        if (!bounds) return false;
-        return pos[0] >= bounds.x &&
-               pos[0] <= bounds.x + bounds.width &&
-               pos[1] >= bounds.y &&
-               pos[1] <= bounds.y + bounds.height;
-    }
-
-    /**
-     * Compute size for layout
-     */
-    computeSize(width) {
-        return [width, 24];
-    }
+    // isInBounds() — inherited from DazzleWidget
+    // computeSize() — inherited from DazzleWidget (24px compact height)
 
     /**
      * Serialize value for workflow JSON.

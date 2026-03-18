@@ -15,29 +15,20 @@
  * - ScaleWidget — referenced via instanceof for image refresh; passed via node.widgets
  */
 
+import { DazzleWidget, WIDGET_MARGIN, WIDGET_INNER_MARGIN, WIDGET_LABEL_FONT, WIDGET_LABEL_COLOR_ON, WIDGET_LABEL_COLOR_OFF } from './DazzleWidget.js';
 import { ToggleBehavior, ValueBehavior } from './WidgetValidation.js';
-import { InfoIcon } from './TooltipSystem.js';
 import { logger } from '../utils/debug_logger.js';
 
-class DimensionWidget {
+class DimensionWidget extends DazzleWidget {
     constructor(name, defaultValue, isInteger = true, config = {}) {
-        this.name = name;
-        this.type = "custom";
+        super(name, { on: false, value: defaultValue }, config);
         this.isInteger = isInteger;
-        this.value = {
-            on: false,
-            value: defaultValue
-        };
 
         // Behavior configuration
         // - Toggle Behavior: Controls when toggle can be enabled/disabled
         // - Value Behavior: Controls when values can be edited
         this.toggleBehavior = config.toggleBehavior ?? ToggleBehavior.SYMMETRIC;
         this.valueBehavior = config.valueBehavior ?? ValueBehavior.ALWAYS;
-
-        // Mouse state
-        this.mouseDowned = null;
-        this.isMouseDownedAndOver = false;
 
         // Hit areas for mouse interaction (updated during draw)
         this.hitAreas = {
@@ -46,9 +37,6 @@ class DimensionWidget {
             valueInc: { x: 0, y: 0, width: 0, height: 0 },
             valueEdit: { x: 0, y: 0, width: 0, height: 0 }
         };
-
-        // Optional tooltip support (only used for MEGAPIXEL)
-        this.infoIcon = config.tooltipContent ? new InfoIcon(config.tooltipContent) : null;
     }
 
     /**
@@ -56,28 +44,12 @@ class DimensionWidget {
      * Height: 24px (compact), Margins: 3px (tight)
      */
     draw(ctx, node, width, y, height) {
-        const margin = 15;
-        const innerMargin = 3;  // Reduced from 5px for tighter layout
-        const midY = y + height / 2;
-
-        ctx.save();
-
-        // Draw background (rounded)
-        ctx.fillStyle = "#1e1e1e";
-        ctx.beginPath();
-        ctx.roundRect(margin, y + 1, width - margin * 2, height - 2, 4);
-        ctx.fill();
-
-        let posX = margin + innerMargin;
-
-        // Draw toggle switch (LEFT side)
-        const toggleWidth = height * 1.5;
-        this.drawToggle(ctx, posX, y, height, this.value.on);
-        this.hitAreas.toggle = { x: posX, y: y, width: toggleWidth, height: height };
-        posX += toggleWidth + innerMargin * 2;
+        // Draw shared frame: background, toggle, set hitAreas.toggle
+        const { posX: labelX, midY, margin, innerMargin } = this.drawWidgetFrame(ctx, node, width, y, height, this.value.on);
+        let posX = labelX;
 
         // Draw label with special handling for megapixel default state
-        let labelColor = this.value.on ? "#ffffff" : "#888888";
+        let labelColor = this.value.on ? WIDGET_LABEL_COLOR_ON : WIDGET_LABEL_COLOR_OFF;
 
         // If megapixel is disabled but acting as default (no other dimensions active), make it whiter
         if (!this.value.on && this.name === "dimension_megapixel") {
@@ -95,7 +67,7 @@ class DimensionWidget {
         ctx.fillStyle = labelColor;
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.font = "13px sans-serif";  // Slightly smaller for compact layout
+        ctx.font = WIDGET_LABEL_FONT;
 
         const labelText = this.name.replace("dimension_", "").replace("_", " ").toUpperCase();
         const labelTextWidth = ctx.measureText(labelText).width;
@@ -108,10 +80,11 @@ class DimensionWidget {
 
         // Draw number controls (RIGHT side)
         const numberWidth = 110;  // Reduced from 120 for compact layout
-        const numberX = width - margin - numberWidth - innerMargin;
+        const numberX = width - WIDGET_MARGIN - numberWidth - WIDGET_INNER_MARGIN;
 
         if (this.value.on) {
-            this.drawNumberWidget(ctx, numberX, y, numberWidth, height, this.value.on);
+            const displayValue = this.isInteger ? String(Math.round(this.value.value)) : this.value.value.toFixed(1);
+            this.drawNumberWidget(ctx, numberX, y, numberWidth, height, this.value.on, { displayValue });
         } else {
             // Draw grayed out value (still clickable to edit - symmetric behavior)
             ctx.fillStyle = "#555555";
@@ -131,84 +104,8 @@ class DimensionWidget {
         ctx.restore();
     }
 
-    /**
-     * Draw toggle switch (rgthree-style)
-     */
-    drawToggle(ctx, x, y, height, state) {
-        const radius = height * 0.36;
-        const bgWidth = height * 1.5;
-
-        ctx.save();
-
-        // Toggle track background
-        ctx.beginPath();
-        ctx.roundRect(x + 4, y + 4, bgWidth - 8, height - 8, height * 0.5);
-        ctx.globalAlpha = 0.25;
-        ctx.fillStyle = "rgba(255,255,255,0.45)";
-        ctx.fill();
-        ctx.globalAlpha = 1.0;
-
-        // Toggle circle
-        const circleX = state ? x + height : x + height * 0.5;
-        ctx.beginPath();
-        ctx.arc(circleX, y + height * 0.5, radius, 0, Math.PI * 2);
-        ctx.fillStyle = state ? "#4CAF50" : "#888888";
-        ctx.fill();
-
-        ctx.restore();
-    }
-
-    /**
-     * Draw number input widget with +/- buttons (compact)
-     */
-    drawNumberWidget(ctx, x, y, width, height, isActive) {
-        const buttonWidth = 18;  // Reduced from 20 for compact layout
-        const midY = y + height / 2;
-
-        ctx.save();
-
-        // Value background
-        ctx.fillStyle = isActive ? "#2a2a2a" : "#1a1a1a";
-        ctx.beginPath();
-        ctx.roundRect(x, y + 2, width, height - 4, 3);
-        ctx.fill();
-
-        // Decrement button [-]
-        ctx.fillStyle = "#444444";
-        ctx.beginPath();
-        ctx.roundRect(x + 2, y + 3, buttonWidth, height - 6, 2);
-        ctx.fill();
-        this.hitAreas.valueDec = { x: x, y: y, width: buttonWidth + 4, height: height };
-
-        ctx.fillStyle = "#ffffff";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.font = "14px sans-serif";
-        ctx.fillText("\u2212", x + buttonWidth / 2 + 2, midY);
-
-        // Value display (clickable to edit)
-        const valueX = x + buttonWidth + 4;
-        const valueWidth = width - (buttonWidth + 4) * 2;
-        this.hitAreas.valueEdit = { x: valueX, y: y, width: valueWidth, height: height };
-
-        ctx.fillStyle = "#ffffff";
-        ctx.textAlign = "center";
-        ctx.font = "12px monospace";
-        const displayValue = this.isInteger ? String(Math.round(this.value.value)) : this.value.value.toFixed(1);
-        ctx.fillText(displayValue, valueX + valueWidth / 2, midY);
-
-        // Increment button [+]
-        ctx.fillStyle = "#444444";
-        ctx.beginPath();
-        ctx.roundRect(x + width - buttonWidth - 2, y + 3, buttonWidth, height - 6, 2);
-        ctx.fill();
-        this.hitAreas.valueInc = { x: x + width - buttonWidth - 4, y: y, width: buttonWidth + 4, height: height };
-
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText("+", x + width - buttonWidth / 2 - 2, midY);
-
-        ctx.restore();
-    }
+    // drawToggle() — inherited from DazzleWidget (rgthree-style ON/OFF pill)
+    // drawNumberWidget() — inherited from DazzleWidget (+/- buttons with value display)
 
     /**
      * Handle mouse events
@@ -217,13 +114,7 @@ class DimensionWidget {
         const canvas = app.canvas;
 
         // Check info icon first (tooltip on label) if configured
-        if (this.infoIcon) {
-            const canvasBounds = { width: node.size[0], height: node.size[1] };
-            if (this.infoIcon.mouse(event, pos, canvasBounds, node.pos)) {
-                node.setDirtyCanvas(true);
-                return true; // Tooltip handled the event
-            }
-        }
+        if (this.handleTooltipMouse(event, pos, node)) return true;
 
         if (event.type === "pointerdown") {
             this.mouseDowned = [...pos];
@@ -313,16 +204,7 @@ class DimensionWidget {
         return false;
     }
 
-    /**
-     * Check if position is within bounds
-     */
-    isInBounds(pos, bounds) {
-        if (!bounds) return false;  // Guard against undefined bounds
-        return pos[0] >= bounds.x &&
-               pos[0] <= bounds.x + bounds.width &&
-               pos[1] >= bounds.y &&
-               pos[1] <= bounds.y + bounds.height;
-    }
+    // isInBounds() — inherited from DazzleWidget
 
     /**
      * Change value by increment
@@ -352,12 +234,7 @@ class DimensionWidget {
         }
     }
 
-    /**
-     * Compute size for layout (compact height)
-     */
-    computeSize(width) {
-        return [width, 24];  // Reduced from 30px for compact layout
-    }
+    // computeSize() — inherited from DazzleWidget (24px compact height)
 
     /**
      * Serialize value for workflow JSON

@@ -7,22 +7,28 @@
  * - visibilityLogger from debug_logger.js
  */
 
+import { DazzleWidget } from './DazzleWidget.js';
 import { visibilityLogger } from '../utils/debug_logger.js';
 
 
 /**
  * Color Picker Button Widget
  * Custom widget that displays a color palette in canvas space for reliable positioning
+ *
+ * Extends DazzleWidget for shared hit testing.
  */
-class ColorPickerButton {
+class ColorPickerButton extends DazzleWidget {
     constructor(name = "color_picker_button", fillColorWidget) {
-        this.name = name;
-        this.type = "custom";  // Must be "custom" for addCustomWidget to route mouse events
-        this.value = null;  // Buttons don't need a value
+        super(name, null, { height: 28 });  // Buttons don't need a value
         this.fillColorWidget = fillColorWidget;  // Reference to fill_color widget for value storage
 
         // State
         this.isHoveringButton = false;
+    }
+
+    serializeValue(node, index) {
+        // Buttons don't serialize - they're action triggers
+        return undefined;
     }
 
     draw(ctx, node, width, y, height) {
@@ -194,17 +200,8 @@ class ColorPickerButton {
         return false;
     }
 
-    isInBounds(pos, bounds) {
-        if (!bounds) return false;  // Guard against undefined bounds
-        return pos[0] >= bounds.x &&
-               pos[0] <= bounds.x + bounds.width &&
-               pos[1] >= bounds.y &&
-               pos[1] <= bounds.y + bounds.height;
-    }
-
-    computeSize(width) {
-        return [width, 28];
-    }
+    // isInBounds() — inherited from DazzleWidget
+    // computeSize() — inherited from DazzleWidget (28px height via config)
 }
 
 export { ColorPickerButton };
