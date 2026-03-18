@@ -69,7 +69,13 @@ def _get_plasma_fast():
     for name, mod in list(sys.modules.items()):
         if mod is None:
             continue
-        mappings = getattr(mod, 'NODE_CLASS_MAPPINGS', None)
+        try:
+            mappings = getattr(mod, 'NODE_CLASS_MAPPINGS', None)
+        except Exception:
+            # Some modules have custom __getattr__ that raise non-AttributeError
+            # exceptions (e.g. ImportError from SeedVR2's compatibility.py).
+            # getattr's default only catches AttributeError, so we catch broadly.
+            continue
         if isinstance(mappings, dict) and 'JDC_OmniNoise' in mappings:
             _plasma_fast_module = mappings
             logger.debug(f"Found dazzle-comfy-plasma-fast via sys.modules: {name}")

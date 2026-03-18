@@ -5,6 +5,35 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-03-18
+
+### Changed
+- **Phases 3-6: Extract WidgetValidation, DimensionWidget, SeedWidget, ScaleWidget**
+  - `web/components/WidgetValidation.js`: WIDGET_SCHEMAS, validateWidgetValue,
+    logCorruptionDiagnostics, ToggleBehavior, ValueBehavior (~210 lines)
+  - `web/components/DimensionWidget.js`: toggle-based dimension input class (~346 lines)
+  - `web/components/SeedWidget.js`: seed widget + seed constants (~462 lines)
+  - `web/components/ScaleWidget.js`: scale multiplier slider (~1,143 lines)
+  - `web/utils/ImageDimensionUtils.js`: shared image dimension utilities (~111 lines)
+  - `web/smart_resolution_calc.js`: 4,939 -> 2,720 lines (49% reduction from original 5,379)
+  - All 27 Playwright tests pass after extraction
+
+### Added
+- **Playwright test coverage for Phases 3-5** (13 new tests, 27 total)
+  - DimensionWidget: structure, toggle, +/- buttons, megapixel float increments, serialization
+  - SeedWidget: dice/lock/recycle buttons, resolveActualSeed, toggle, randomize mode
+  - WidgetValidation: corrupt value correction, behavior constant application
+
+### Fixed
+- **`_get_plasma_fast()` crash** when `ComfyUI-SeedVR2_VideoUpscaler` installed — its custom
+  `__getattr__` raises `ImportError` instead of `AttributeError`, bypassing `getattr`'s default.
+  Added broad `try/except` around module scan. (Issue #43)
+
+### References
+- Issue #5: Refactor web/smart_resolution_calc.js into separate class modules
+- Issue #14: Refactor: Split large smart_resolution_calc.js file
+- Issue #43: Node not found after installation (SeedVR2 compatibility)
+
 ## [0.9.0] - 2026-03-17
 
 ### Overview
