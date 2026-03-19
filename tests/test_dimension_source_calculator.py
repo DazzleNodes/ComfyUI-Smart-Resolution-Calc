@@ -20,12 +20,8 @@ if sys.platform == 'win32':
 # Add py directory to path to import smart_resolution_calc
 sys.path.insert(0, str(Path(__file__).parent.parent / "py"))
 
-# Add ComfyUI root to path for comfy module imports
-comfyui_root = Path("C:/code/ComfyUI_experiment")
-if comfyui_root.exists():
-    sys.path.insert(0, str(comfyui_root))
-
-from smart_resolution_calc import DimensionSourceCalculator
+# DimensionSourceCalculator now in its own module — no ComfyUI dependency needed
+from dimension_calculator import DimensionSourceCalculator
 
 
 def test_priority_1_exact_dims():

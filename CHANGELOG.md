@@ -5,6 +5,29 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.9] - 2026-03-19
+
+### Overview
+Python backend modularization begins. The 2,296-line Python monolith is being
+decomposed into focused modules, mirroring the JS refactoring approach.
+
+### Added
+- **`py/dimension_calculator.py`** (625 lines) — DimensionSourceCalculator extracted from
+  monolith. 6-priority dimension resolution system with zero ComfyUI dependencies.
+  Now independently testable (no CUDA/comfy imports needed).
+- **`py/noise_utils.py`** (234 lines) — Noise generation utilities extracted: DazNoise
+  detection/generation, spectral noise blending (FFT), pil2tensor conversion.
+- **`py/__init__.py`** — Package marker enabling relative imports between py/ modules.
+- **`scripts/extract_lines.py`** — Reusable line-range extraction tool for future modularization.
+
+### Changed
+- **`py/smart_resolution_calc.py`** — reduced from 2,296 to 1,504 lines (35% reduction).
+  DimensionSourceCalculator and noise utilities now imported from extracted modules.
+
+### References
+- Analysis: `2026-03-19__04-46-49__dev-workflow-python-modularization-and-remaining-js.md`
+- Original design: `2025-11-06__14-41-11__smart-res-calc-refactor-design.md`
+
 ## [0.9.8] - 2026-03-19 — JS Refactoring Complete
 
 **Milestone: JavaScript modularization finished (v0.9.0 -> v0.9.8).** The 5,379-line monolith
