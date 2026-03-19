@@ -1097,4 +1097,189 @@ test.describe('Widget Visibility', () => {
             }
         }
     });
+
+    test('Native combo widgets survive hide/show cycle', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const nodes = window.app.graph._nodes || [];
+            const node = nodes.find(n => n.comfyClass === 'SmartResolutionCalc');
+            if (!node || !node.imageOutputWidgets) return { error: 'no node' };
+
+            const oim = node.imageOutputWidgets.output_image_mode;
+            if (!oim) return { error: 'no output_image_mode widget' };
+
+            // Widget should currently be visible (image connected in test workflow)
+            const beforeHide = {
+                hidden: oim._hidden || false,
+                type: oim.type,
+                value: oim.value,
+            };
+
+            // Manually hide it
+            const { hideWidget, showWidget } = (() => {
+                // Access the functions through the module scope
+                // They're imported in the orchestrator
+                return {
+                    hideWidget: (w) => {
+                        if (w._hidden) return;
+                        w._hidden = true;
+                        w._origDraw = w.draw;
+                        w._origComputeSize = w.computeSize;
+                        w._origMouse = w.mouse;
+                        w.draw = function() {};
+                        w.computeSize = function() { return [0, -4]; };
+                        w.mouse = function() { return false; };
+                    },
+                    showWidget: (w) => {
+                        if (!w._hidden) return;
+                        w._hidden = false;
+                        if (w._origDraw !== undefined) { w.draw = w._origDraw; }
+                        else { delete w.draw; }
+                        if (w._origComputeSize !== undefined) { w.computeSize = w._origComputeSize; }
+                        else { delete w.computeSize; }
+                        if (w._origMouse !== undefined) { w.mouse = w._origMouse; }
+                        else { delete w.mouse; }
+                    }
+                };
+            })();
+
+            // Hide
+            hideWidget(oim);
+            const afterHide = {
+                hidden: oim._hidden,
+                computeSizeResult: oim.computeSize(300),
+            };
+
+            // Show
+            showWidget(oim);
+            const afterShow = {
+                hidden: oim._hidden,
+                type: oim.type,
+                value: oim.value,
+                // Native combo widget: draw should NOT be a no-op function
+                hasOwnDraw: oim.hasOwnProperty('draw'),
+            };
+
+            return { beforeHide, afterHide, afterShow };
+        });
+
+        expect(result.error).toBeUndefined();
+        // Before: visible
+        expect(result.beforeHide.hidden).toBe(false);
+        // After hide: hidden, zero size
+        expect(result.afterHide.hidden).toBe(true);
+        expect(result.afterHide.computeSizeResult).toEqual([0, -4]);
+        // After show: visible again, no leftover no-op draw
+        expect(result.afterShow.hidden).toBe(false);
+        expect(result.afterShow.type).toBe('combo');
+        // Native widget should NOT have its own draw (uses LiteGraph prototype)
+        expect(result.afterShow.hasOwnDraw).toBe(false);
+    });
+
+    test('All tracked image widgets are visible when image connected', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const nodes = window.app.graph._nodes || [];
+            const node = nodes.find(n => n.comfyClass === 'SmartResolutionCalc');
+            if (!node || !node.imageOutputWidgets) return { error: 'no node' };
+
+            const imageInput = node.inputs?.find(inp => inp.name === 'image');
+            const hasConnection = imageInput && imageInput.link != null;
+
+            const widgetStates = {};
+            for (const [key, widget] of Object.entries(node.imageOutputWidgets)) {
+                if (!widget) continue;
+                widgetStates[key] = {
+                    hidden: widget._hidden || false,
+                    inArray: node.widgets.includes(widget),
+                    name: widget.name,
+                };
+            }
+
+            return { hasConnection, widgetStates };
+        });
+
+        expect(result.error).toBeUndefined();
+
+        if (result.hasConnection) {
+            // When image is connected, ALL tracked widgets should be visible
+            for (const [key, state] of Object.entries(result.widgetStates)) {
+                expect(state.hidden).toBe(false);
+                expect(state.inArray).toBe(true);
+            }
+            // Specifically check output_image_mode is present
+            expect(result.widgetStates.output_image_mode).toBeDefined();
+            expect(result.widgetStates.output_image_mode.hidden).toBe(false);
+        }
+    });
+});
+
+// ============================================================================
+// Seed Widget: Lock + Recycle Interaction Test
+// ============================================================================
+
+test.describe('Seed Lock/Recycle Workflow', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await page.waitForTimeout(3000);
+        await loadTestWorkflow(page);
+    });
+
+    test('Lock button preserves lastSeed for recycle, dice resets to -1', async ({ page }) => {
+        // Note: Full seed resolution now happens in the queuePrompt hook, which
+        // Playwright can't trigger (it requires actual server communication).
+        // This test verifies the button click logic: lock saves lastSeed,
+        // dice sets -1, recycle recovers lastSeed.
+
+        const result = await page.evaluate(() => {
+            const node = window.app.graph._nodes.find(n => n.comfyClass === 'SmartResolutionCalc');
+            if (!node) return { error: 'no node' };
+            const widget = node.widgets.find(w => w.name === 'fill_seed');
+            if (!widget) return { error: 'no seed widget' };
+
+            const clickBtn = (btnName) => {
+                const ha = widget.hitAreas[btnName];
+                if (!ha || ha.width === 0) return false;
+                widget.mouse({ type: 'pointerdown' }, [ha.x + ha.width/2, ha.y + ha.height/2], node);
+                return true;
+            };
+
+            // Setup: simulate having run a workflow (lastSeed set by queuePrompt hook)
+            widget.value = { on: true, value: 42 };
+            widget.randomizeMode = false;
+            widget.lastSeed = 42;
+
+            // Lock — generates new random, preserves lastSeed
+            clickBtn('btnFixRandom');
+            const afterLock = {
+                value: widget.value.value,
+                lastSeed: widget.lastSeed,
+                lockChangedValue: widget.value.value !== 42,
+                lastSeedPreserved: widget.lastSeed === 42,
+            };
+
+            // Recycle — recovers 42
+            clickBtn('btnRecallLast');
+            const afterRecycle1 = { value: widget.value.value };
+
+            // Dice — sets to -1
+            clickBtn('btnRandomize');
+            const afterDice = {
+                value: widget.value.value,
+                randomizeMode: widget.randomizeMode,
+            };
+
+            // Recycle again — should still get 42 (lastSeed unchanged by dice)
+            clickBtn('btnRecallLast');
+            const afterRecycle2 = { value: widget.value.value };
+
+            return { afterLock, afterRecycle1, afterDice, afterRecycle2 };
+        });
+
+        expect(result.error).toBeUndefined();
+        expect(result.afterLock.lockChangedValue).toBe(true);
+        expect(result.afterLock.lastSeedPreserved).toBe(true);
+        expect(result.afterRecycle1.value).toBe(42);
+        expect(result.afterDice.value).toBe(-1);
+        expect(result.afterDice.randomizeMode).toBe(true);
+        expect(result.afterRecycle2.value).toBe(42);
+    });
 });

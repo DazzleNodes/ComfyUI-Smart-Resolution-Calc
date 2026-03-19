@@ -40,7 +40,8 @@ class SeedWidget extends DazzleToggleWidget {
         // Set by dice button, cleared by lock/recycle/manual entry.
         // The value gets updated to the actual seed on each queue (for workflow saving)
         // but resets to -1 before the NEXT queue to trigger a new random.
-        this.randomizeMode = false;
+        // Default to true when starting with -1 (random) so the green tint shows.
+        this.randomizeMode = (defaultValue === SPECIAL_SEED_RANDOM);
 
         // Hit areas for mouse interaction (updated during draw)
         this.hitAreas = {
@@ -260,20 +261,28 @@ class SeedWidget extends DazzleToggleWidget {
 
             // New Fixed Random button — clears random mode
             if (this.isInBounds(pos, this.hitAreas.btnFixRandom)) {
+                // Save current seed before overwriting so recycle can recover it
+                const previousValue = this.value.value;
+                if (previousValue >= 0) {
+                    this.lastSeed = previousValue;
+                }
                 this.randomizeMode = false;
                 this.value.value = this.generateRandomSeed();
-                logger.debug(`SeedWidget: New Fixed Random (value = ${this.value.value})`);
+                logger.debug(`SeedWidget: New Fixed Random (value = ${this.value.value}, lastSeed = ${this.lastSeed})`);
                 node.setDirtyCanvas(true);
                 return true;
             }
 
             // Recall Last Seed button — clears random mode, locks seed
             if (this.isInBounds(pos, this.hitAreas.btnRecallLast)) {
+                logger.debug(`SeedWidget: Recycle button (lastSeed=${this.lastSeed}, currentValue=${this.value.value})`);
                 if (this.lastSeed != null) {
                     this.randomizeMode = false;
                     this.value.value = this.lastSeed;
                     logger.debug(`SeedWidget: Recall Last Seed (value = ${this.lastSeed})`);
                     node.setDirtyCanvas(true);
+                } else {
+                    logger.debug(`SeedWidget: Recycle - no lastSeed available`);
                 }
                 return true;
             }
@@ -324,25 +333,21 @@ class SeedWidget extends DazzleToggleWidget {
      * This matches rgthree's approach: the workflow saved with a generated image
      * always contains the actual seed used, even when "randomize each time" is on.
      */
+    /**
+     * Serialize value for workflow JSON.
+     *
+     * This is a PURE PASSTHROUGH — no seed resolution happens here.
+     * Seed resolution is handled by the prompt interception hook in
+     * setup() which patches the prompt data right before it's sent
+     * to the server. This avoids the problem where auto-save/serialize
+     * cycles would call serializeValue repeatedly, generating new
+     * random seeds and overwriting lastSeed with values that were
+     * never actually sent to Python.
+     *
+     * The widget value stays at -1 during randomize mode. The actual
+     * resolved seed is only in the prompt data and lastSeed.
+     */
     serializeValue(node, index) {
-        if (this.value.on && (this.randomizeMode || SPECIAL_SEEDS.includes(this.value.value))) {
-            // Resolve to actual seed and update value (so workflow JSON saves it)
-            const resolved = this.resolveActualSeed();
-            this.lastSeed = resolved;
-            // Return a copy with the resolved value for this serialization
-            const data = { on: true, value: resolved };
-            logger.debug(`SeedWidget serializeValue: resolved to ${resolved}, randomizeMode=${this.randomizeMode}`);
-            // If randomizeMode, the widget display stays at -1 for next queue
-            // If not randomizeMode, update the widget value permanently
-            if (!this.randomizeMode) {
-                this.value.value = resolved;
-            }
-            return data;
-        }
-        if (this.value.value >= 0) {
-            this.lastSeed = this.value.value;
-        }
-        logger.debug(`serializeValue called: ${this.name} (index ${index}) =`, this.value);
         return this.value;
     }
 }

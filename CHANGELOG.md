@@ -5,6 +5,61 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.10] - 2026-03-19
+
+### Added
+- **`py/image_utils.py`** — extracted image creation, 4 transform modes, preview generation,
+  latent creation, and get_image_dimensions_from_path as standalone functions (540 lines)
+- **`tests/test_calculation_pipeline.py`** — 23 integration tests for CalculationContext pipeline
+  stages (context defaults, image input handling, dimension resolution, scale/divisibility,
+  seed resolution, output mode, info string assembly)
+- **Seed prompt interception** (`app.api.queuePrompt` hook) — resolves seeds at queue time only,
+  patches prompt and workflow data with resolved values. Follows rgthree's API hijacking pattern.
+  Fixes seed recycle tracking (lastSeed only updated during actual execution, not auto-save).
+- **Seed regression tests** — randomizeMode state tests, lock/recycle workflow test (Vitest + Playwright)
+
+### Changed
+- **CalculationContext pipeline** — `calculate_dimensions()` refactored from 594 to 57 lines.
+  7 named helper methods with typed context object tracking field lifecycle.
+- **`py/smart_resolution_calc.py`** — reduced from 1,504 to 1,024 lines (image utils extracted)
+- **SeedWidget.serializeValue** — now pure passthrough (no seed resolution, no side effects).
+  Seed resolution moved to queuePrompt hook to prevent auto-save cycles from overwriting lastSeed.
+- **SeedWidget constructor** — `randomizeMode` defaults to true when value is -1
+- **Root `__init__.py`** — imports get_image_dimensions_from_path from image_utils
+
+### Fixed
+- **Seed recycle button** — lastSeed now only updated during actual prompt execution (via
+  queuePrompt hook), not during auto-save/serialize cycles that overwrote it with random values
+- **Lock button** — saves current seed to lastSeed before generating new random
+- **Native combo widget visibility** — hideWidget/showWidget now correctly handles native ComfyUI
+  widgets by deleting no-op overrides (output_image_mode was disappearing after hide/show cycle)
+- **randomizeMode on workflow load** — cleared when configure restores a resolved (non-special) seed
+- **Seed in image metadata** — queuePrompt hook patches both widgets_values and
+  widgets_values_by_name in workflow data with resolved seed value
+
+## [0.9.9] - 2026-03-19
+
+### Overview
+Python backend modularization begins. The 2,296-line Python monolith is being
+decomposed into focused modules, mirroring the JS refactoring approach.
+
+### Added
+- **`py/dimension_calculator.py`** (625 lines) — DimensionSourceCalculator extracted from
+  monolith. 6-priority dimension resolution system with zero ComfyUI dependencies.
+  Now independently testable (no CUDA/comfy imports needed).
+- **`py/noise_utils.py`** (234 lines) — Noise generation utilities extracted: DazNoise
+  detection/generation, spectral noise blending (FFT), pil2tensor conversion.
+- **`py/__init__.py`** — Package marker enabling relative imports between py/ modules.
+- **`scripts/extract_lines.py`** — Reusable line-range extraction tool for future modularization.
+
+### Changed
+- **`py/smart_resolution_calc.py`** — reduced from 2,296 to 1,504 lines (35% reduction).
+  DimensionSourceCalculator and noise utilities now imported from extracted modules.
+
+### References
+- Analysis: `2026-03-19__04-46-49__dev-workflow-python-modularization-and-remaining-js.md`
+- Original design: `2025-11-06__14-41-11__smart-res-calc-refactor-design.md`
+
 ## [0.9.8] - 2026-03-19 — JS Refactoring Complete
 
 **Milestone: JavaScript modularization finished (v0.9.0 -> v0.9.8).** The 5,379-line monolith

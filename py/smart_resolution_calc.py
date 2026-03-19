@@ -25,816 +25,156 @@ if not logger.handlers:
 print("[SmartResCalc] Module loaded, DEBUG_ENABLED =", DEBUG_ENABLED)
 
 
-# ===== Optional dependency: dazzle-comfy-plasma-fast noise generators =====
-_plasma_fast_module = None
 
-# Extended fill types available when dazzle-comfy-plasma-fast is installed
-DAZNOISE_FILL_TYPES = [
-    "DazNoise: Pink", "DazNoise: Brown", "DazNoise: Plasma",
-    "DazNoise: Greyscale", "DazNoise: Gaussian",
-]
-
-# Maps DazNoise fill_type values to (NODE_CLASS_MAPPINGS key, method_name, extra_kwargs)
-_DAZNOISE_TYPE_MAP = {
-    "DazNoise: Pink": ("JDC_PinkNoise", "generate_noise", {}),
-    "DazNoise: Brown": ("JDC_BrownNoise", "generate_noise", {}),
-    "DazNoise: Plasma": ("JDC_Plasma", "generate_plasma", {"turbulence": 2.75}),
-    "DazNoise: Greyscale": ("JDC_GreyNoise", "generate_noise", {}),
-    "DazNoise: Gaussian": ("JDC_OmniNoise", "generate_noise", {
-        "noise_type": "Random", "random_distribution": "Gaussian (Centered Gray)",
-    }),
-}
+# ============================================================================
+# Noise utilities (DazNoise, spectral blending, pil2tensor)
+# EXTRACTED to noise_utils.py for modularity and reuse.
+# ============================================================================
+from .noise_utils import (
+    spectral_noise_blend, pil2tensor, _generate_daznoise, _get_plasma_fast,
+    DAZNOISE_FILL_TYPES, _DAZNOISE_TYPE_MAP
+)
 
 
-def _get_plasma_fast():
-    """Detect and return dazzle-comfy-plasma-fast's NODE_CLASS_MAPPINGS if available.
 
-    Searches sys.modules for a module with NODE_CLASS_MAPPINGS containing JDC_OmniNoise
-    (a reliable indicator of dazzle-comfy-plasma-fast). Falls back to path-based importlib.
-    Only caches positive results — re-checks each call until found, since
-    DazzleNodes may load smart-resolution-calc before dazzle-comfy-plasma-fast.
+# ============================================================================
+# DimensionSourceCalculator
+# EXTRACTED to dimension_calculator.py for modularity and reuse.
+# ============================================================================
+from .dimension_calculator import DimensionSourceCalculator
 
-    Returns:
-        dict (NODE_CLASS_MAPPINGS) or None
+# Image creation and transformation functions (extracted from SmartResolutionCalc)
+from .image_utils import (
+    create_empty_image as _create_empty_image,
+    transform_image as _transform_image,
+    transform_image_scale_pad as _transform_image_scale_pad,
+    transform_image_crop_pad as _transform_image_crop_pad,
+    transform_image_scale_crop as _transform_image_scale_crop,
+    create_preview_image as _create_preview_image,
+    create_latent as _create_latent,
+    get_image_dimensions_from_path,
+)
+
+
+
+class CalculationContext:
     """
-    global _plasma_fast_module
-    if _plasma_fast_module is not None:
-        return _plasma_fast_module
+    Pipeline state for calculate_dimensions().
 
-    import sys
+    Accumulates state as the calculation progresses through stages:
+    input parsing -> dimension resolution -> scale/divisibility -> seed ->
+    image generation -> latent generation -> info assembly.
 
-    # Check sys.modules for module with NODE_CLASS_MAPPINGS containing our target nodes.
-    # We check for NODE_CLASS_MAPPINGS (ComfyUI-specific dict) to avoid false positives
-    # from PyTorch's torch.ops which returns True for hasattr() on any attribute name.
-    for name, mod in list(sys.modules.items()):
-        if mod is None:
-            continue
-        try:
-            mappings = getattr(mod, 'NODE_CLASS_MAPPINGS', None)
-        except Exception:
-            # Some modules have custom __getattr__ that raise non-AttributeError
-            # exceptions (e.g. ImportError from SeedVR2's compatibility.py).
-            # getattr's default only catches AttributeError, so we catch broadly.
-            continue
-        if isinstance(mappings, dict) and 'JDC_OmniNoise' in mappings:
-            _plasma_fast_module = mappings
-            logger.debug(f"Found dazzle-comfy-plasma-fast via sys.modules: {name}")
-            print(f"[SmartResCalc] Detected dazzle-comfy-plasma-fast (DazNoise fill types enabled)")
-            return mappings
+    Using a context object instead of 15+ local variables flowing between
+    helper methods eliminates long parameter lists and makes the pipeline
+    stages explicit.
 
-    # Fallback: try known file paths with importlib
-    import importlib.util
-    try:
-        import folder_paths
-        base = folder_paths.base_path
-        candidates = [
-            os.path.join(base, 'custom_nodes', 'dazzle-comfy-plasma-fast', 'nodes.py'),
-            os.path.join(base, 'custom_nodes', 'DazzleNodes', 'nodes', 'dazzle-comfy-plasma-fast', 'nodes.py'),
-        ]
-        for path in candidates:
-            if os.path.exists(path):
-                spec = importlib.util.spec_from_file_location("_plasma_fast_nodes", path)
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                mappings = getattr(mod, 'NODE_CLASS_MAPPINGS', None)
-                if isinstance(mappings, dict):
-                    _plasma_fast_module = mappings
-                    logger.debug(f"Found dazzle-comfy-plasma-fast via path: {path}")
-                    print(f"[SmartResCalc] Detected dazzle-comfy-plasma-fast (DazNoise fill types enabled)")
-                    return mappings
-    except Exception as e:
-        logger.debug(f"Path-based detection failed: {e}")
+    Field lifecycle (which stage populates each field):
 
-    return None
+        Inputs (from ComfyUI — set in __init__):
+            aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
+            batch_size, scale, image, vae, output_image_mode, fill_type,
+            fill_color, blend_strength, fill_image, fill_seed, kwargs
 
+        Parsed from kwargs (__init__):
+            use_image, exact_dims, use_mp, megapixel_val, use_width, width_val,
+            use_height, height_val
 
-def _generate_daznoise(fill_type, width, height):
-    """Generate noise using dazzle-comfy-plasma-fast generators.
+        Populated by _handle_image_input:
+            mode_info, override_warning
+            May modify: custom_ratio, custom_aspect_ratio, use_width, width_val,
+                        use_height, height_val, kwargs
 
-    Args:
-        fill_type: A DazNoise fill type string (e.g., "DazNoise: Pink")
-        width: Image width
-        height: Image height
+        Populated by _resolve_dimensions:
+            w, h, calculated_ar, ratio_display, result, info_detail_base
 
-    Returns:
-        Tensor of shape (1, height, width, 3) with values 0.0-1.0,
-        or None if generator is unavailable.
+        Populated by _apply_scale_and_divisibility:
+            w (scaled+rounded), h (scaled+rounded), mp, info_detail
+
+        Populated by _resolve_seed:
+            seed_active, actual_seed
+
+        Populated by _prepare_output_mode:
+            actual_mode, cache_key
+
+        Populated by _generate_output_image:
+            output_image (torch.Tensor [B, H, W, C])
+
+        Populated by _generate_latent:
+            latent (dict with 'samples' tensor), latent_source (str)
+
+        Populated by _build_info_string:
+            info (str)
+
+        Populated by calculate_dimensions (directly):
+            resolution, preview
     """
-    mappings = _get_plasma_fast()
-    if mappings is None:
-        return None
+    def __init__(self, aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
+                 batch_size, scale, image, vae, output_image_mode, fill_type,
+                 fill_color, blend_strength, fill_image, fill_seed, kwargs):
+        # ===== Inputs (from ComfyUI) =====
+        self.aspect_ratio: str = aspect_ratio
+        self.divisible_by: str = divisible_by
+        self.custom_ratio: bool = custom_ratio
+        self.custom_aspect_ratio: str = custom_aspect_ratio
+        self.batch_size: int = batch_size
+        self.scale: float = max(0.0, scale)
+        self.image = image                    # Optional[torch.Tensor] — [B, H, W, C]
+        self.vae = vae                        # Optional — ComfyUI VAE object
+        self.output_image_mode: str = output_image_mode
+        self.fill_type: str = fill_type
+        self.fill_color: str = fill_color
+        self.blend_strength: float = blend_strength
+        self.fill_image = fill_image          # Optional[torch.Tensor]
+        self.fill_seed = fill_seed            # Optional[dict] — {on: bool, value: int}
+        self.kwargs: dict = kwargs
 
-    node_id, method_name, extra_kwargs = _DAZNOISE_TYPE_MAP[fill_type]
-    generator_class = mappings.get(node_id)
-    if generator_class is None:
-        logger.warning(f"Node '{node_id}' not found in dazzle-comfy-plasma-fast NODE_CLASS_MAPPINGS")
-        return None
+        # ===== Image mode (parsed from kwargs) =====
+        image_mode = kwargs.get('image_mode', {'on': False, 'value': 0})
+        self.use_image: bool = image_mode.get('on', False) if isinstance(image_mode, dict) else False
+        self.exact_dims: bool = image_mode.get('value', 0) == 1 if isinstance(image_mode, dict) else False
+        self.mode_info: str = None            # Populated by _handle_image_input
+        self.override_warning: bool = False   # Populated by _handle_image_input
 
-    generator = generator_class()
-    # py_random was seeded by fill_seed earlier, so this randint is deterministic
-    # when seed widget is ON. The py_random state determines the DazNoise seed.
-    seed = py_random.randint(0, 2**32 - 1)
-    generate_fn = getattr(generator, method_name)
-    logger.debug(f"DazNoise: fill_type='{fill_type}', node_id='{node_id}', method='{method_name}', "
-                 f"generator_seed={seed} (derived from py_random state), size={width}x{height}")
+        # ===== Widget state (parsed from kwargs) =====
+        self.use_mp: bool = kwargs.get('dimension_megapixel', {}).get('on', False)
+        self.megapixel_val: float = float(kwargs.get('dimension_megapixel', {}).get('value', 1.0))
+        self.use_width: bool = kwargs.get('dimension_width', {}).get('on', False)
+        self.width_val: int = int(kwargs.get('dimension_width', {}).get('value', 1920))
+        self.use_height: bool = kwargs.get('dimension_height', {}).get('on', False)
+        self.height_val: int = int(kwargs.get('dimension_height', {}).get('value', 1080))
 
-    try:
-        result = generate_fn(
-            width=width, height=height,
-            value_min=-1, value_max=-1,
-            red_min=-1, red_max=-1,
-            green_min=-1, green_max=-1,
-            blue_min=-1, blue_max=-1,
-            seed=seed,
-            **extra_kwargs
-        )
-        tensor = result[0]  # Unwrap from (tensor,) tuple
-        logger.debug(f"DazNoise result: shape={tensor.shape}, min={tensor.min():.4f}, max={tensor.max():.4f}, mean={tensor.mean():.4f}")
-        return tensor
-    except Exception as e:
-        logger.error(f"DazNoise generation failed for '{fill_type}': {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return None
+        # ===== Dimension resolution (populated by _resolve_dimensions) =====
+        self.w: int = 0
+        self.h: int = 0
+        self.mp: float = 0.0
+        self.divisor: int = 1 if divisible_by == "Exact" else int(divisible_by)
+        self.ratio_display: str = ""
+        self.calculated_ar: str = ""
+        self.result: dict = None              # DimensionSourceCalculator output
+        self.info_detail_base: str = ""
+        self.info_detail: str = ""
 
+        # ===== Seed state (populated by _resolve_seed) =====
+        self.seed_active: bool = False
+        self.actual_seed: int = 0
 
-def spectral_noise_blend(pattern, gaussian, alpha=0.5, cutoff=0.2):
-    """Blend structured noise pattern into Gaussian noise via spectral interpolation.
+        # ===== Output state (populated by pipeline stages) =====
+        self.actual_mode: str = output_image_mode  # Populated by _prepare_output_mode
+        self.cache_key: tuple = None               # Populated by _prepare_output_mode
+        self.output_image = None              # Populated by _generate_output_image — torch.Tensor [B, H, W, C]
+        self.preview = None                   # Populated by calculate_dimensions — torch.Tensor
+        self.latent: dict = None              # Populated by _generate_latent — {samples: tensor}
+        self.latent_source: str = "Empty"     # Populated by _generate_latent
+        self.resolution: str = ""             # Populated by calculate_dimensions
+        self.info: str = ""                   # Populated by _build_info_string
 
-    Injects the low-frequency spatial structure of `pattern` into `gaussian` noise
-    while preserving Gaussian statistics at each frequency bin. Uses power-preserving
-    quadrature weights (sin/cos) to maintain correct variance.
-
-    Args:
-        pattern: Structured noise tensor (same shape as gaussian). Can be any
-                 distribution — will be normalized to match Gaussian power.
-        gaussian: Pure Gaussian noise tensor (torch.randn output).
-        alpha: Blend strength 0.0-1.0. 0.0=pure Gaussian, 1.0=maximum blend.
-        cutoff: Low-frequency cutoff as fraction of Nyquist (0.0-1.0).
-                0.2 = blob-scale structure (~5 latent pixels = ~40 pixel-space pixels).
-
-    Returns:
-        Blended tensor with approximately N(0,1) per-channel statistics.
-    """
-    import math
-
-    if alpha <= 0.0:
-        return gaussian
-    alpha = min(alpha, 1.0)
-
-    H, W_spatial = gaussian.shape[-2], gaussian.shape[-1]
-    device = gaussian.device
-    dtype = gaussian.dtype
-
-    # Ensure pattern is on the same device as gaussian
-    pattern = pattern.to(device=device, dtype=dtype)
-
-    # FFT both inputs (operates on last two dims = spatial H, W)
-    F_gaussian = torch.fft.rfft2(gaussian, dim=(-2, -1))
-    F_pattern = torch.fft.rfft2(pattern, dim=(-2, -1))
-
-    # Normalize pattern FFT to match Gaussian expected power (global RMS)
-    expected_rms = (H * W_spatial) ** 0.5
-    pattern_rms = torch.sqrt(
-        (torch.abs(F_pattern) ** 2).mean(dim=(-2, -1), keepdim=True) + 1e-8
-    )
-    F_pattern_norm = F_pattern * (expected_rms / (pattern_rms + 1e-8))
-
-    # Build radial frequency mask with Gaussian rolloff
-    freq_h = torch.fft.fftfreq(H, device=device, dtype=dtype)
-    freq_w = torch.fft.rfftfreq(W_spatial, device=device, dtype=dtype)
-    Fu, Fv = torch.meshgrid(freq_h, freq_w, indexing="ij")
-    radial_norm = torch.sqrt(Fu ** 2 + Fv ** 2) / 0.5  # normalize: 1.0 = Nyquist
-
-    W_mask = torch.exp(-0.5 * (radial_norm / cutoff) ** 2)
-    # Expand to broadcast over batch and channel dims
-    while W_mask.ndim < F_gaussian.ndim:
-        W_mask = W_mask.unsqueeze(0)
-
-    # Power-preserving quadrature blend at full strength
-    # sin^2 + cos^2 = 1 guarantees power preservation at each frequency bin
-    W_q = torch.sin(W_mask * (math.pi / 2))
-    one_minus_W_q = torch.cos(W_mask * (math.pi / 2))
-    F_full_blend = W_q * F_pattern_norm + one_minus_W_q * F_gaussian
-
-    # Interpolate between pure Gaussian and full blend by alpha
-    F_blended = (1.0 - alpha) * F_gaussian + alpha * F_full_blend
-
-    # IFFT back to spatial domain
-    blended = torch.fft.irfft2(F_blended, s=(H, W_spatial), dim=(-2, -1))
-
-    # Post-blend per-channel normalization to unit std (safety correction)
-    # This is the universal rule from the literature: always renormalize after
-    # any spectral manipulation to maintain N(0,1) statistics
-    std = blended.std(dim=(-2, -1), keepdim=True)
-    blended = blended / (std + 1e-8)
-
-    return blended
-
-
-def pil2tensor(image):
-    """Convert PIL image to tensor in the correct format"""
-    return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
-
-
-class DimensionSourceCalculator:
-    """
-    Python equivalent of JavaScript DimensionSourceManager.
-
-    Manages dimension source priority and aspect ratio determination.
-    Implements complete state machine with 6 priority levels to resolve dimension/AR conflicts.
-
-    Priority Hierarchy:
-    1. USE IMAGE DIMS = Exact Dims (absolute override)
-    2. MP + W + H (scalar with AR from W:H)
-    3. Explicit Dimensions (W+H, MP+W, MP+H)
-    4. USE IMAGE DIMS = AR Only
-    5. Single dimension with AR (W/H/MP + AR source)
-    6. Defaults with AR
-
-    Related Issues: #15 (umbrella), #16 (implementation), #19 (Python parity)
-    """
-
-    def __init__(self):
-        """Initialize dimension source calculator"""
-        pass
-
-    def calculate_dimension_source(self, widgets, runtime_context=None):
+    def to_tuple(self) -> tuple:
+        """Return the final output tuple for ComfyUI.
+        Returns: (megapixels, width, height, seed, preview, image, latent, info)
         """
-        Determine active dimension source and calculate base dimensions.
-        Returns complete calculation context including mode, dimensions, AR, conflicts.
-
-        Args:
-            widgets (dict): Widget state dictionary with keys:
-                - width_enabled, width_value
-                - height_enabled, height_value
-                - mp_enabled, mp_value
-                - image_mode_enabled, image_mode_value (0=AR Only, 1=Exact Dims)
-                - custom_ratio_enabled
-                - custom_aspect_ratio (text)
-                - aspect_ratio_dropdown (dropdown selection)
-            runtime_context (dict): Runtime data including:
-                - image_info: dict with width, height (if image loaded)
-                - exact_dims: bool (whether exact dims mode is active)
-
-        Returns:
-            dict: {
-                'mode': str,           # e.g. "mp_width_explicit"
-                'priority': int,       # 1-6
-                'baseW': int,
-                'baseH': int,
-                'source': str,         # e.g. "widgets_mp_computed"
-                'ar': dict,            # {ratio, aspectW, aspectH}
-                'conflicts': list,     # [{type, severity, message, affectedWidgets}]
-                'description': str,    # e.g. "MP+W: 1200×1250 (...)"
-                'activeSources': list  # e.g. ['WIDTH', 'MEGAPIXEL']
-            }
-        """
-        runtime_context = runtime_context or {}
-
-        logger.debug(f'[Calculator] widgets: {widgets}')
-        logger.debug(f'[Calculator] runtime_context: {runtime_context}')
-
-        # PRIORITY 1: Exact Dims mode
-        if widgets.get('image_mode_enabled') and widgets.get('image_mode_value') == 1:
-            logger.debug('[Calculator] Taking Priority 1: Exact Dims')
-            return self._calculate_exact_dims(widgets, runtime_context)
-
-        # Check which dimension widgets are enabled
-        has_mp = widgets.get('mp_enabled', False)
-        has_width = widgets.get('width_enabled', False)
-        has_height = widgets.get('height_enabled', False)
-
-        logger.debug(f'[Calculator] has_mp: {has_mp}, has_width: {has_width}, has_height: {has_height}')
-
-        # PRIORITY 2: WIDTH + HEIGHT + MEGAPIXEL (all three)
-        if has_mp and has_width and has_height:
-            logger.debug('[Calculator] Taking Priority 2: MP+W+H')
-            return self._calculate_mp_scalar_with_ar(widgets)
-
-        # PRIORITY 3: Explicit dimensions (three variants)
-        if has_width and has_height:
-            logger.debug('[Calculator] Taking Priority 3: W+H explicit')
-            return self._calculate_width_height_explicit(widgets)
-        if has_mp and has_width:
-            logger.debug('[Calculator] Taking Priority 3: MP+W explicit')
-            return self._calculate_mp_width_explicit(widgets)
-        if has_mp and has_height:
-            logger.debug('[Calculator] Taking Priority 3: MP+H explicit')
-            return self._calculate_mp_height_explicit(widgets)
-
-        # PRIORITY 4: AR Only mode (image AR + dimension widgets)
-        # PRIORITY 4: AR Only mode
-        if widgets.get('image_mode_enabled') and widgets.get('image_mode_value') == 0:
-            logger.debug('[Calculator] Taking Priority 4: AR Only')
-            return self._calculate_ar_only(widgets, runtime_context)
-
-        # PRIORITY 5: Single dimension with AR
-        if has_width:
-            logger.debug('[Calculator] Taking Priority 5: Width with AR')
-            return self._calculate_width_with_ar(widgets)
-        if has_height:
-            logger.debug('[Calculator] Taking Priority 5: Height with AR')
-            return self._calculate_height_with_ar(widgets)
-        if has_mp:
-            logger.debug('[Calculator] Taking Priority 5: MP with AR')
-            return self._calculate_mp_with_ar(widgets)
-
-        # PRIORITY 6: Defaults
-        logger.debug('[Calculator] Taking Priority 6: Defaults')
-        return self._calculate_defaults(widgets)
-
-    # ========================================
-    # Priority Level Implementations
-    # ========================================
-
-    def _calculate_exact_dims(self, widgets, runtime_context):
-        """Priority 1: USE IMAGE DIMS = Exact Dims
-
-        Returns actual dimensions when image_info available, or pending state
-        when user enabled Exact Dims but image data not yet available (e.g., generator nodes).
-        """
-        image_info = runtime_context.get('image_info')
-
-        if not image_info:
-            # User wants image dimensions but data unavailable (generator node, pre-execution)
-            # Return pending state preserving user intent
-            logger.debug('[Calculator] Exact Dims requested but image_info unavailable - returning pending state')
-            return {
-                'mode': 'exact_dims_pending',
-                'priority': 1,
-                'baseW': None,  # Explicitly None, not undefined
-                'baseH': None,
-                'source': 'image_pending',
-                'ar': {
-                    'aspectW': None,
-                    'aspectH': None,
-                    'ratio': None,
-                    'source': 'image_pending'
-                },
-                'conflicts': [],
-                'description': 'IMG Exact Dims (awaiting image data)',
-                'activeSources': []
-            }
-
-        # Image info available - normal calculation
-        w = image_info['width']
-        h = image_info['height']
-        ar = self._compute_ar_from_dimensions(w, h)
-
-        return {
-            'mode': 'exact_dims',
-            'priority': 1,
-            'baseW': w,
-            'baseH': h,
-            'source': 'image',
-            'ar': ar,
-            'conflicts': self._detect_conflicts('exact_dims', widgets),
-            'description': 'USE IMAGE DIMS = Exact Dims (overrides all widgets)',
-            'activeSources': []
-        }
-
-    def _calculate_mp_scalar_with_ar(self, widgets):
-        """Priority 2: WIDTH + HEIGHT + MEGAPIXEL (scalar with AR from W:H)"""
-        w = widgets['width_value']
-        h = widgets['height_value']
-        target_mp = widgets['mp_value'] * 1_000_000
-
-        # Compute AR from WIDTH/HEIGHT
-        ar = self._compute_ar_from_dimensions(w, h)
-
-        # Scale to MEGAPIXEL target maintaining AR
-        # Solve: scaledW × scaledH = targetMP, scaledW/scaledH = ar['ratio']
-        import math
-        scaled_h = math.sqrt(target_mp / ar['ratio'])
-        scaled_w = scaled_h * ar['ratio']
-
-        return {
-            'mode': 'mp_scalar_with_ar',
-            'priority': 2,
-            'baseW': round(scaled_w),
-            'baseH': round(scaled_h),
-            'source': 'widgets_mp_scalar',
-            'ar': ar,
-            'conflicts': self._detect_conflicts('mp_scalar_with_ar', widgets),
-            'description': f"MP+W+H: AR {ar['aspectW']}:{ar['aspectH']} from {w}×{h}, scaled to {widgets['mp_value']}MP",
-            'activeSources': ['WIDTH', 'HEIGHT', 'MEGAPIXEL']
-        }
-
-    def _calculate_width_height_explicit(self, widgets):
-        """Priority 3a: WIDTH + HEIGHT (both specified)"""
-        w = widgets['width_value']
-        h = widgets['height_value']
-        ar = self._compute_ar_from_dimensions(w, h)
-
-        return {
-            'mode': 'width_height_explicit',
-            'priority': 3,
-            'baseW': w,
-            'baseH': h,
-            'source': 'widgets_explicit',
-            'ar': ar,
-            'conflicts': self._detect_conflicts('width_height_explicit', widgets),
-            'description': f"Explicit dimensions: {w}×{h} (AR {ar['aspectW']}:{ar['aspectH']} implied)",
-            'activeSources': ['WIDTH', 'HEIGHT']
-        }
-
-    def _calculate_mp_width_explicit(self, widgets):
-        """Priority 3b: WIDTH + MEGAPIXEL → calculate height"""
-        w = widgets['width_value']
-        target_mp = widgets['mp_value'] * 1_000_000
-
-        # Calculate: H = (MP × 1,000,000) / W
-        h = round(target_mp / w) if w > 0 else 1080
-        if w <= 0:
-            logger.warning(f'[Calculator] Invalid width ({w}) in MP+W mode, using fallback H=1080')
-
-        ar = self._compute_ar_from_dimensions(w, h)
-
-        return {
-            'mode': 'mp_width_explicit',
-            'priority': 3,
-            'baseW': w,
-            'baseH': h,
-            'source': 'widgets_mp_computed',
-            'ar': ar,
-            'conflicts': self._detect_conflicts('mp_width_explicit', widgets),
-            'description': f"MP+W: {w}×{h} (H computed from {widgets['mp_value']}MP, AR {ar['aspectW']}:{ar['aspectH']} implied)",
-            'activeSources': ['WIDTH', 'MEGAPIXEL']
-        }
-
-    def _calculate_mp_height_explicit(self, widgets):
-        """Priority 3c: HEIGHT + MEGAPIXEL → calculate width"""
-        h = widgets['height_value']
-        target_mp = widgets['mp_value'] * 1_000_000
-
-        # Calculate: W = (MP × 1,000,000) / H
-        w = round(target_mp / h) if h > 0 else 1920
-        if h <= 0:
-            logger.warning(f'[Calculator] Invalid height ({h}) in MP+H mode, using fallback W=1920')
-
-        ar = self._compute_ar_from_dimensions(w, h)
-
-        return {
-            'mode': 'mp_height_explicit',
-            'priority': 3,
-            'baseW': w,
-            'baseH': h,
-            'source': 'widgets_mp_computed',
-            'ar': ar,
-            'conflicts': self._detect_conflicts('mp_height_explicit', widgets),
-            'description': f"MP+H: {w}×{h} (W computed from {widgets['mp_value']}MP, AR {ar['aspectW']}:{ar['aspectH']} implied)",
-            'activeSources': ['HEIGHT', 'MEGAPIXEL']
-        }
-
-    def _get_primary_dimension_source(self, widgets):
-        """
-        Determine which dimension source would be active in AR Only mode.
-
-        Returns the primary dimension source name based on widget state:
-        - 'WIDTH' if width enabled
-        - 'HEIGHT' if height enabled
-        - 'MEGAPIXEL' if megapixel enabled
-        - 'defaults' if no dimension widgets enabled
-
-        Args:
-            widgets: Widget state dictionary
-
-        Returns:
-            str: Dimension source name ('WIDTH', 'HEIGHT', 'MEGAPIXEL', or 'defaults')
-        """
-        if widgets.get('width_enabled', False):
-            return 'WIDTH'
-        elif widgets.get('height_enabled', False):
-            return 'HEIGHT'
-        elif widgets.get('mp_enabled', False):
-            return 'MEGAPIXEL'
-        else:
-            return 'defaults'
-
-    def _calculate_ar_only(self, widgets, runtime_context):
-        """Priority 4: USE IMAGE DIMS = AR Only (image AR + dimension widgets)
-
-        Returns image AR with dimension widget when image_info available, or pending state
-        when user enabled AR Only but image data not yet available (e.g., generator nodes).
-        """
-        image_info = runtime_context.get('image_info')
-
-        if not image_info:
-            # User wants AR Only but data unavailable (generator node, pre-execution)
-            # Return pending state preserving user intent
-            dimension_source = self._get_primary_dimension_source(widgets)
-
-            logger.debug(f'[Calculator] AR Only requested but image_info unavailable - returning pending state with {dimension_source}')
-
-            return {
-                'mode': 'ar_only_pending',
-                'priority': 4,
-                'baseW': None,  # Explicitly None, not undefined
-                'baseH': None,
-                'source': 'image_pending',
-                'ar': {
-                    'aspectW': None,
-                    'aspectH': None,
-                    'ratio': None,
-                    'source': 'image_pending'
-                },
-                'conflicts': [],
-                'description': f"{dimension_source} & IMG AR Only (awaiting image data)",
-                'activeSources': [dimension_source] if dimension_source != 'defaults' else []
-            }
-
-        # Get image AR
-        img_w = image_info['width']
-        img_h = image_info['height']
-        image_ar = self._compute_ar_from_dimensions(img_w, img_h)
-
-        # Use image AR with dimension widgets
-        has_width = widgets.get('width_enabled', False)
-        has_height = widgets.get('height_enabled', False)
-        has_mp = widgets.get('mp_enabled', False)
-
-        if has_width:
-            base_w = widgets['width_value']
-            base_h = round(base_w / image_ar['ratio'])
-            dimension_source = 'WIDTH'
-        elif has_height:
-            base_h = widgets['height_value']
-            base_w = round(base_h * image_ar['ratio'])
-            dimension_source = 'HEIGHT'
-        elif has_mp:
-            target_mp = widgets['mp_value'] * 1_000_000
-            import math
-            base_h = math.sqrt(target_mp / image_ar['ratio'])
-            base_w = round(base_h * image_ar['ratio'])
-            base_h = round(base_h)
-            dimension_source = 'MEGAPIXEL'
-        else:
-            # No dimension widget, use defaults with image AR
-            default_mp = 1.0 * 1_000_000
-            import math
-            base_h = math.sqrt(default_mp / image_ar['ratio'])
-            base_w = round(base_h * image_ar['ratio'])
-            base_h = round(base_h)
-            dimension_source = 'defaults'
-
-        return {
-            'mode': 'ar_only',
-            'priority': 4,
-            'baseW': base_w,
-            'baseH': base_h,
-            'source': 'image_ar',
-            'ar': image_ar,
-            'conflicts': self._detect_conflicts('ar_only', widgets),
-            'description': f"{dimension_source} & image_ar: {image_ar['aspectW']}:{image_ar['aspectH']} ({img_w}×{img_h})",
-            'activeSources': [dimension_source] if dimension_source != 'defaults' else []
-        }
-
-    def _calculate_width_with_ar(self, widgets):
-        """Priority 5a: WIDTH + Aspect Ratio"""
-        w = widgets['width_value']
-        ar = self._get_active_aspect_ratio(widgets)
-        h = round(w / ar['ratio'])
-
-        return {
-            'mode': 'width_with_ar',
-            'priority': 5,
-            'baseW': w,
-            'baseH': h,
-            'source': 'widget_with_ar',
-            'ar': ar,
-            'conflicts': self._detect_conflicts('width_with_ar', widgets),
-            'description': f"WIDTH {w} with AR {ar['aspectW']}:{ar['aspectH']} ({ar['source']})",
-            'activeSources': ['WIDTH']
-        }
-
-    def _calculate_height_with_ar(self, widgets):
-        """Priority 5b: HEIGHT + Aspect Ratio"""
-        h = widgets['height_value']
-        ar = self._get_active_aspect_ratio(widgets)
-        w = round(h * ar['ratio'])
-
-        return {
-            'mode': 'height_with_ar',
-            'priority': 5,
-            'baseW': w,
-            'baseH': h,
-            'source': 'widget_with_ar',
-            'ar': ar,
-            'conflicts': self._detect_conflicts('height_with_ar', widgets),
-            'description': f"HEIGHT {h} with AR {ar['aspectW']}:{ar['aspectH']} ({ar['source']})",
-            'activeSources': ['HEIGHT']
-        }
-
-    def _calculate_mp_with_ar(self, widgets):
-        """Priority 5c: MEGAPIXEL + Aspect Ratio"""
-        target_mp = widgets['mp_value'] * 1_000_000
-        ar = self._get_active_aspect_ratio(widgets)
-
-        import math
-        h = math.sqrt(target_mp / ar['ratio'])
-        w = h * ar['ratio']
-
-        return {
-            'mode': 'mp_with_ar',
-            'priority': 5,
-            'baseW': round(w),
-            'baseH': round(h),
-            'source': 'widget_with_ar',
-            'ar': ar,
-            'conflicts': self._detect_conflicts('mp_with_ar', widgets),
-            'description': f"MEGAPIXEL {widgets['mp_value']}MP with AR {ar['aspectW']}:{ar['aspectH']} ({ar['source']})",
-            'activeSources': ['MEGAPIXEL']
-        }
-
-    def _calculate_defaults(self, widgets):
-        """Priority 6: Defaults (1.0 MP + Aspect Ratio)"""
-        ar = self._get_active_aspect_ratio(widgets)
-        default_mp = 1.0 * 1_000_000
-
-        import math
-        h = math.sqrt(default_mp / ar['ratio'])
-        w = h * ar['ratio']
-
-        return {
-            'mode': 'defaults_with_ar',
-            'priority': 6,
-            'baseW': round(w),
-            'baseH': round(h),
-            'source': 'defaults',
-            'ar': ar,
-            'conflicts': [],
-            'description': f"Defaults: 1.0MP with AR {ar['aspectW']}:{ar['aspectH']} ({ar['source']})",
-            'activeSources': []
-        }
-
-    # ========================================
-    # Aspect Ratio Determination
-    # ========================================
-
-    def _get_active_aspect_ratio(self, widgets):
-        """
-        Get active aspect ratio based on context.
-        Priority: custom_ratio > dropdown aspect_ratio
-
-        Note: Image AR is handled separately in Priority 4 (AR Only mode)
-        """
-        # Priority 1: custom_ratio (if enabled)
-        if widgets.get('custom_ratio_enabled'):
-            custom_ar_text = widgets.get('custom_aspect_ratio', '1:1')
-            return self._parse_custom_aspect_ratio(custom_ar_text)
-
-        # Priority 2: aspect_ratio dropdown
-        ar_value = widgets.get('aspect_ratio_dropdown', '16:9 (HD Video/YouTube/TV)')
-        return self._parse_dropdown_aspect_ratio(ar_value)
-
-    # ========================================
-    # Helper Methods
-    # ========================================
-
-    def _compute_ar_from_dimensions(self, w, h):
-        """Compute aspect ratio from dimensions using GCD reduction"""
-        divisor = gcd(w, h)
-        aspect_w = w // divisor
-        aspect_h = h // divisor
-        ratio = w / h
-
-        return {
-            'ratio': ratio,
-            'aspectW': aspect_w,
-            'aspectH': aspect_h
-        }
-
-    def _parse_custom_aspect_ratio(self, text):
-        """Parse custom aspect ratio text (e.g. '16:9' or '2.39:1')"""
-        import re
-
-        # Handle case where text is a number instead of string (widget value bug)
-        if not isinstance(text, str):
-            text = str(text)
-
-        # Match patterns like "16:9" or "2.39:1"
-        match = re.match(r'^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$', text.strip())
-        if match:
-            w = float(match.group(1))
-            h = float(match.group(2))
-            return {
-                'ratio': w / h,
-                'aspectW': w,
-                'aspectH': h,
-                'source': 'custom_ratio'
-            }
-
-        # Fallback to 16:9
-        logger.warning(f'[Calculator] Invalid custom AR text: "{text}", falling back to 16:9')
-        return {
-            'ratio': 16 / 9,
-            'aspectW': 16,
-            'aspectH': 9,
-            'source': 'fallback'
-        }
-
-    def _parse_dropdown_aspect_ratio(self, value):
-        """Parse dropdown aspect ratio (e.g. '16:9 (HD Video/YouTube/TV)' → 16:9)"""
-        import re
-
-        # Extract "W:H" from dropdown text
-        match = re.match(r'^(\d+):(\d+)', value)
-        if match:
-            w = int(match.group(1))
-            h = int(match.group(2))
-            return {
-                'ratio': w / h,
-                'aspectW': w,
-                'aspectH': h,
-                'source': 'dropdown'
-            }
-
-        # Fallback to 16:9
-        logger.warning(f'[Calculator] Invalid dropdown AR: "{value}", falling back to 16:9')
-        return {
-            'ratio': 16 / 9,
-            'aspectW': 16,
-            'aspectH': 9,
-            'source': 'fallback'
-        }
-
-    def _detect_conflicts(self, active_mode, widgets):
-        """
-        Detect conflicts between active mode and widget states.
-        Returns list of conflict dicts: {type, severity, message, affectedWidgets}
-        """
-        conflicts = []
-
-        # Exact Dims conflicts
-        if active_mode == 'exact_dims':
-            if widgets.get('width_enabled') or widgets.get('height_enabled'):
-                conflicts.append({
-                    'type': 'exact_dims_overrides_widgets',
-                    'severity': 'info',
-                    'message': '⚠️ Exact Dims mode ignores WIDTH/HEIGHT toggles',
-                    'affectedWidgets': ['dimension_width', 'dimension_height']
-                })
-            if widgets.get('mp_enabled'):
-                conflicts.append({
-                    'type': 'exact_dims_overrides_mp',
-                    'severity': 'info',
-                    'message': '⚠️ Exact Dims mode ignores MEGAPIXEL setting',
-                    'affectedWidgets': ['dimension_megapixel']
-                })
-
-        # MP Scalar conflicts (Priority 2)
-        if active_mode == 'mp_scalar_with_ar':
-            if widgets.get('custom_ratio_enabled'):
-                conflicts.append({
-                    'type': 'mp_scalar_overrides_custom_ar',
-                    'severity': 'warning',
-                    'message': '⚠️ WIDTH+HEIGHT creates explicit AR, overriding custom_ratio',
-                    'affectedWidgets': ['custom_ratio', 'custom_aspect_ratio']
-                })
-            if widgets.get('image_mode_enabled') and widgets.get('image_mode_value') == 0:
-                conflicts.append({
-                    'type': 'mp_scalar_overrides_image_ar',
-                    'severity': 'warning',
-                    'message': '⚠️ WIDTH+HEIGHT creates explicit AR, overriding image AR',
-                    'affectedWidgets': ['image_mode']
-                })
-
-        # Explicit dimension conflicts (Priority 3)
-        if active_mode in ['width_height_explicit', 'mp_width_explicit', 'mp_height_explicit']:
-            if widgets.get('custom_ratio_enabled'):
-                conflicts.append({
-                    'type': 'explicit_dims_overrides_custom_ar',
-                    'severity': 'warning',
-                    'message': '⚠️ Explicit dimensions create implied AR, overriding custom_ratio',
-                    'affectedWidgets': ['custom_ratio', 'custom_aspect_ratio']
-                })
-            if widgets.get('image_mode_enabled') and widgets.get('image_mode_value') == 0:
-                conflicts.append({
-                    'type': 'explicit_dims_overrides_image_ar',
-                    'severity': 'warning',
-                    'message': '⚠️ Explicit dimensions create implied AR, overriding image AR',
-                    'affectedWidgets': ['image_mode']
-                })
-            # Dropdown AR is always overridden by explicit dimensions (info level)
-            conflicts.append({
-                'type': 'explicit_dims_overrides_dropdown_ar',
-                'severity': 'info',
-                'message': '⚠️ Explicit dimensions create implied AR, ignoring dropdown',
-                'affectedWidgets': ['aspect_ratio']
-            })
-
-        # AR Only conflicts
-        if active_mode == 'ar_only':
-            if widgets.get('custom_ratio_enabled'):
-                conflicts.append({
-                    'type': 'ar_only_overrides_custom',
-                    'severity': 'warning',
-                    'message': '⚠️ AR Only mode uses image AR, overriding custom_ratio',
-                    'affectedWidgets': ['custom_ratio', 'custom_aspect_ratio']
-                })
-
-        return conflicts
+        return (self.mp, self.w, self.h, self.actual_seed,
+                self.preview, self.output_image, self.latent, self.info)
 
 
 class SmartResolutionCalc:
@@ -961,85 +301,8 @@ class SmartResolutionCalc:
             if fill_seed.get('on', False):
                 return float("NaN")  # Always re-execute when seed is active
         return ""  # Default: let ComfyUI cache normally
+    # get_image_dimensions_from_path extracted to image_utils.py
 
-    @staticmethod
-    def get_image_dimensions_from_path(image_path):
-        """
-        Extract image dimensions from a file path using PIL.
-
-        Security: Validates path is within ComfyUI directories before reading.
-        Handles both full paths and filenames (searches in input directory).
-
-        Args:
-            image_path: Absolute path, relative path, or filename
-
-        Returns:
-            dict: {'width': int, 'height': int, 'success': bool, 'error': str}
-        """
-        try:
-            import folder_paths
-
-            # Check for directory traversal attempts early
-            if '..' in image_path:
-                logger.warning(f"Rejected path with traversal attempt: {image_path}")
-                return {
-                    'success': False,
-                    'error': 'Invalid path'
-                }
-
-            # If image_path is just a filename (no path separators), look in input directory
-            if not os.path.dirname(image_path):
-                # Just a filename - construct path in input directory
-                input_dir = folder_paths.get_input_directory()
-                abs_path = os.path.join(input_dir, image_path)
-                logger.debug(f"Filename detected, using input directory: {abs_path}")
-            else:
-                # Has directory components - normalize as absolute path
-                abs_path = os.path.abspath(image_path)
-
-            # Security: Only allow paths within ComfyUI directories
-            allowed_dirs = [
-                os.path.abspath(folder_paths.get_input_directory()),
-                os.path.abspath(folder_paths.get_output_directory()),
-                os.path.abspath(folder_paths.get_temp_directory()),
-            ]
-
-            # Check if path is within allowed directories
-            is_allowed = any(abs_path.startswith(allowed_dir) for allowed_dir in allowed_dirs)
-
-            if not is_allowed:
-                logger.warning(f"Rejected path outside allowed directories: {abs_path}")
-                return {
-                    'success': False,
-                    'error': 'Path outside allowed directories'
-                }
-
-            # Check file exists
-            if not os.path.exists(abs_path):
-                logger.debug(f"File not found: {abs_path}")
-                return {
-                    'success': False,
-                    'error': f'File not found: {os.path.basename(abs_path)}'
-                }
-
-            # Read image dimensions using PIL
-            with Image.open(abs_path) as img:
-                width, height = img.size
-                logger.debug(f"Successfully read dimensions: {width}×{height} from {abs_path}")
-                return {
-                    'width': width,
-                    'height': height,
-                    'success': True
-                }
-
-        except Exception as e:
-            logger.error(f"Error reading image dimensions: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-
-    @staticmethod
     def calculate_dimensions_api(widgets, runtime_context=None):
         """
         API endpoint method for dimension calculation.
@@ -1203,14 +466,16 @@ class SmartResolutionCalc:
             scale: Scale multiplier for dimensions
             image: Optional input image for dimension extraction or transformation
             vae: Optional VAE for encoding image output to latent
-                 • If provided: Encodes output_image to latent (img2img workflow)
-                 • If None: Generates empty latent (txt2img workflow)
+                 - If provided: Encodes output_image to latent (img2img workflow)
+                 - If None: Generates empty latent (txt2img workflow)
             output_image_mode: Image output transformation mode
             fill_type: Fill pattern for empty images
             fill_color: Hex color for custom fill
+            blend_strength: Spectral blend strength for noise-to-latent pipeline
+            fill_image: Optional custom fill image (overrides fill_type)
             fill_seed: Seed widget data {on: bool, value: number} for noise RNG (hidden)
-                 • on=True: Seeds RNG for reproducible noise fills
-                 • on=False: Passthrough, no RNG seeding
+                 - on=True: Seeds RNG for reproducible noise fills
+                 - on=False: Passthrough, no RNG seeding
             **kwargs: Widget data from JavaScript containing dimension toggles
 
         kwargs contains widget data from JavaScript:
@@ -1222,16 +487,24 @@ class SmartResolutionCalc:
         }
 
         Priority order (first match wins):
-        1. Width + Height → calculate megapixels, infer aspect ratio
-        2. Width + Aspect Ratio → calculate height, then megapixels
-        3. Height + Aspect Ratio → calculate width, then megapixels
-        4. Megapixels + Aspect Ratio → calculate both dimensions
-        5. None active → default to 1.0 MP + aspect ratio
+        1. Width + Height -> calculate megapixels, infer aspect ratio
+        2. Width + Aspect Ratio -> calculate height, then megapixels
+        3. Height + Aspect Ratio -> calculate width, then megapixels
+        4. Megapixels + Aspect Ratio -> calculate both dimensions
+        5. None active -> default to 1.0 MP + aspect ratio
+
+        Pipeline stages (each populates the CalculationContext):
+        1. _handle_image_input() -- extract dims/AR from connected image
+        2. _resolve_dimensions() -- run DimensionSourceCalculator
+        3. _apply_scale_and_divisibility() -- scale + round to divisor
+        4. _resolve_seed() -- resolve seed value from widget data
+        5. _generate_output_image() -- generate image (5 modes + caching)
+        6. _generate_latent() -- generate latent (3 paths + caching)
+        7. _build_info_string() -- assemble info output
 
         Returns:
             Tuple: (megapixels, width, height, seed, preview, image, latent, info)
         """
-
         # ALWAYS log that function was called (critical diagnostic)
         print(f"[SmartResCalc] calculate_dimensions() CALLED - aspect_ratio={aspect_ratio}, divisible_by={divisible_by}")
 
@@ -1240,302 +513,292 @@ class SmartResolutionCalc:
         logger.debug(f"kwargs keys received: {list(kwargs.keys())}")
         logger.debug(f"kwargs contents: {kwargs}")
 
-        # Image input handling - extract dimensions from connected image
-        # image_mode widget: {on: bool, value: 0|1} - 0=AR Only, 1=Exact Dims
-        mode_info = None
-        override_warning = False
-        image_mode = kwargs.get('image_mode', {'on': False, 'value': 0})  # Default: DISABLED, AR Only
-        use_image = image_mode.get('on', False) if isinstance(image_mode, dict) else False
-        exact_dims = image_mode.get('value', 0) == 1 if isinstance(image_mode, dict) else False
+        # Create pipeline context with all inputs
+        ctx = CalculationContext(
+            aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
+            batch_size, scale, image, vae, output_image_mode, fill_type,
+            fill_color, blend_strength, fill_image, fill_seed, kwargs
+        )
 
+        # Pipeline stages
+        self._handle_image_input(ctx)
+        self._resolve_dimensions(ctx)
+        self._apply_scale_and_divisibility(ctx)
+        self._resolve_seed(ctx)
+
+        # Preview (always generated, never modified)
+        ctx.resolution = f"{ctx.w} x {ctx.h}"
+        ctx.preview = _create_preview_image(ctx.w, ctx.h, ctx.resolution, ctx.ratio_display, ctx.mp)
+
+        # Image + latent generation
+        self._prepare_output_mode(ctx)
+        ctx.output_image = self._generate_output_image(
+            ctx.actual_mode, ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color,
+            ctx.batch_size, ctx.fill_image, ctx.cache_key, ctx.seed_active, ctx.actual_seed
+        )
+        ctx.latent, ctx.latent_source = self._generate_latent(
+            ctx.vae, ctx.image, ctx.output_image, ctx.actual_mode, ctx.w, ctx.h,
+            ctx.batch_size, ctx.fill_type, ctx.fill_image, ctx.blend_strength,
+            ctx.seed_active, ctx.actual_seed, ctx.cache_key
+        )
+
+        # Info string assembly
+        self._build_info_string(ctx)
+
+        # ALWAYS log final results
+        print(f"[SmartResCalc] RESULT: {ctx.info}, resolution={ctx.resolution}")
+        logger.debug(f"Returning: mp={ctx.mp}, w={ctx.w}, h={ctx.h}, resolution={ctx.resolution}, info={ctx.info}")
+
+        return ctx.to_tuple()
+
+    def _handle_image_input(self, ctx):
+        """Stage 1: Extract dimensions or AR from connected image."""
         # Debug: Log image_mode state
-        logger.debug(f"image_mode from kwargs: {image_mode}, use_image={use_image}, exact_dims={exact_dims}, image={'connected' if image is not None else 'None'}")
+        logger.debug(f"image_mode: use_image={ctx.use_image}, exact_dims={ctx.exact_dims}, image={'connected' if ctx.image is not None else 'None'}")
 
-        if image is not None and use_image:
-            # Extract dimensions from first image in batch
-            # Image tensor shape: [batch, height, width, channels]
-            h, w = image.shape[1], image.shape[2]
-            actual_ar = self.format_aspect_ratio(w, h)
+        if ctx.image is None or not ctx.use_image:
+            return
 
-            logger.debug(f"Image input detected: {w}×{h}, AR: {actual_ar}, mode={image_mode}")
+        # Image tensor shape: [batch, height, width, channels]
+        h, w = ctx.image.shape[1], ctx.image.shape[2]
+        actual_ar = self.format_aspect_ratio(w, h)
+        logger.debug(f"Image input detected: {w}x{h}, AR: {actual_ar}")
 
-            if exact_dims:
-                # Check if manual WIDTH or HEIGHT settings will be overridden
-                manual_width = kwargs.get('dimension_width', {}).get('on', False)
-                manual_height = kwargs.get('dimension_height', {}).get('on', False)
-                if manual_width or manual_height:
-                    override_warning = True
-                    logger.debug(f"Override warning: Manual W/H settings detected but will be ignored in exact dims mode")
+        if ctx.exact_dims:
+            # Check if manual WIDTH or HEIGHT settings will be overridden
+            manual_width = ctx.kwargs.get('dimension_width', {}).get('on', False)
+            manual_height = ctx.kwargs.get('dimension_height', {}).get('on', False)
+            if manual_width or manual_height:
+                ctx.override_warning = True
+                logger.debug(f"Override warning: Manual W/H settings detected but will be ignored in exact dims mode")
 
-                # Force Width+Height mode with extracted dimensions
-                # Apply scale to extracted dimensions
-                kwargs['dimension_width'] = {'on': True, 'value': int(w * scale)}
-                kwargs['dimension_height'] = {'on': True, 'value': int(h * scale)}
-                mode_info = f"From Image (Exact: {w}×{h})"
-                if scale != 1.0:
-                    mode_info += f" @ {scale}x"
-                logger.debug(f"Exact dimensions mode: forcing width={int(w * scale)}, height={int(h * scale)}")
-            else:
-                # Extract AR only, use with current megapixel calculation
-                custom_ratio = True
-                custom_aspect_ratio = actual_ar
-                mode_info = f"From Image (AR: {actual_ar})"
-                logger.debug(f"AR extraction mode: using AR {actual_ar} with existing megapixel logic")
+            # Force Width+Height mode with extracted dimensions (apply scale)
+            ctx.kwargs['dimension_width'] = {'on': True, 'value': int(w * ctx.scale)}
+            ctx.kwargs['dimension_height'] = {'on': True, 'value': int(h * ctx.scale)}
+            ctx.use_width = True
+            ctx.width_val = int(w * ctx.scale)
+            ctx.use_height = True
+            ctx.height_val = int(h * ctx.scale)
+            ctx.mode_info = f"From Image (Exact: {w}x{h})"
+            if ctx.scale != 1.0:
+                ctx.mode_info += f" @ {ctx.scale}x"
+            logger.debug(f"Exact dimensions mode: forcing width={ctx.width_val}, height={ctx.height_val}")
+        else:
+            # Extract AR only, use with current megapixel calculation
+            ctx.custom_ratio = True
+            ctx.custom_aspect_ratio = actual_ar
+            ctx.mode_info = f"From Image (AR: {actual_ar})"
+            logger.debug(f"AR extraction mode: using AR {actual_ar} with existing megapixel logic")
 
-        # Extract widget toggle states and values
-        use_mp = kwargs.get('dimension_megapixel', {}).get('on', False)
-        megapixel_val = float(kwargs.get('dimension_megapixel', {}).get('value', 1.0))
-
-        use_width = kwargs.get('dimension_width', {}).get('on', False)
-        width_val = int(kwargs.get('dimension_width', {}).get('value', 1920))
-
-        use_height = kwargs.get('dimension_height', {}).get('on', False)
-        height_val = int(kwargs.get('dimension_height', {}).get('value', 1080))
-
+    def _resolve_dimensions(self, ctx):
+        """Stage 2: Run DimensionSourceCalculator and extract base dimensions."""
         # Debug: Log extracted widget values
-        logger.debug(f"Extracted widget states: use_mp={use_mp} (val={megapixel_val}), use_width={use_width} (val={width_val}), use_height={use_height} (val={height_val})")
+        logger.debug(f"Extracted widget states: use_mp={ctx.use_mp} (val={ctx.megapixel_val}), "
+                     f"use_width={ctx.use_width} (val={ctx.width_val}), "
+                     f"use_height={ctx.use_height} (val={ctx.height_val})")
 
-        # Get aspect ratio string
-        if custom_ratio and custom_aspect_ratio:
-            ratio_str = custom_aspect_ratio
-            ratio_display = custom_aspect_ratio
-        else:
-            ratio_str = aspect_ratio.split(' ')[0]  # "3:4 (Golden Ratio)" → "3:4"
-            ratio_display = ratio_str
-
-        logger.debug(f"Aspect ratio: {ratio_str} (display: {ratio_display})")
-
-        # Parse aspect ratio (supports floats for cinema ratios like 1.85:1, 2.39:1)
-        try:
-            parts = ratio_str.strip().split(':')
-            if len(parts) != 2:
-                raise ValueError(f"Invalid ratio format: '{ratio_str}' (expected 'width:height')")
-
-            w_ratio = float(parts[0])
-            h_ratio = float(parts[1])
-
-            # Validate positive values
-            if w_ratio <= 0:
-                raise ValueError(f"Width ratio must be positive, got: {w_ratio}")
-            if h_ratio <= 0:
-                raise ValueError(f"Height ratio must be positive, got: {h_ratio}")
-
-        except ValueError as e:
-            # Fallback to default aspect ratio on error
-            logger.error(f"Invalid custom aspect ratio '{ratio_str}': {e}")
-            print(f"[SmartResCalc] ERROR: {e}. Using default 16:9.")
-            w_ratio, h_ratio = 16.0, 9.0
-
-        # Handle divisibility - "Exact" means no rounding (divisor=1)
-        if divisible_by == "Exact":
-            divisor = 1
-        else:
-            divisor = int(divisible_by)
-
-        logger.debug(f"Parsed: w_ratio={w_ratio}, h_ratio={h_ratio}, divisor={divisor}")
-
-        # ========================================
-        # Use DimensionSourceCalculator for dimension calculation
-        # ========================================
-        # Build widgets dict from kwargs
+        # Build widgets dict for calculator
         widgets = {
-            'width_enabled': use_width,
-            'width_value': width_val,
-            'height_enabled': use_height,
-            'height_value': height_val,
-            'mp_enabled': use_mp,
-            'mp_value': megapixel_val,
-            'image_mode_enabled': use_image,
-            'image_mode_value': 1 if exact_dims else 0,  # 0=AR Only, 1=Exact Dims
-            'custom_ratio_enabled': custom_ratio,
-            'custom_aspect_ratio': custom_aspect_ratio if custom_ratio else '16:9',
-            'aspect_ratio_dropdown': aspect_ratio
+            'width_enabled': ctx.use_width,
+            'width_value': ctx.width_val,
+            'height_enabled': ctx.use_height,
+            'height_value': ctx.height_val,
+            'mp_enabled': ctx.use_mp,
+            'mp_value': ctx.megapixel_val,
+            'image_mode_enabled': ctx.use_image,
+            'image_mode_value': 1 if ctx.exact_dims else 0,
+            'custom_ratio_enabled': ctx.custom_ratio,
+            'custom_aspect_ratio': ctx.custom_aspect_ratio if ctx.custom_ratio else '16:9',
+            'aspect_ratio_dropdown': ctx.aspect_ratio
         }
 
         # Build runtime context (includes image info if available)
         runtime_context = {}
-        if image is not None and use_image:
-            # Extract dimensions from first image in batch
-            # Image tensor shape: [batch, height, width, channels]
-            img_h, img_w = image.shape[1], image.shape[2]
-            runtime_context['image_info'] = {
-                'width': img_w,
-                'height': img_h
-            }
+        if ctx.image is not None and ctx.use_image:
+            img_h, img_w = ctx.image.shape[1], ctx.image.shape[2]
+            runtime_context['image_info'] = {'width': img_w, 'height': img_h}
 
-        # Create calculator and get dimension source
+        # Calculate dimensions
         calculator = DimensionSourceCalculator()
-        result = calculator.calculate_dimension_source(widgets, runtime_context)
+        ctx.result = calculator.calculate_dimension_source(widgets, runtime_context)
 
         # Handle pending states (image mode enabled but no image connected)
         # Fall back to defaults with dropdown AR when baseW/baseH are None
-        if result['baseW'] is None or result['baseH'] is None:
-            logger.warning(f"[Calculator] Pending state detected ({result['mode']}), falling back to defaults")
+        if ctx.result['baseW'] is None or ctx.result['baseH'] is None:
+            logger.warning(f"[Calculator] Pending state detected ({ctx.result['mode']}), falling back to defaults")
             print(f"[SmartResCalc] WARNING: Image mode enabled but no image connected - using defaults")
             # Recalculate without image mode to get valid dimensions
             widgets_fallback = widgets.copy()
             widgets_fallback['image_mode_enabled'] = False
-            result = calculator.calculate_dimension_source(widgets_fallback, runtime_context)
+            ctx.result = calculator.calculate_dimension_source(widgets_fallback, runtime_context)
 
-        # Extract base dimensions and metadata from calculator result
-        w = result['baseW']
-        h = result['baseH']
-        calculated_ar = f"{result['ar']['aspectW']}:{result['ar']['aspectH']}"
+        ctx.w = ctx.result['baseW']
+        ctx.h = ctx.result['baseH']
+        ctx.calculated_ar = f"{ctx.result['ar']['aspectW']}:{ctx.result['ar']['aspectH']}"
+        ctx.ratio_display = ctx.calculated_ar
 
-        # For ratio_display: use calculated AR (GCD-reduced from actual dimensions)
-        ratio_display = calculated_ar
+        # Build info detail base from priority
+        self._build_info_detail_base(ctx)
 
-        # Mode for logging (internal description)
-        mode = result['description']
+        logger.debug(f"Calculator result: mode={ctx.result['mode']}, priority={ctx.result['priority']}, baseW={ctx.w}, baseH={ctx.h}, AR={ctx.calculated_ar}")
+        logger.debug(f"Mode description: {ctx.result['description']}")
 
-        # Info detail base (will be enhanced with scale/div info below)
+    def _build_info_detail_base(self, ctx):
+        """Build the info detail base string from calculator priority."""
+        result = ctx.result
+        w, h = ctx.w, ctx.h
+
         if result['priority'] == 1:  # Exact Dims
-            info_detail_base = f"From Image: {w}×{h}"
+            ctx.info_detail_base = f"From Image: {w}x{h}"
         elif result['priority'] == 2:  # MP+W+H Scalar
-            info_detail_base = f"AR from W×H, scaled to {megapixel_val}MP"
+            ctx.info_detail_base = f"AR from WxH, scaled to {ctx.megapixel_val}MP"
         elif result['priority'] == 3:  # Explicit dimensions
             if result['mode'] == 'width_height_explicit':
-                info_detail_base = f"Base W: {w} × H: {h}"
+                ctx.info_detail_base = f"Base W: {w} x H: {h}"
             elif result['mode'] == 'mp_width_explicit':
-                info_detail_base = f"Calculated H: {h} from {megapixel_val}MP"
+                ctx.info_detail_base = f"Calculated H: {h} from {ctx.megapixel_val}MP"
             elif result['mode'] == 'mp_height_explicit':
-                info_detail_base = f"Calculated W: {w} from {megapixel_val}MP"
+                ctx.info_detail_base = f"Calculated W: {w} from {ctx.megapixel_val}MP"
         elif result['priority'] == 4:  # AR Only
-            # Show which dimension source is active and what was calculated
-            active_sources = result.get('activeSources', [])
-            if 'WIDTH' in active_sources:
-                info_detail_base = f"WIDTH: {w}, calculated H: {h} from image AR {calculated_ar}"
-            elif 'HEIGHT' in active_sources:
-                info_detail_base = f"HEIGHT: {h}, calculated W: {w} from image AR {calculated_ar}"
-            elif 'MEGAPIXEL' in active_sources:
-                info_detail_base = f"Calculated {w}×{h} from {megapixel_val}MP and image AR {calculated_ar}"
+            active = result.get('activeSources', [])
+            if 'WIDTH' in active:
+                ctx.info_detail_base = f"WIDTH: {w}, calculated H: {h} from image AR {ctx.calculated_ar}"
+            elif 'HEIGHT' in active:
+                ctx.info_detail_base = f"HEIGHT: {h}, calculated W: {w} from image AR {ctx.calculated_ar}"
+            elif 'MEGAPIXEL' in active:
+                ctx.info_detail_base = f"Calculated {w}x{h} from {ctx.megapixel_val}MP and image AR {ctx.calculated_ar}"
             else:
-                # defaults with image AR
-                info_detail_base = f"Calculated {w}×{h} from default 1.0MP and image AR {calculated_ar}"
+                ctx.info_detail_base = f"Calculated {w}x{h} from default 1.0MP and image AR {ctx.calculated_ar}"
         elif result['priority'] == 5:  # Single dimension with AR
-            if 'WIDTH' in result.get('activeSources', []):
-                info_detail_base = f"Calculated H: {h}"
-            elif 'HEIGHT' in result.get('activeSources', []):
-                info_detail_base = f"Calculated W: {w}"
-            elif 'MEGAPIXEL' in result.get('activeSources', []):
-                info_detail_base = f"Calculated W: {w} × H: {h}"
+            active = result.get('activeSources', [])
+            if 'WIDTH' in active:
+                ctx.info_detail_base = f"Calculated H: {h}"
+            elif 'HEIGHT' in active:
+                ctx.info_detail_base = f"Calculated W: {w}"
+            elif 'MEGAPIXEL' in active:
+                ctx.info_detail_base = f"Calculated W: {w} x H: {h}"
         else:  # Priority 6: Defaults
-            info_detail_base = f"W: {w} × H: {h}"
+            ctx.info_detail_base = f"W: {w} x H: {h}"
 
-        logger.debug(f"Calculator result: mode={result['mode']}, priority={result['priority']}, baseW={w}, baseH={h}, AR={calculated_ar}")
-        logger.debug(f"Mode description: {mode}")
-
-        # Apply scale multiplier
-        # Clamp scale to minimum 0.0 (user requirement: allow 0 but it's clamped by default)
-        scale = max(0.0, scale)
-
+    def _apply_scale_and_divisibility(self, ctx):
+        """Stage 3: Apply scale multiplier and divisibility rounding."""
         # Warn if scale is very high
-        if scale > 7.0:
-            logger.warning(f"Scale {scale}x exceeds recommended maximum (7x). This may cause out-of-memory errors.")
-            print(f"[SmartResCalc] WARNING: Scale {scale}x is very high and may exceed GPU limits")
+        if ctx.scale > 7.0:
+            logger.warning(f"Scale {ctx.scale}x exceeds recommended maximum (7x). This may cause out-of-memory errors.")
+            print(f"[SmartResCalc] WARNING: Scale {ctx.scale}x is very high and may exceed GPU limits")
 
-        # Apply scale to base dimensions (keep float precision for accurate divisibility rounding)
-        w_scaled = w * scale
-        h_scaled = h * scale
+        # Apply scale (keep float precision for accurate rounding)
+        w_scaled = ctx.w * ctx.scale
+        h_scaled = ctx.h * ctx.scale
 
         # Warn if scaled dimensions exceed typical GPU limits
         if w_scaled > 16384 or h_scaled > 16384:
-            logger.warning(f"Scaled dimensions {w_scaled:.1f}×{h_scaled:.1f} exceed typical GPU texture limits (16384px)")
-            print(f"[SmartResCalc] WARNING: Dimensions {int(w_scaled)}×{int(h_scaled)} may exceed GPU limits")
+            logger.warning(f"Scaled dimensions {w_scaled:.1f}x{h_scaled:.1f} exceed typical GPU texture limits (16384px)")
+            print(f"[SmartResCalc] WARNING: Dimensions {int(w_scaled)}x{int(h_scaled)} may exceed GPU limits")
 
-        # Apply divisibility rounding (Python uses banker's rounding - rounds .5 to nearest even)
-        # This matches the behavior after fixing JavaScript tooltip to use banker's rounding
-        w = int(round(w_scaled / divisor) * divisor)
-        h = int(round(h_scaled / divisor) * divisor)
+        # Apply divisibility rounding (Python banker's rounding)
+        ctx.w = int(round(w_scaled / ctx.divisor) * ctx.divisor)
+        ctx.h = int(round(h_scaled / ctx.divisor) * ctx.divisor)
+        ctx.mp = (ctx.w * ctx.h) / 1_000_000
 
-        # Recalculate megapixels after scaling and rounding
-        mp = (w * h) / 1_000_000
-
-        # Build info detail string
-        if scale != 1.0:
-            info_detail = f"{info_detail_base} | Scale: {scale}x | Final: {w}×{h} | MP: {mp:.2f}"
+        # Build info detail with scale info
+        if ctx.scale != 1.0:
+            ctx.info_detail = f"{ctx.info_detail_base} | Scale: {ctx.scale}x | Final: {ctx.w}x{ctx.h} | MP: {ctx.mp:.2f}"
         else:
-            info_detail = f"{info_detail_base} | MP: {mp:.2f}"
+            ctx.info_detail = f"{ctx.info_detail_base} | MP: {ctx.mp:.2f}"
 
-        # Generate outputs
-        resolution = f"{w} x {h}"  # Used for preview display and logging
-
-        # ===== SEED RESOLUTION =====
+    def _resolve_seed(self, ctx):
+        """Stage 4: Resolve seed value from widget data."""
         # The JS SeedWidget resolves special values (-1=random, -2=inc, -3=dec)
         # to actual seed numbers BEFORE sending to Python via serializeValue().
-        # Python should always receive a real seed number (>= 0) when seed is ON.
-        #
-        # The -1/-2/-3 fallback below is VESTIGIAL — it exists only as a safety net
-        # for edge cases where JS doesn't resolve (e.g., old workflows, direct API
-        # calls). Under normal operation, this branch should never be hit.
-        seed_active = False
-        actual_seed = 0
+        # The -1/-2/-3 fallback below is VESTIGIAL — safety net for edge cases.
+        if ctx.fill_seed is not None and isinstance(ctx.fill_seed, dict):
+            ctx.seed_active = ctx.fill_seed.get('on', False)
+            seed_value = int(ctx.fill_seed.get('value', -1))
 
-        if fill_seed is not None and isinstance(fill_seed, dict):
-            seed_active = fill_seed.get('on', False)
-            seed_value = int(fill_seed.get('value', -1))
-
-            if seed_active:
+            if ctx.seed_active:
                 if seed_value in (-1, -2, -3):
-                    # VESTIGIAL: JS should have resolved these before sending.
-                    # This fallback generates a Python-side random if JS didn't resolve.
-                    # Under normal operation this branch should NOT be reached.
-                    logger.warning(f"Received unresolved special seed value {seed_value} from JS — generating Python-side random (this is unexpected)")
-                    actual_seed = py_random.randint(0, 1125899906842624)
+                    # VESTIGIAL: JS should have resolved these before sending
+                    logger.warning(f"Received unresolved special seed {seed_value} from JS — generating random")
+                    ctx.actual_seed = py_random.randint(0, 1125899906842624)
                 else:
-                    actual_seed = seed_value
-
-                logger.debug(f"Fill seed active: will seed RNG with {actual_seed}")
+                    ctx.actual_seed = seed_value
+                logger.debug(f"Fill seed active: will seed RNG with {ctx.actual_seed}")
             else:
                 # OFF mode: passthrough literal value, no RNG seeding
-                actual_seed = seed_value
-                logger.debug(f"Fill seed OFF: passthrough value {actual_seed}")
+                ctx.actual_seed = seed_value
+                logger.debug(f"Fill seed OFF: passthrough value {ctx.actual_seed}")
         else:
             # No seed data (backward compat with pre-v0.8.0 workflows)
-            actual_seed = 0
+            ctx.actual_seed = 0
             logger.debug("No fill_seed data, using default (unseeded)")
 
-        # ===== PREVIEW OUTPUT (UNCHANGED) =====
-        # Always generate preview grid visualization (1024x1024)
-        # This output is NEVER modified - maintains exact current behavior
-        preview = self.create_preview_image(w, h, resolution, ratio_display, mp)
+    def _prepare_output_mode(self, ctx):
+        """Resolve 'auto' mode and set cache key before image/latent generation."""
+        ctx.actual_mode = ctx.output_image_mode
+        if ctx.output_image_mode == "auto":
+            ctx.actual_mode = "transform (distort)" if ctx.image is not None else "empty"
+            logger.debug(f"Smart default: 'auto' -> '{ctx.actual_mode}'")
 
-        # ===== IMAGE OUTPUT =====
+        # Guard: Transform modes require input image
+        if ctx.actual_mode.startswith("transform") and ctx.image is None:
+            logger.warning(f"Transform mode '{ctx.actual_mode}' requires input image, using 'empty'")
+            ctx.actual_mode = "empty"
+
+        ctx.cache_key = (ctx.fill_type, ctx.actual_seed if ctx.seed_active else None,
+                         ctx.w, ctx.h, ctx.batch_size, ctx.fill_image is not None)
+
+    def _build_info_string(self, ctx):
+        """Stage 7: Assemble the info output string."""
+        import re
+
+        div_info = "Exact" if ctx.divisible_by == "Exact" else str(ctx.divisor)
+        ctx.calculated_ar = self.format_aspect_ratio(ctx.w, ctx.h)
+        mode_display = ctx.result['description']
+
+        logger.debug(f"Mode display from calculator: '{mode_display}' (priority={ctx.result['priority']}, mode={ctx.result['mode']}, conflicts={len(ctx.result['conflicts'])})")
+
+        base_info = f"Mode: {mode_display} | {ctx.info_detail}"
+
+        # Add AR if not already mentioned
+        info_so_far = base_info.lower()
+        has_ar_mention = (
+            re.search(r'\bar\b', info_so_far) or
+            'image ar' in info_so_far or
+            'image_ar' in info_so_far
+        )
+
+        seed_info = f"Seed: {ctx.actual_seed}" if ctx.seed_active else ""
+
+        if not has_ar_mention:
+            ctx.info = f"{base_info} | AR: {ctx.calculated_ar} | Div: {div_info} | Latent: {ctx.latent_source}"
+        else:
+            ctx.info = f"{base_info} | Div: {div_info} | Latent: {ctx.latent_source}"
+
+        if seed_info:
+            ctx.info = f"{ctx.info} | {seed_info}"
+
+        # Override warning for exact dims mode
+        if ctx.exact_dims and ctx.override_warning:
+            ctx.info = f"[Manual W/H Ignored] | {ctx.info}"
+
+    def _generate_output_image(self, actual_mode, image, w, h, fill_type, fill_color,
+                               batch_size, fill_image, cache_key, seed_active, actual_seed):
+        """
+        Generate the output image based on the selected mode.
+
+        Handles 5 modes: empty (with caching), distort, crop/pad, scale/crop, scale/pad.
+        Transform modes require an input image; falls back to empty if none connected.
+
+        Returns:
+            torch.Tensor: Output image tensor [B, H, W, C]
+        """
         # Seed RNG right before image generation (after preview, before noise fill)
         # This ensures the seeded state isn't consumed by preview or other code
         if seed_active and actual_seed >= 0:
             torch.manual_seed(actual_seed)
             py_random.seed(actual_seed)
-            logger.debug(f"Seeded torch and py_random with {actual_seed} (right before image generation, py_random will determine DazNoise seed)")
-
-        # DEBUG: Log actual values received from JS to diagnose Issue #8 corruption
-        logger.debug(f"Inputs: output_image_mode='{output_image_mode}', fill_type='{fill_type}', fill_color='{fill_color}', seed_active={seed_active}, actual_seed={actual_seed}")
-
-        # Smart defaults: "auto" mode selects based on input image presence
-        # Widgets hidden by JavaScript when IMAGE output not connected
-        actual_mode = output_image_mode
-        if output_image_mode == "auto":
-            # Apply smart defaults based on input image presence
-            if image is not None:
-                actual_mode = "transform (distort)"
-                logger.debug("Smart default: 'auto' → 'transform (distort)' (input image detected)")
-            else:
-                actual_mode = "empty"
-                logger.debug("Smart default: 'auto' → 'empty' (no input image)")
-
-        # After determining actual_mode from "auto" or possibly mistaken user input
-        # Guard: Transform modes require input image - force to empty if missing
-        if actual_mode.startswith("transform") and image is None:
-            logger.warning(f"Transform mode '{actual_mode}' requires input image, falling back to 'empty' mode")
-            print(f"[SmartResCalc] WARNING: Transform mode requires input image, using empty image instead")
-            actual_mode = "empty"
-
-        # Generate actual image output based on mode
-        logger.debug(f"actual_mode='{actual_mode}', about to generate image")
-
-        # Cache key for noise generation (used by both image and latent caching)
-        cache_key = (fill_type, actual_seed if seed_active else None, w, h, batch_size,
-                     fill_image is not None)
+            logger.debug(f"Seeded torch and py_random with {actual_seed} (right before image generation)")
 
         if actual_mode == "empty":
             if self._noise_cache_key == cache_key and self._noise_cache_image is not None:
@@ -1545,7 +808,7 @@ class SmartResolutionCalc:
             else:
                 # Generate image with specified fill pattern at calculated dimensions
                 logger.debug(f"Calling create_empty_image({w}, {h}, '{fill_type}', ...)")
-                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
+                output_image = _create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
                 logger.debug(f"output_image: shape={output_image.shape}, min={output_image.min():.4f}, max={output_image.max():.4f}, mean={output_image.mean():.4f}")
                 # Cache the result
                 self._noise_cache_key = cache_key
@@ -1557,52 +820,63 @@ class SmartResolutionCalc:
             if image is not None:
                 # Transform input image to calculated dimensions (may distort aspect ratio)
                 # Note: Use input image's batch size, not batch_size parameter
-                output_image = self.transform_image(image, w, h)
+                output_image = _transform_image(image, w, h)
                 logger.debug(f"Transformed (distort) input image to {w}×{h}")
             else:
                 # No image connected - fallback to empty image with current fill settings
                 logger.warning("Transform (distort) mode selected but no image connected, generating empty image")
-                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
+                output_image = _create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
         elif actual_mode == "transform (crop/pad)":
             if image is not None:
                 # No scaling - crop if larger, pad if smaller
-                output_image = self.transform_image_crop_pad(image, w, h, fill_type, fill_color, fill_image)
+                output_image = _transform_image_crop_pad(image, w, h, fill_type, fill_color, fill_image)
                 logger.debug(f"Transformed (crop/pad) input image to {w}×{h}")
             else:
                 # No image connected - fallback to empty image with current fill settings
                 logger.warning("Transform (crop/pad) mode selected but no image connected, generating empty image")
-                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
+                output_image = _create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
         elif actual_mode == "transform (scale/crop)":
             if image is not None:
                 # Scale to cover target (maintaining AR), crop excess
-                output_image = self.transform_image_scale_crop(image, w, h)
+                output_image = _transform_image_scale_crop(image, w, h)
                 logger.debug(f"Transformed (scale/crop) input image to {w}×{h}")
             else:
                 # No image connected - fallback to empty image with current fill settings
                 logger.warning("Transform (scale/crop) mode selected but no image connected, generating empty image")
-                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
+                output_image = _create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
         elif actual_mode == "transform (scale/pad)":
             if image is not None:
                 # Scale to fit inside target (maintaining AR), pad remainder
-                output_image = self.transform_image_scale_pad(image, w, h, fill_type, fill_color, fill_image)
+                output_image = _transform_image_scale_pad(image, w, h, fill_type, fill_color, fill_image)
                 logger.debug(f"Transformed (scale/pad) input image to {w}×{h}")
             else:
                 # No image connected - fallback to empty image with current fill settings
                 logger.warning("Transform (scale/pad) mode selected but no image connected, generating empty image")
-                output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
+                output_image = _create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
         else:  # Safety fallback for invalid mode values
             logger.warning(f"Invalid output_image_mode '{actual_mode}', using empty image")
-            output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
+            output_image = _create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
-        # ===== LATENT OUTPUT (VAE ENCODING SUPPORT) =====
-        # Three paths:
-        # 1. VAE + image + transform mode → encode transformed image
-        # 2. VAE + non-trivial fill (noise/DazNoise/random/fill_image) → encode filled image
-        # 3. Otherwise → empty latent (zeros)
+        return output_image
+
+    def _generate_latent(self, vae, image, output_image, actual_mode, w, h, batch_size,
+                         fill_type, fill_image, blend_strength, seed_active, actual_seed,
+                         cache_key):
+        """
+        Generate latent output based on VAE presence and fill type.
+
+        Three paths:
+        1. VAE + image + transform mode → encode transformed image
+        2. VAE + non-trivial fill (noise/DazNoise/random/fill_image) → raw latent noise
+        3. Otherwise → empty latent (zeros)
+
+        Returns:
+            tuple: (latent_dict, latent_source_label)
+        """
         latent_source = "Empty"  # Default for info output
 
         # Determine if fill content is worth VAE-encoding
@@ -1646,7 +920,7 @@ class SmartResolutionCalc:
                 logger.error(f"VAE encoding failed: {e}")
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 print(f"[SmartResCalc] WARNING: VAE encoding failed ({e}), using empty latent")
-                latent = self.create_latent(w, h, batch_size, vae=vae)
+                latent = _create_latent(w, h, batch_size, vae=vae, device=self.device)
                 latent_source = "Empty (VAE failed)"
 
         elif should_generate_raw_noise:
@@ -1669,7 +943,7 @@ class SmartResolutionCalc:
                 logger.debug(f"Using cached raw noise latent")
             else:
                 # Create the latent shape (handles 5D for video VAEs)
-                latent = self.create_latent(w, h, batch_size, vae=vae)
+                latent = _create_latent(w, h, batch_size, vae=vae, device=self.device)
 
                 # Seed and fill with Gaussian noise instead of zeros
                 if seed_active and actual_seed >= 0:
@@ -1728,564 +1002,18 @@ class SmartResolutionCalc:
             # Generate empty latent for txt2img workflows (backward compatible)
             # Reasons: VAE not connected, or fill is trivial (black/white/custom_color)
             logger.debug(f"Generating empty latent (txt2img workflow)")
-            latent = self.create_latent(w, h, batch_size, vae=vae)
+            latent = _create_latent(w, h, batch_size, vae=vae, device=self.device)
             latent_source = "Empty"
 
-        # Format divisibility info
-        div_info = "Exact" if divisible_by == "Exact" else str(divisor)
-
-        # Calculate actual AR from final base dimensions (before scale/rounding)
-        # This shows the true aspect ratio regardless of calculation method
-        calculated_ar = self.format_aspect_ratio(w, h)
-
-        # Use calculator result for mode display
-        # The calculator already provides the complete mode description
-        mode_display = result['description']
-
-        logger.debug(f"Mode display from calculator: '{mode_display}' (priority={result['priority']}, mode={result['mode']}, conflicts={len(result['conflicts'])})")
-
-        # Build base info string
-        base_info = f"Mode: {mode_display} | {info_detail}"
-
-        # Add AR if not already present in mode_display or info_detail
-        # Use regex for word boundaries to avoid matching "Scalar", "Barcelona", etc.
-        import re
-        info_so_far = base_info.lower()
-        has_ar_mention = (
-            re.search(r'\bar\b', info_so_far) or  # "ar" as standalone word (e.g., " ar ", "ar:", "(ar)")
-            'image ar' in info_so_far or          # "image ar" phrase
-            'image_ar' in info_so_far             # "image_ar" identifier
-        )
-
-        # Format seed info for display (only when seed is active/ON)
-        seed_info = f"Seed: {actual_seed}" if seed_active else ""
-
-        if not has_ar_mention:
-            # AR not mentioned yet, add it explicitly
-            info = f"{base_info} | AR: {calculated_ar} | Div: {div_info} | Latent: {latent_source}"
-        else:
-            # AR already mentioned in mode or detail, don't duplicate
-            info = f"{base_info} | Div: {div_info} | Latent: {latent_source}"
-
-        if seed_info:
-            info = f"{info} | {seed_info}"
-
-        # Add override warning if exact dims mode overrides manual settings
-        if exact_dims and override_warning:
-            info = f"⚠️ [Manual W/H Ignored] | {info}"
-
-        # ALWAYS log final results
-        print(f"[SmartResCalc] RESULT: {info}, resolution={resolution}")
-        logger.debug(f"Returning: mp={mp}, w={w}, h={h}, resolution={resolution}, info={info}")
-
-        # Return: (megapixels, width, height, seed, PREVIEW, IMAGE, latent, info)
-        return (mp, w, h, actual_seed, preview, output_image, latent, info)
-
-    def create_empty_image(
-        self,
-        width: int,
-        height: int,
-        fill_type: str = "black",
-        fill_color: str = "#808080",
-        batch_size: int = 1,
-        fill_image: torch.Tensor = None
-    ) -> torch.Tensor:
-        """
-        Create empty image with specified fill pattern.
-
-        Args:
-            width: Image width in pixels
-            height: Image height in pixels
-            fill_type: Fill pattern - "black", "white", "custom_color", "noise", "random",
-                       or DazNoise types when dazzle-comfy-plasma-fast is available
-            fill_color: Hex color string for "custom_color" mode (e.g., "#FF0000")
-            batch_size: Number of images in batch
-            fill_image: Optional custom fill image tensor. When provided, overrides fill_type.
-
-        Returns:
-            Tensor of shape [batch_size, height, width, 3] with values 0.0-1.0
-        """
-        # Priority: fill_image overrides fill_type when connected
-        if fill_image is not None:
-            # Scale the fill_image to target dimensions
-            image = self.transform_image(fill_image, width, height)
-            # Handle batch size mismatch
-            if image.shape[0] < batch_size:
-                image = image.repeat(batch_size, 1, 1, 1)[:batch_size]
-            logger.debug(f"Using fill_image ({fill_image.shape[2]}x{fill_image.shape[1]}) scaled to {width}x{height}")
-            return image
-
-        # Create base tensor
-        if fill_type == "black":
-            # All zeros (black)
-            image = torch.zeros((batch_size, height, width, 3))
-
-        elif fill_type == "white":
-            # All ones (white)
-            image = torch.ones((batch_size, height, width, 3))
-
-        elif fill_type == "custom_color":
-            # Parse hex color to RGB (0.0-1.0 range)
-            try:
-                color_hex = fill_color.strip()
-                if not color_hex.startswith('#'):
-                    color_hex = '#' + color_hex
-
-                r = int(color_hex[1:3], 16) / 255.0
-                g = int(color_hex[3:5], 16) / 255.0
-                b = int(color_hex[5:7], 16) / 255.0
-            except (ValueError, IndexError):
-                # Fallback to gray on invalid color
-                logger.warning(f"Invalid hex color '{fill_color}', using gray")
-                r, g, b = 0.5, 0.5, 0.5
-
-            # Fill with custom color
-            image = torch.zeros((batch_size, height, width, 3))
-            image[:, :, :, 0] = r
-            image[:, :, :, 1] = g
-            image[:, :, :, 2] = b
-
-        elif fill_type == "noise":
-            # Gaussian noise (mean=0.5, std=0.1)
-            image = torch.randn((batch_size, height, width, 3)) * 0.1 + 0.5
-            image = torch.clamp(image, 0.0, 1.0)
-
-        elif fill_type == "random":
-            # Uniform random values [0.0, 1.0]
-            image = torch.rand((batch_size, height, width, 3))
-
-        elif fill_type.startswith("DazNoise:"):
-            # Extended noise from dazzle-comfy-plasma-fast
-            noise_tensor = _generate_daznoise(fill_type, width, height)
-            if noise_tensor is not None:
-                # Generator returns (1, H, W, 3) — repeat for batch
-                if batch_size > 1:
-                    image = noise_tensor.repeat(batch_size, 1, 1, 1)
-                else:
-                    image = noise_tensor
-            else:
-                # Fallback: dazzle-comfy-plasma-fast unavailable at execution time
-                logger.warning(f"'{fill_type}' requires dazzle-comfy-plasma-fast (not found), using Gaussian noise")
-                print(f"[SmartResCalc] WARNING: {fill_type} unavailable, falling back to Gaussian noise")
-                image = torch.randn((batch_size, height, width, 3)) * 0.1 + 0.5
-                image = torch.clamp(image, 0.0, 1.0)
-
-        else:
-            # Fallback to black for unknown types
-            logger.warning(f"Unknown fill_type '{fill_type}', using black")
-            image = torch.zeros((batch_size, height, width, 3))
-
-        return image
-
-    def transform_image(self, image: torch.Tensor, target_width: int, target_height: int) -> torch.Tensor:
-        """
-        Transform input image to target dimensions using bilinear interpolation (distort mode).
-        Scales image to exactly fit target dimensions without preserving aspect ratio.
-
-        Args:
-            image: Input tensor [batch, height, width, channels]
-            target_width: Target width in pixels
-            target_height: Target height in pixels
-
-        Returns:
-            Transformed tensor [batch, target_height, target_width, channels]
-        """
-        # Convert NHWC -> NCHW for interpolate
-        samples = image.movedim(-1, 1)
-
-        # Use ComfyUI's standard upscale function
-        # Method: "bilinear" (fast, good quality, general purpose)
-        # Crop: "disabled" (scale to fit, no cropping)
-        output = comfy.utils.common_upscale(
-            samples,
-            target_width,
-            target_height,
-            "bilinear",
-            "disabled"
-        )
-
-        # Convert back NCHW -> NHWC
-        output = output.movedim(1, -1)
-
-        return output
-
-    def transform_image_scale_pad(
-        self,
-        image: torch.Tensor,
-        target_width: int,
-        target_height: int,
-        fill_type: str = "black",
-        fill_color: str = "#808080",
-        fill_image: torch.Tensor = None
-    ) -> torch.Tensor:
-        """
-        Transform input image to target dimensions using scale/pad strategy.
-        Scales image to fit within target, then pads to reach exact dimensions.
-
-        Strategy:
-        - Scale image to fit INSIDE target dimensions (maintaining aspect ratio)
-        - Center the scaled image within target canvas
-        - Pad remaining space with specified fill pattern
-        - Result always matches target dimensions exactly
-
-        Args:
-            image: Input tensor [batch, height, width, channels]
-            target_width: Target width in pixels
-            target_height: Target height in pixels
-            fill_type: Fill pattern for padding areas
-            fill_color: Hex color for custom_color fill
-            fill_image: Optional custom fill image tensor
-
-        Returns:
-            Transformed tensor [batch, target_height, target_width, channels]
-        """
-        batch_size, source_height, source_width, channels = image.shape
-
-        # Calculate aspect ratios
-        source_ar = source_width / source_height
-        target_ar = target_width / target_height
-
-        logger.debug(f"Crop/pad transform: source={source_width}×{source_height} (AR={source_ar:.3f}), "
-                    f"target={target_width}×{target_height} (AR={target_ar:.3f})")
-
-        # Determine if we need to crop or pad
-        if abs(source_ar - target_ar) < 0.001:
-            # Aspect ratios match - simple scale to fit
-            logger.debug("Aspect ratios match, scaling to fit")
-            return self.transform_image(image, target_width, target_height)
-
-        # Calculate scaled dimensions to fit inside target while maintaining AR
-        if source_ar > target_ar:
-            # Source is wider - fit to target width, height will be smaller
-            scale_width = target_width
-            scale_height = int(target_width / source_ar)
-        else:
-            # Source is taller - fit to target height, width will be smaller
-            scale_height = target_height
-            scale_width = int(target_height * source_ar)
-
-        logger.debug(f"Scaling to {scale_width}×{scale_height} (fits within {target_width}×{target_height})")
-
-        # Scale image to fit within target
-        scaled = self.transform_image(image, scale_width, scale_height)
-
-        # Create canvas with target dimensions filled with specified pattern
-        # Use batch size from input image, not the parameter
-        canvas = self.create_empty_image(target_width, target_height, fill_type, fill_color, batch_size, fill_image)
-
-        # Calculate centering offsets
-        offset_x = (target_width - scale_width) // 2
-        offset_y = (target_height - scale_height) // 2
-
-        logger.debug(f"Centering scaled image at offset ({offset_x}, {offset_y})")
-
-        # Place scaled image in center of canvas
-        canvas[:, offset_y:offset_y+scale_height, offset_x:offset_x+scale_width, :] = scaled
-
-        # Verify output dimensions
-        assert canvas.shape[1] == target_height and canvas.shape[2] == target_width, \
-            f"Output dimensions mismatch: got {canvas.shape[2]}×{canvas.shape[1]}, expected {target_width}×{target_height}"
-
-        return canvas
-
-    def transform_image_crop_pad(
-        self,
-        image: torch.Tensor,
-        target_width: int,
-        target_height: int,
-        fill_type: str = "black",
-        fill_color: str = "#808080",
-        fill_image: torch.Tensor = None
-    ) -> torch.Tensor:
-        """
-        Transform input image to target dimensions using pure crop/pad (NO scaling).
-        Crops dimensions larger than target, pads dimensions smaller than target.
-
-        Strategy:
-        - NO scaling applied - original image stays at 1:1 scale
-        - If dimension > target: Center crop to target size
-        - If dimension < target: Center and pad to target size
-        - Result always matches target dimensions exactly
-
-        Example: 1024×1024 → 1885×530
-        - Width: 1024 < 1885, pad 430.5px left + 430.5px right
-        - Height: 1024 > 530, crop 247px top + 247px bottom
-
-        Args:
-            image: Input tensor [batch, height, width, channels]
-            target_width: Target width in pixels
-            target_height: Target height in pixels
-            fill_type: Fill pattern for padding areas
-            fill_color: Hex color for custom_color fill
-            fill_image: Optional custom fill image tensor
-
-        Returns:
-            Transformed tensor [batch, target_height, target_width, channels]
-        """
-        batch_size, source_height, source_width, channels = image.shape
-
-        logger.debug(f"Crop/pad transform (no scaling): source={source_width}×{source_height}, "
-                    f"target={target_width}×{target_height}")
-
-        # Determine crop/pad for width
-        if source_width == target_width:
-            # Width matches - use original
-            width_start = 0
-            width_end = source_width
-            pad_left = 0
-            pad_right = 0
-            logger.debug(f"Width matches target ({target_width})")
-        elif source_width > target_width:
-            # Width larger - center crop
-            width_start = (source_width - target_width) // 2
-            width_end = width_start + target_width
-            pad_left = 0
-            pad_right = 0
-            logger.debug(f"Cropping width: {source_width} → {target_width} (crop from {width_start})")
-        else:
-            # Width smaller - will need padding
-            width_start = 0
-            width_end = source_width
-            pad_left = (target_width - source_width) // 2
-            pad_right = target_width - source_width - pad_left
-            logger.debug(f"Padding width: {source_width} → {target_width} (pad left={pad_left}, right={pad_right})")
-
-        # Determine crop/pad for height
-        if source_height == target_height:
-            # Height matches - use original
-            height_start = 0
-            height_end = source_height
-            pad_top = 0
-            pad_bottom = 0
-            logger.debug(f"Height matches target ({target_height})")
-        elif source_height > target_height:
-            # Height larger - center crop
-            height_start = (source_height - target_height) // 2
-            height_end = height_start + target_height
-            pad_top = 0
-            pad_bottom = 0
-            logger.debug(f"Cropping height: {source_height} → {target_height} (crop from {height_start})")
-        else:
-            # Height smaller - will need padding
-            height_start = 0
-            height_end = source_height
-            pad_top = (target_height - source_height) // 2
-            pad_bottom = target_height - source_height - pad_top
-            logger.debug(f"Padding height: {source_height} → {target_height} (pad top={pad_top}, bottom={pad_bottom})")
-
-        # Crop the image (if needed)
-        cropped = image[:, height_start:height_end, width_start:width_end, :]
-
-        # If no padding needed, we're done
-        if pad_left == 0 and pad_right == 0 and pad_top == 0 and pad_bottom == 0:
-            logger.debug("No padding needed, returning cropped image")
-            return cropped
-
-        # Create canvas with target dimensions
-        canvas = self.create_empty_image(target_width, target_height, fill_type, fill_color, batch_size, fill_image)
-
-        # Place cropped image in canvas at correct position
-        canvas[:, pad_top:pad_top+cropped.shape[1], pad_left:pad_left+cropped.shape[2], :] = cropped
-
-        # Verify output dimensions
-        assert canvas.shape[1] == target_height and canvas.shape[2] == target_width, \
-            f"Output dimensions mismatch: got {canvas.shape[2]}×{canvas.shape[1]}, expected {target_width}×{target_height}"
-
-        return canvas
-
-    def transform_image_scale_crop(
-        self,
-        image: torch.Tensor,
-        target_width: int,
-        target_height: int
-    ) -> torch.Tensor:
-        """
-        Transform input image to target dimensions using scale/crop strategy.
-        Scales image to cover target completely, then crops excess.
-
-        Strategy:
-        - Scale image to COVER target dimensions (maintaining aspect ratio)
-        - At least one dimension will match target exactly
-        - Other dimension will be >= target
-        - Center crop the excess
-        - Result always matches target dimensions exactly
-
-        Example: 1024×1024 → 1885×530
-        - Scale to 1885×1885 (covers target width, maintains square AR)
-        - Crop 677.5px from top + 677.5px from bottom
-
-        Args:
-            image: Input tensor [batch, height, width, channels]
-            target_width: Target width in pixels
-            target_height: Target height in pixels
-
-        Returns:
-            Transformed tensor [batch, target_height, target_width, channels]
-        """
-        batch_size, source_height, source_width, channels = image.shape
-
-        # Calculate aspect ratios
-        source_ar = source_width / source_height
-        target_ar = target_width / target_height
-
-        logger.debug(f"Scale/crop transform: source={source_width}×{source_height} (AR={source_ar:.3f}), "
-                    f"target={target_width}×{target_height} (AR={target_ar:.3f})")
-
-        # Check if aspect ratios match
-        if abs(source_ar - target_ar) < 0.001:
-            # Aspect ratios match - simple scale to fit
-            logger.debug("Aspect ratios match, scaling to fit")
-            return self.transform_image(image, target_width, target_height)
-
-        # Calculate scaled dimensions to cover target while maintaining AR
-        if source_ar > target_ar:
-            # Source is wider - fit to target height, width will be larger
-            scale_height = target_height
-            scale_width = int(target_height * source_ar)
-        else:
-            # Source is taller - fit to target width, height will be larger
-            scale_width = target_width
-            scale_height = int(target_width / source_ar)
-
-        logger.debug(f"Scaling to {scale_width}×{scale_height} (covers {target_width}×{target_height})")
-
-        # Scale image to cover target
-        scaled = self.transform_image(image, scale_width, scale_height)
-
-        # Center crop to target dimensions
-        if scale_width > target_width:
-            # Crop width
-            crop_left = (scale_width - target_width) // 2
-            crop_right = crop_left + target_width
-            output = scaled[:, :, crop_left:crop_right, :]
-            logger.debug(f"Cropped width from {scale_width} to {target_width} (left={crop_left})")
-        else:
-            # Crop height
-            crop_top = (scale_height - target_height) // 2
-            crop_bottom = crop_top + target_height
-            output = scaled[:, crop_top:crop_bottom, :, :]
-            logger.debug(f"Cropped height from {scale_height} to {target_height} (top={crop_top})")
-
-        # Verify output dimensions
-        assert output.shape[1] == target_height and output.shape[2] == target_width, \
-            f"Output dimensions mismatch: got {output.shape[2]}×{output.shape[1]}, expected {target_width}×{target_height}"
-
-        return output
-
-    def create_preview_image(self, width, height, resolution, ratio_display, megapixels):
-        """
-        Create preview image showing aspect ratio box with dimensions.
-        Based on controlaltai-nodes implementation.
-        """
-        # 1024x1024 preview size
-        preview_size = (1024, 1024)
-        image = Image.new('RGB', preview_size, (0, 0, 0))  # Black background
-        draw = ImageDraw.Draw(image)
-
-        # Draw grid with grey lines
-        grid_color = '#333333'
-        grid_spacing = 50
-        for x in range(0, preview_size[0], grid_spacing):
-            draw.line([(x, 0), (x, preview_size[1])], fill=grid_color)
-        for y in range(0, preview_size[1], grid_spacing):
-            draw.line([(0, y), (preview_size[0], y)], fill=grid_color)
-
-        # Calculate preview box dimensions (maintain aspect ratio)
-        preview_width = 800
-        preview_height = int(preview_width * (height / width))
-
-        # Adjust if height is too tall
-        if preview_height > 800:
-            preview_height = 800
-            preview_width = int(preview_height * (width / height))
-
-        # Calculate center position
-        x_offset = (preview_size[0] - preview_width) // 2
-        y_offset = (preview_size[1] - preview_height) // 2
-
-        # Draw the aspect ratio box with red outline
-        draw.rectangle(
-            [(x_offset, y_offset), (x_offset + preview_width, y_offset + preview_height)],
-            outline='red',
-            width=4
-        )
-
-        # Add text with dimension info
-        try:
-            # Resolution text in center (red)
-            text_y = y_offset + preview_height // 2
-            draw.text(
-                (preview_size[0] // 2, text_y),
-                f"{width}x{height}",
-                fill='red',
-                anchor="mm",
-                font=ImageFont.truetype("arial.ttf", 48)
-            )
-
-            # Aspect ratio text below resolution (red)
-            draw.text(
-                (preview_size[0] // 2, text_y + 60),
-                f"({ratio_display})",
-                fill='red',
-                anchor="mm",
-                font=ImageFont.truetype("arial.ttf", 36)
-            )
-
-            # Megapixels text at bottom (white)
-            draw.text(
-                (preview_size[0] // 2, y_offset + preview_height + 60),
-                f"{megapixels:.2f} MP",
-                fill='white',
-                anchor="mm",
-                font=ImageFont.truetype("arial.ttf", 32)
-            )
-
-        except:
-            # Fallback if font loading fails (non-Windows systems)
-            draw.text((preview_size[0] // 2, text_y), f"{width}x{height}", fill='red', anchor="mm")
-            draw.text((preview_size[0] // 2, text_y + 60), f"({ratio_display})", fill='red', anchor="mm")
-            draw.text((preview_size[0] // 2, y_offset + preview_height + 60), f"{megapixels:.2f} MP", fill='white', anchor="mm")
-
-        # Convert to tensor
-        return pil2tensor(image)
-
-    def create_latent(self, width, height, batch_size=1, vae=None):
-        """
-        Create empty latent tensor compatible with the connected model.
-
-        Queries the VAE for both latent_channels and spatial compression ratio
-        to support all model types (SD1.5=4ch/8x, FLUX=16ch/8x, patchified
-        VAEs=16ch/16x, Cascade=16ch/32x, etc.). Falls back to 4 channels and
-        8x spatial when no VAE is connected (matches ComfyUI EmptyLatentImage).
-
-        Format depends on VAE type:
-        - 2D VAEs (SD1.5, FLUX, etc.): [batch, channels, h//spatial, w//spatial]
-        - 3D/Video VAEs (Wan, Qwen, etc.): [batch, channels, 1, h//spatial, w//spatial]
-        """
-        channels = 4
-        spatial_divisor = 8
-        if vae is not None:
-            if hasattr(vae, 'latent_channels'):
-                channels = vae.latent_channels
-            if hasattr(vae, 'spacial_compression_encode'):
-                spatial_divisor = vae.spacial_compression_encode()
-
-        latent_h = height // spatial_divisor
-        latent_w = width // spatial_divisor
-
-        # Video/3D VAEs (Wan, Qwen, Hunyuan Video) have latent_dim=3 and expect
-        # 5D tensors with a temporal dimension. For single-image generation we use
-        # temporal=1. Without this, VAE.decode() crashes because its memory_used_decode
-        # lambda accesses shape[4] which doesn't exist on a 4D tensor.
-        if vae is not None and getattr(vae, 'latent_dim', 2) == 3:
-            latent = torch.zeros([batch_size, channels, 1, latent_h, latent_w], device=self.device)
-            logger.debug(f"Created 5D latent for video VAE: {latent.shape} (latent_dim=3)")
-        else:
-            latent = torch.zeros([batch_size, channels, latent_h, latent_w], device=self.device)
-            logger.debug(f"Created 4D latent: {latent.shape}")
-
-        return {"samples": latent, "downscale_ratio_spacial": spatial_divisor}
-
+        return latent, latent_source
+
+    # ============================================================================
+    # Image creation and transformation methods
+    # EXTRACTED to image_utils.py for modularity and reuse.
+    # Imported at module level as _create_empty_image, _transform_image, etc.
+    # ============================================================================
+
+    # create_preview_image and create_latent extracted to image_utils.py
 
 NODE_CLASS_MAPPINGS = {
     "SmartResolutionCalc": SmartResolutionCalc,

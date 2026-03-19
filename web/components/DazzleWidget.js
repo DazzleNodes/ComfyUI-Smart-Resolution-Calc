@@ -142,6 +142,8 @@ class DazzleWidget {
 function hideWidget(widget) {
     if (widget._hidden) return;
     widget._hidden = true;
+    // Save originals — may be undefined for native ComfyUI widgets
+    // (native widgets use LiteGraph's built-in rendering, not instance methods)
     widget._origDraw = widget.draw;
     widget._origComputeSize = widget.computeSize;
     widget._origMouse = widget.mouse;
@@ -152,13 +154,28 @@ function hideWidget(widget) {
 
 /**
  * Show a previously hidden widget — restore original methods.
+ * For native ComfyUI widgets that had no instance methods (draw/mouse were
+ * undefined), we delete the no-op overrides so LiteGraph's prototype
+ * rendering takes over again.
  */
 function showWidget(widget) {
     if (!widget._hidden) return;
     widget._hidden = false;
-    if (widget._origDraw) widget.draw = widget._origDraw;
-    if (widget._origComputeSize) widget.computeSize = widget._origComputeSize;
-    if (widget._origMouse) widget.mouse = widget._origMouse;
+    if (widget._origDraw !== undefined) {
+        widget.draw = widget._origDraw;
+    } else {
+        delete widget.draw;  // Remove no-op, fall back to prototype/LiteGraph default
+    }
+    if (widget._origComputeSize !== undefined) {
+        widget.computeSize = widget._origComputeSize;
+    } else {
+        delete widget.computeSize;
+    }
+    if (widget._origMouse !== undefined) {
+        widget.mouse = widget._origMouse;
+    } else {
+        delete widget.mouse;
+    }
 }
 
 export {
