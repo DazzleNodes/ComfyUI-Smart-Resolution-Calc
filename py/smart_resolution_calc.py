@@ -709,41 +709,100 @@ class SmartResolutionCalc:
         preview = self.create_preview_image(w, h, resolution, ratio_display, mp)
 
         # ===== IMAGE OUTPUT =====
+        # Smart defaults: "auto" mode selects based on input image presence
+        actual_mode = output_image_mode
+        if output_image_mode == "auto":
+            actual_mode = "transform (distort)" if image is not None else "empty"
+            logger.debug(f"Smart default: 'auto' -> '{actual_mode}'")
+
+        # Guard: Transform modes require input image - force to empty if missing
+        if actual_mode.startswith("transform") and image is None:
+            logger.warning(f"Transform mode '{actual_mode}' requires input image, falling back to 'empty' mode")
+            actual_mode = "empty"
+
+        # Cache key for noise generation (used by both image and latent caching)
+        cache_key = (fill_type, actual_seed if seed_active else None, w, h, batch_size,
+                     fill_image is not None)
+
+        output_image = self._generate_output_image(
+            actual_mode, image, w, h, fill_type, fill_color,
+            batch_size, fill_image, cache_key, seed_active, actual_seed
+        )
+
+        # ===== LATENT OUTPUT (VAE ENCODING SUPPORT) =====
+        latent, latent_source = self._generate_latent(
+            vae, image, output_image, actual_mode, w, h, batch_size,
+            fill_type, fill_image, blend_strength, seed_active, actual_seed,
+            cache_key
+        )
+
+        # Format divisibility info
+        div_info = "Exact" if divisible_by == "Exact" else str(divisor)
+
+        # Calculate actual AR from final base dimensions (before scale/rounding)
+        # This shows the true aspect ratio regardless of calculation method
+        calculated_ar = self.format_aspect_ratio(w, h)
+
+        # Use calculator result for mode display
+        # The calculator already provides the complete mode description
+        mode_display = result['description']
+
+        logger.debug(f"Mode display from calculator: '{mode_display}' (priority={result['priority']}, mode={result['mode']}, conflicts={len(result['conflicts'])})")
+
+        # Build base info string
+        base_info = f"Mode: {mode_display} | {info_detail}"
+
+        # Add AR if not already present in mode_display or info_detail
+        # Use regex for word boundaries to avoid matching "Scalar", "Barcelona", etc.
+        import re
+        info_so_far = base_info.lower()
+        has_ar_mention = (
+            re.search(r'\bar\b', info_so_far) or  # "ar" as standalone word (e.g., " ar ", "ar:", "(ar)")
+            'image ar' in info_so_far or          # "image ar" phrase
+            'image_ar' in info_so_far             # "image_ar" identifier
+        )
+
+        # Format seed info for display (only when seed is active/ON)
+        seed_info = f"Seed: {actual_seed}" if seed_active else ""
+
+        if not has_ar_mention:
+            # AR not mentioned yet, add it explicitly
+            info = f"{base_info} | AR: {calculated_ar} | Div: {div_info} | Latent: {latent_source}"
+        else:
+            # AR already mentioned in mode or detail, don't duplicate
+            info = f"{base_info} | Div: {div_info} | Latent: {latent_source}"
+
+        if seed_info:
+            info = f"{info} | {seed_info}"
+
+        # Add override warning if exact dims mode overrides manual settings
+        if exact_dims and override_warning:
+            info = f"⚠️ [Manual W/H Ignored] | {info}"
+
+        # ALWAYS log final results
+        print(f"[SmartResCalc] RESULT: {info}, resolution={resolution}")
+        logger.debug(f"Returning: mp={mp}, w={w}, h={h}, resolution={resolution}, info={info}")
+
+        # Return: (megapixels, width, height, seed, PREVIEW, IMAGE, latent, info)
+        return (mp, w, h, actual_seed, preview, output_image, latent, info)
+
+    def _generate_output_image(self, actual_mode, image, w, h, fill_type, fill_color,
+                               batch_size, fill_image, cache_key, seed_active, actual_seed):
+        """
+        Generate the output image based on the selected mode.
+
+        Handles 5 modes: empty (with caching), distort, crop/pad, scale/crop, scale/pad.
+        Transform modes require an input image; falls back to empty if none connected.
+
+        Returns:
+            torch.Tensor: Output image tensor [B, H, W, C]
+        """
         # Seed RNG right before image generation (after preview, before noise fill)
         # This ensures the seeded state isn't consumed by preview or other code
         if seed_active and actual_seed >= 0:
             torch.manual_seed(actual_seed)
             py_random.seed(actual_seed)
-            logger.debug(f"Seeded torch and py_random with {actual_seed} (right before image generation, py_random will determine DazNoise seed)")
-
-        # DEBUG: Log actual values received from JS to diagnose Issue #8 corruption
-        logger.debug(f"Inputs: output_image_mode='{output_image_mode}', fill_type='{fill_type}', fill_color='{fill_color}', seed_active={seed_active}, actual_seed={actual_seed}")
-
-        # Smart defaults: "auto" mode selects based on input image presence
-        # Widgets hidden by JavaScript when IMAGE output not connected
-        actual_mode = output_image_mode
-        if output_image_mode == "auto":
-            # Apply smart defaults based on input image presence
-            if image is not None:
-                actual_mode = "transform (distort)"
-                logger.debug("Smart default: 'auto' → 'transform (distort)' (input image detected)")
-            else:
-                actual_mode = "empty"
-                logger.debug("Smart default: 'auto' → 'empty' (no input image)")
-
-        # After determining actual_mode from "auto" or possibly mistaken user input
-        # Guard: Transform modes require input image - force to empty if missing
-        if actual_mode.startswith("transform") and image is None:
-            logger.warning(f"Transform mode '{actual_mode}' requires input image, falling back to 'empty' mode")
-            print(f"[SmartResCalc] WARNING: Transform mode requires input image, using empty image instead")
-            actual_mode = "empty"
-
-        # Generate actual image output based on mode
-        logger.debug(f"actual_mode='{actual_mode}', about to generate image")
-
-        # Cache key for noise generation (used by both image and latent caching)
-        cache_key = (fill_type, actual_seed if seed_active else None, w, h, batch_size,
-                     fill_image is not None)
+            logger.debug(f"Seeded torch and py_random with {actual_seed} (right before image generation)")
 
         if actual_mode == "empty":
             if self._noise_cache_key == cache_key and self._noise_cache_image is not None:
@@ -806,11 +865,22 @@ class SmartResolutionCalc:
             logger.warning(f"Invalid output_image_mode '{actual_mode}', using empty image")
             output_image = self.create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
-        # ===== LATENT OUTPUT (VAE ENCODING SUPPORT) =====
-        # Three paths:
-        # 1. VAE + image + transform mode → encode transformed image
-        # 2. VAE + non-trivial fill (noise/DazNoise/random/fill_image) → encode filled image
-        # 3. Otherwise → empty latent (zeros)
+        return output_image
+
+    def _generate_latent(self, vae, image, output_image, actual_mode, w, h, batch_size,
+                         fill_type, fill_image, blend_strength, seed_active, actual_seed,
+                         cache_key):
+        """
+        Generate latent output based on VAE presence and fill type.
+
+        Three paths:
+        1. VAE + image + transform mode → encode transformed image
+        2. VAE + non-trivial fill (noise/DazNoise/random/fill_image) → raw latent noise
+        3. Otherwise → empty latent (zeros)
+
+        Returns:
+            tuple: (latent_dict, latent_source_label)
+        """
         latent_source = "Empty"  # Default for info output
 
         # Determine if fill content is worth VAE-encoding
@@ -939,55 +1009,7 @@ class SmartResolutionCalc:
             latent = self.create_latent(w, h, batch_size, vae=vae)
             latent_source = "Empty"
 
-        # Format divisibility info
-        div_info = "Exact" if divisible_by == "Exact" else str(divisor)
-
-        # Calculate actual AR from final base dimensions (before scale/rounding)
-        # This shows the true aspect ratio regardless of calculation method
-        calculated_ar = self.format_aspect_ratio(w, h)
-
-        # Use calculator result for mode display
-        # The calculator already provides the complete mode description
-        mode_display = result['description']
-
-        logger.debug(f"Mode display from calculator: '{mode_display}' (priority={result['priority']}, mode={result['mode']}, conflicts={len(result['conflicts'])})")
-
-        # Build base info string
-        base_info = f"Mode: {mode_display} | {info_detail}"
-
-        # Add AR if not already present in mode_display or info_detail
-        # Use regex for word boundaries to avoid matching "Scalar", "Barcelona", etc.
-        import re
-        info_so_far = base_info.lower()
-        has_ar_mention = (
-            re.search(r'\bar\b', info_so_far) or  # "ar" as standalone word (e.g., " ar ", "ar:", "(ar)")
-            'image ar' in info_so_far or          # "image ar" phrase
-            'image_ar' in info_so_far             # "image_ar" identifier
-        )
-
-        # Format seed info for display (only when seed is active/ON)
-        seed_info = f"Seed: {actual_seed}" if seed_active else ""
-
-        if not has_ar_mention:
-            # AR not mentioned yet, add it explicitly
-            info = f"{base_info} | AR: {calculated_ar} | Div: {div_info} | Latent: {latent_source}"
-        else:
-            # AR already mentioned in mode or detail, don't duplicate
-            info = f"{base_info} | Div: {div_info} | Latent: {latent_source}"
-
-        if seed_info:
-            info = f"{info} | {seed_info}"
-
-        # Add override warning if exact dims mode overrides manual settings
-        if exact_dims and override_warning:
-            info = f"⚠️ [Manual W/H Ignored] | {info}"
-
-        # ALWAYS log final results
-        print(f"[SmartResCalc] RESULT: {info}, resolution={resolution}")
-        logger.debug(f"Returning: mp={mp}, w={w}, h={h}, resolution={resolution}, info={info}")
-
-        # Return: (megapixels, width, height, seed, PREVIEW, IMAGE, latent, info)
-        return (mp, w, h, actual_seed, preview, output_image, latent, info)
+        return latent, latent_source
 
     def create_empty_image(
         self,
