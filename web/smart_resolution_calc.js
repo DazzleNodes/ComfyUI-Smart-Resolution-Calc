@@ -56,6 +56,7 @@ import { CopyImageButton } from './components/CopyImageButton.js';
 // Extracted components (Phase 6: ScaleWidget + ImageDimensionUtils)
 import { ScaleWidget } from './components/ScaleWidget.js';
 import { ImageDimensionUtils } from './utils/ImageDimensionUtils.js';
+import { applyDazzleSerialization } from './utils/serialization.js';
 
 // Dynamic import helper for standalone vs DazzleNodes compatibility (Option A: Inline)
 async function importComfyCore() {
@@ -694,80 +695,31 @@ app.registerExtension({
                 return false;
             };
 
-            // Serialize widget values by name + scale config
-            const onSerialize = nodeType.prototype.serialize;
-            nodeType.prototype.serialize = function() {
-                const data = onSerialize ? onSerialize.apply(this) : {};
-
-                // Name-based serialization — widgets saved by name, not array index.
-                // This is the only serialization path (v0.9.3+). Older fallback paths
-                // (diagnostics-based, heuristic matching) have been removed.
-                const widgetsByName = {};
-                if (this.widgets) {
-                    this.widgets.forEach((widget, index) => {
-                        // For custom DazzleWidgets, use serializeValue() — this is critical
-                        // for SeedWidget which returns a resolved seed copy (e.g., 42) instead
-                        // of the display value (-1 in randomize mode). Without this, workflow
-                        // reload loses the actual seed that generated the image.
-                        // For native ComfyUI widgets, use widget.value directly (their
-                        // serializeValue may have unexpected behavior when hidden).
-                        if (widget.type === "custom" && typeof widget.serializeValue === 'function') {
-                            const serialized = widget.serializeValue(this, index);
-                            if (serialized !== undefined) {
-                                widgetsByName[widget.name] = serialized;
-                            }
-                        } else {
-                            widgetsByName[widget.name] = widget.value;
-                        }
-                    });
-                }
-                data.widgets_values_by_name = widgetsByName;
-
-                // Store scale widget step configuration
-                const scaleWidget = this.widgets ? this.widgets.find(w => w instanceof ScaleWidget) : null;
-                if (scaleWidget) {
-                    if (!data.widgets_config) data.widgets_config = {};
-                    data.widgets_config.scale = {
-                        leftStep: scaleWidget.leftStep,
-                        rightStep: scaleWidget.rightStep
-                    };
-                }
-
-                return data;
-            };
-
-            // Restore widget values from workflow (name-based only)
-            const onConfigure = nodeType.prototype.configure;
-            nodeType.prototype.configure = function(info) {
-                logger.debug('configure called');
-
-                if (onConfigure) {
-                    onConfigure.apply(this, arguments);
-                }
-
-                // Name-based restore — the only restore path (v0.9.3+).
-                // Older paths (diagnostics-based v0.5.1, heuristic matching) removed.
-                // Workflows saved before v0.5.2 will use ComfyUI's default index-based
-                // restore from onConfigure above (no corruption risk since widgets no
-                // longer leave the array via splice).
-                if (info.widgets_values_by_name) {
-                    this.widgets.forEach(widget => {
-                        if (info.widgets_values_by_name[widget.name] !== undefined) {
-                            widget.value = info.widgets_values_by_name[widget.name];
-                        }
-                    });
-                    logger.debug('[configure] Name-based restore complete');
-                }
-
-                // Restore ScaleWidget step configuration
-                if (info.widgets_config && info.widgets_config.scale) {
-                    const scaleWidget = this.widgets.find(w => w instanceof ScaleWidget);
+            // Name-based serialization (reusable library function)
+            // Scale widget step config is SmartResCalc-specific, passed via hooks
+            applyDazzleSerialization(nodeType, {
+                onSerialize: (data, node) => {
+                    // Store scale widget step configuration
+                    const scaleWidget = node.widgets ? node.widgets.find(w => w instanceof ScaleWidget) : null;
                     if (scaleWidget) {
-                        scaleWidget.leftStep = info.widgets_config.scale.leftStep || 0.05;
-                        scaleWidget.rightStep = info.widgets_config.scale.rightStep || 0.1;
+                        if (!data.widgets_config) data.widgets_config = {};
+                        data.widgets_config.scale = {
+                            leftStep: scaleWidget.leftStep,
+                            rightStep: scaleWidget.rightStep
+                        };
+                    }
+                },
+                onConfigure: (info, node) => {
+                    // Restore scale widget step configuration
+                    if (info.widgets_config && info.widgets_config.scale) {
+                        const scaleWidget = node.widgets.find(w => w instanceof ScaleWidget);
+                        if (scaleWidget) {
+                            scaleWidget.leftStep = info.widgets_config.scale.leftStep || 0.05;
+                            scaleWidget.rightStep = info.widgets_config.scale.rightStep || 0.1;
+                        }
                     }
                 }
-            };
+            });
 
             // Add visual indicator when image input is connected
             // Also disable/enable USE_IMAGE widget based on connection state

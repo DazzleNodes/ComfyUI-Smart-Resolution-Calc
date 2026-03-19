@@ -5,6 +5,18 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.7] - 2026-03-19
+
+### Added
+- **`applyDazzleSerialization()` reusable helper** (`web/utils/serialization.js`) — name-based
+  widget serialization as a plug-and-play library function. Any DazzleNodes node can use it
+  with optional `onSerialize`/`onConfigure` hooks for node-specific config.
+
+### Changed
+- **Orchestrator serialization refactored** — inline serialize/configure overrides replaced
+  with `applyDazzleSerialization(nodeType, { onSerialize, onConfigure })`. Scale widget step
+  config preserved via hooks. Orchestrator: 968 -> 920 lines.
+
 ## [0.9.6] - 2026-03-19
 
 ### Added
