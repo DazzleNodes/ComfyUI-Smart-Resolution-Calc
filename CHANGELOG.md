@@ -5,6 +5,212 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.8] - 2026-03-19 — JS Refactoring Complete
+
+**Milestone: JavaScript modularization finished (v0.9.0 -> v0.9.8).** The 5,379-line monolith
+has been decomposed into 16 focused ES6 modules with a two-level widget class hierarchy,
+3 correctness fixes, 70 automated tests, and a reusable library entry point. The refactor
+began at v0.9.0 (branched from v0.8.5) and spans 12 commits on `refactor/js-modularization`.
+
+### Added
+- **Library barrel file** (`web/dazzle.js`) — single import point for the DazzleNodes widget
+  framework. Re-exports all public API: DazzleWidget, DazzleToggleWidget, TooltipSystem,
+  WidgetValidation, serialization utilities, constants, and hide/show functions.
+
+## [0.9.7] - 2026-03-19
+
+### Added
+- **`applyDazzleSerialization()` reusable helper** (`web/utils/serialization.js`) — name-based
+  widget serialization as a plug-and-play library function. Any DazzleNodes node can use it
+  with optional `onSerialize`/`onConfigure` hooks for node-specific config.
+
+### Changed
+- **Orchestrator serialization refactored** — inline serialize/configure overrides replaced
+  with `applyDazzleSerialization(nodeType, { onSerialize, onConfigure })`. Scale widget step
+  config preserved via hooks. Orchestrator: 968 -> 920 lines.
+
+## [0.9.6] - 2026-03-19
+
+### Added
+- **Services pattern for testability** — DazzleWidget constructor accepts `config.services`
+  with injectable dependencies (prompt, etc.). Defaults to ComfyUI globals for backward
+  compatibility. Tests inject mocks for fast, isolated unit testing.
+- **Vitest unit test suite** — 40 tests running in <2 seconds
+  - SeedWidget: constructor, generateRandomSeed, resolveActualSeed (6 cases), serializeValue
+  - DimensionWidget: constructor, changeValue (7 cases), serializeValue, handleToggleClick
+  - WidgetValidation: output_image_mode, fill_type, dimension widgets, fill_color, unknown widgets
+- `vitest.config.js`, `tests/unit/setup.js` (global mocks), `package.json` test:unit script
+
+### Changed
+- **`app.canvas.prompt()` migrated to `this.services.prompt()`** in 4 widgets:
+  DimensionWidget, SeedWidget, ScaleWidget, CopyImageButton
+- ScaleWidget tooltip check simplified to use inherited `handleTooltipMouse()`
+- Total test count: 70 (40 unit + 30 E2E)
+
+### References
+- Collaborate3 analysis: `2026-03-18__22-17-04__DISCUSS_Rnd4_FINAL_ASSESSMENT_js-refactor-complete-review.md`
+
+## [0.9.5] - 2026-03-19
+
+### Added
+- **DazzleToggleWidget intermediate class** (`web/components/DazzleToggleWidget.js`) — thin
+  base for toggle-based widgets (DimensionWidget, SeedWidget, ImageModeWidget)
+  - Value shape enforcement: `{ on: boolean, value: any }`
+  - `handleToggleClick(event, pos)` helper for toggle mouse handling
+  - `drawToggle()`, `drawWidgetFrame()`, `drawNumberWidget()` moved from DazzleWidget
+  - `ToggleBehavior`, `ValueBehavior` constants moved from WidgetValidation.js (UI contracts)
+
+### Changed
+- **DazzleWidget cleaned** — now contains only universally shared methods (isInBounds,
+  handleTooltipMouse, computeSize, hideWidget/showWidget). Toggle-specific code removed.
+- **Widget hierarchy refined**: DimensionWidget, SeedWidget, ImageModeWidget now extend
+  DazzleToggleWidget. ScaleWidget, buttons, ModeStatusWidget extend DazzleWidget directly.
+- **WidgetValidation.js** — ToggleBehavior/ValueBehavior removed (moved to DazzleToggleWidget)
+
+### References
+- Collaborate3 analysis: `2026-03-18__22-17-04__DISCUSS_Rnd4_FINAL_ASSESSMENT_js-refactor-complete-review.md`
+- Issue #5: Refactor web/smart_resolution_calc.js into separate class modules
+
+## [0.9.4] - 2026-03-18
+
+### Changed
+- **Serialization simplified to name-based only** — removed diagnostics-based restore (Path B,
+  v0.5.1) and heuristic matching restore (Path C, legacy). Only `widgets_values_by_name`
+  remains. Serialize override: 78 -> 25 lines. Configure override: 180 -> 30 lines.
+  Removed `_serialization_diagnostics` capture, before/after state tracking, position change
+  detection, and combo widget post-load validation (no longer needed without splice).
+- **Connection detection simplified to single event + one-shot delay** — removed redundant
+  `onConnectionsRemove` handler and 500ms `setInterval` polling. Single `onConnectionsChange`
+  with 50ms `setTimeout` for LiteGraph timing (VHS pattern). 3 mechanisms -> 1.
+
+### Removed
+- Serialization Path B (diagnostics-based restore, ~46 lines)
+- Serialization Path C (heuristic type-matching restore, ~100 lines) — was marked "may corrupt"
+- Serialization diagnostics capture (~40 lines in serialize, ~40 lines in configure)
+- `onConnectionsRemove` handler (~16 lines)
+- `setInterval` 500ms connection polling (~15 lines)
+- `_lastImageConnectionState` tracking
+- `imageOutputWidgetValues` tracking (no longer needed without splice)
+
+### References
+- Analysis: `2026-03-18__18-27-55__dev-workflow-orchestrator-correctness-audit.md`
+- Orchestrator reduced from 1,232 to 955 lines (277 lines removed)
+
+## [0.9.3] - 2026-03-18
+
+### Changed
+- **Widget visibility: splice replaced with draw override** — widgets now stay in the
+  array at all times. Hidden widgets have draw/computeSize/mouse overridden to no-ops
+  instead of being spliced in/out. Eliminates root cause of widget state corruption,
+  index drift, and type mutation (Issues #8, #25, #26).
+  - `hideWidget()`/`showWidget()` utilities added to DazzleWidget.js
+  - `updateImageOutputVisibility()` rewritten: 225 lines -> ~55 lines
+  - Removed: `imageOutputWidgetIndices`, `origType` tracking, reverse-order splice logic,
+    anchor-based sequential insertion, widget type mutation during show/restore
+  - Orchestrator reduced from 1,447 to 1,232 lines
+
+### Added
+- **Widget visibility Playwright tests** (3 new, 30 total)
+  - `_hidden` flag pattern verification (widgets always in array)
+  - hide/show mechanism matches image connection state
+  - `updateImageOutputVisibility` shows widgets when image connected
+
+### References
+- Analysis: `2026-03-18__18-27-55__dev-workflow-orchestrator-correctness-audit.md`
+- Root cause: `2025-11-11__10-47-00__canvas-corruption-fix-learnings.md`
+- Issues #8, #25, #26
+
+## [0.9.2] - 2026-03-18
+
+### Added
+- **DazzleWidget base class** (`web/components/DazzleWidget.js`) — shared foundation for all
+  custom ComfyUI widgets with `isInBounds()`, `drawToggle()`, `drawNumberWidget()`,
+  `drawWidgetFrame()`, `computeSize()`, `handleTooltipMouse()`, and standard constructor
+- **Shared draw constants** — `WIDGET_MARGIN`, `WIDGET_INNER_MARGIN`, `WIDGET_BG_COLOR`,
+  `WIDGET_LABEL_FONT`, `WIDGET_LABEL_COLOR_ON/OFF`, `WIDGET_TOGGLE_COLOR_ON/OFF` exported
+  from DazzleWidget for consistent styling across all widgets
+
+### Changed
+- **All 7 interactive widget classes now extend DazzleWidget** — eliminates duplicated
+  `isInBounds` (8x), `drawToggle` (3x), `drawNumberWidget` (2x), `computeSize` (7x),
+  and constructor boilerplate
+- **`drawWidgetFrame()` template method** — DimensionWidget, SeedWidget, ImageModeWidget now
+  call `this.drawWidgetFrame()` for the shared draw skeleton (background, toggle, hit areas)
+  instead of duplicating the same 15 lines each
+- Establishes consistent widget interface for future DazzleNodes library extraction
+
+### References
+- Issue #5: Refactor web/smart_resolution_calc.js into separate class modules
+- Analysis: `2026-03-18__14-24-08__dev-workflow-js-widget-abstraction-strategy.md`
+- Plan: `2026-03-18__14-24-08__claude-plan__dazzle-widget-base-class.md`
+
+## [0.9.1] - 2026-03-18
+
+### Changed
+- **Phases 7-10: Extract ModeStatusWidget, ImageModeWidget, ColorPickerButton, CopyImageButton**
+  - `web/components/ModeStatusWidget.js`: read-only mode display (~355 lines)
+  - `web/components/ImageModeWidget.js`: USE IMAGE DIMS toggle + mode selector (~301 lines)
+  - `web/components/ColorPickerButton.js`: color picker popup button (~197 lines)
+  - `web/components/CopyImageButton.js`: copy dimensions from connected image (~354 lines)
+  - `web/smart_resolution_calc.js`: 2,720 -> 1,447 lines (73% total reduction from original 5,379)
+  - All 9 widget classes now in separate ES6 modules under `web/components/`
+  - Extraction comment cruft cleaned from orchestrator (~58 lines removed)
+
+### Changed
+- **Phases 3-6: Extract WidgetValidation, DimensionWidget, SeedWidget, ScaleWidget**
+  - `web/components/WidgetValidation.js`: WIDGET_SCHEMAS, validateWidgetValue,
+    logCorruptionDiagnostics, ToggleBehavior, ValueBehavior (~210 lines)
+  - `web/components/DimensionWidget.js`: toggle-based dimension input class (~346 lines)
+  - `web/components/SeedWidget.js`: seed widget + seed constants (~462 lines)
+  - `web/components/ScaleWidget.js`: scale multiplier slider (~1,143 lines)
+  - `web/utils/ImageDimensionUtils.js`: shared image dimension utilities (~111 lines)
+  - `web/smart_resolution_calc.js`: 4,939 -> 2,720 lines (49% reduction from original 5,379)
+  - All 27 Playwright tests pass after extraction
+
+### Added
+- **Playwright test coverage for Phases 3-5** (13 new tests, 27 total)
+  - DimensionWidget: structure, toggle, +/- buttons, megapixel float increments, serialization
+  - SeedWidget: dice/lock/recycle buttons, resolveActualSeed, toggle, randomize mode
+  - WidgetValidation: corrupt value correction, behavior constant application
+
+### Fixed
+- **`_get_plasma_fast()` crash** when `ComfyUI-SeedVR2_VideoUpscaler` installed — its custom
+  `__getattr__` raises `ImportError` instead of `AttributeError`, bypassing `getattr`'s default.
+  Added broad `try/except` around module scan. (Issue #43)
+
+### References
+- Issue #5: Refactor web/smart_resolution_calc.js into separate class modules
+- Issue #14: Refactor: Split large smart_resolution_calc.js file
+- Issue #43: Node not found after installation (SeedVR2 compatibility)
+
+## [0.9.0] - 2026-03-17
+
+### Overview
+The 0.9.x series is dedicated to JavaScript modularization — decomposing the 5,379-line
+monolith (`web/smart_resolution_calc.js`) into reusable, testable modules. No new features;
+purely structural refactoring with Playwright E2E test verification at every step.
+
+### Added
+- **Playwright E2E test suite** — automated browser testing against running ComfyUI
+  - `tests/e2e/smoke.spec.js`: 5 smoke tests (console errors, node loading, widgets, outputs, screenshot)
+  - `tests/e2e/widget-interaction.spec.js`: 9 interaction tests (tooltip hover activation,
+    delay timing, seed widget structure, randomize generation, button hit areas,
+    serialization roundtrip, seed value persistence)
+  - `playwright.config.js`: Chromium, localhost:8188, single worker (shared server)
+  - `package.json`: test scripts (npm test, test:smoke, test:headed, test:ui)
+
+### Changed
+- **Phase 2: TooltipSystem extraction** — first module extracted from monolith
+  - `web/components/TooltipSystem.js`: TooltipManager, InfoIcon, tooltipManager singleton,
+    wrapWidgetWithTooltip (~440 lines extracted)
+  - `web/smart_resolution_calc.js`: 5,379 -> 4,939 lines, imports from TooltipSystem.js
+  - All 14 Playwright tests pass after extraction
+
+### References
+- Issue #5: Refactor web/smart_resolution_calc.js into separate class modules
+- Issue #14: Refactor: Split large smart_resolution_calc.js file
+- Plan: `2026-03-17__00-15-00__claude-plan__js-refactor-playwright-testing.md`
+
 ## [0.8.5] - 2026-03-17
 
 ### Added

@@ -1,0 +1,29 @@
+{
+  "name": "comfyui-smart-resolution-calc",
+  "version": "0.9.0",
+  "description": "Smart Resolution Calculator for ComfyUI - Flexible resolution and latent generation with toggle-based dimension controls",
+  "private": true,
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "npx playwright test",
+    "test:smoke": "npx playwright test tests/e2e/smoke.spec.js",
+    "test:headed": "npx playwright test --headed",
+    "test:ui": "npx playwright test --ui",
+    "test:unit": "npx vitest run",
+    "test:unit:watch": "npx vitest"
+  },
+  "keywords": [
+    "comfyui",
+    "custom-node",
+    "resolution-calculator"
+  ],
+  "author": "DazzleNodes",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "vitest": "^4.1.0"
+  }
+}

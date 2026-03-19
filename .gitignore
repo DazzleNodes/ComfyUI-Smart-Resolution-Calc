@@ -15,6 +15,15 @@ desktop.ini
 *.*~
 
 #######################
+# Node.js / Playwright #
+#######################
+node_modules/
+playwright-report/
+test-results/
+tests/e2e/screenshots/
+package-lock.json
+
+#######################
 # Project Directories #
 #######################
 
