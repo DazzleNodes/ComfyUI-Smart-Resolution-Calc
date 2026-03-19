@@ -46,6 +46,13 @@ class DazzleWidget {
 
         // Compact height default (overridable via config or computeSize override)
         this._height = config.height ?? 24;
+
+        // Services — injectable dependencies for testability.
+        // Defaults to ComfyUI globals. Tests inject mocks via config.services.
+        // This avoids hard dependency on `app` global in widget code.
+        this.services = config.services || {
+            prompt: (...args) => app.canvas.prompt(...args),
+        };
     }
 
     // =========================================================================

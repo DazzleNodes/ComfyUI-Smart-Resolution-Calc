@@ -11,12 +11,19 @@
     "test": "npx playwright test",
     "test:smoke": "npx playwright test tests/e2e/smoke.spec.js",
     "test:headed": "npx playwright test --headed",
-    "test:ui": "npx playwright test --ui"
+    "test:ui": "npx playwright test --ui",
+    "test:unit": "npx vitest run",
+    "test:unit:watch": "npx vitest"
   },
-  "keywords": ["comfyui", "custom-node", "resolution-calculator"],
+  "keywords": [
+    "comfyui",
+    "custom-node",
+    "resolution-calculator"
+  ],
   "author": "DazzleNodes",
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "^1.58.2"
+    "@playwright/test": "^1.58.2",
+    "vitest": "^4.1.0"
   }
 }

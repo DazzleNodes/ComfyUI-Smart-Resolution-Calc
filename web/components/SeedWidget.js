@@ -295,9 +295,8 @@ class SeedWidget extends DazzleToggleWidget {
 
             // Value edit (click to type)
             if (this.isInBounds(pos, this.hitAreas.valueEdit)) {
-                const canvas = app.canvas;
                 const currentValue = Math.round(this.value.value);
-                canvas.prompt("Seed (-1=rnd, -2=inc, -3=dec)", String(currentValue), (newValue) => {
+                this.services.prompt("Seed (-1=rnd, -2=inc, -3=dec)", String(currentValue), (newValue) => {
                     const parsed = parseInt(newValue);
                     if (!isNaN(parsed)) {
                         this.value.value = parsed;

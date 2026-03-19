@@ -340,8 +340,7 @@ class CopyImageButton extends DazzleWidget {
      * Show instructions dialog (Tier 3 fallback)
      */
     showInstructionsDialog() {
-        const canvas = app.canvas;
-        canvas.prompt(
+        this.services.prompt(
             "Copy Image Dimensions",
             "To copy dimensions:\n\n1. Run the workflow once (Queue Prompt)\n2. After execution, click this button again\n3. Cached dimensions will be extracted\n\nOr manually enter width and height from your source image.\n\n(Server endpoint requires Load Image node with file path)",
             null,

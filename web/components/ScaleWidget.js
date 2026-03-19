@@ -933,14 +933,8 @@ class ScaleWidget extends DazzleWidget {
      * Handle mouse events
      */
     mouse(event, pos, node) {
-        const canvas = app.canvas;
-
         // Check info icon first (tooltip on label)
-        const canvasBounds = { width: node.size[0], height: node.size[1] };
-        if (this.infoIcon.mouse(event, pos, canvasBounds, node.pos)) {
-            node.setDirtyCanvas(true);
-            return true; // Tooltip handled the event
-        }
+        if (this.handleTooltipMouse(event, pos, node)) return true;
 
         if (event.type === "pointerdown") {
             this.mouseDowned = [...pos];
@@ -983,7 +977,7 @@ class ScaleWidget extends DazzleWidget {
 
                 // Check left step value edit click
                 if (this.isInBounds(pos, this.hitAreas.leftStepValue)) {
-                    canvas.prompt("Enter left step size (0.001 - 1.0)", String(this.leftStep.toFixed(3)), (newValue) => {
+                    this.services.prompt("Enter left step size (0.001 - 1.0)", String(this.leftStep.toFixed(3)), (newValue) => {
                         const parsed = parseFloat(newValue);
                         if (!isNaN(parsed) && parsed >= 0.001 && parsed <= 1.0) {
                             this.leftStep = parsed;
@@ -995,7 +989,7 @@ class ScaleWidget extends DazzleWidget {
 
                 // Check right step value edit click
                 if (this.isInBounds(pos, this.hitAreas.rightStepValue)) {
-                    canvas.prompt("Enter right step size (0.001 - 10.0)", String(this.rightStep.toFixed(3)), (newValue) => {
+                    this.services.prompt("Enter right step size (0.001 - 10.0)", String(this.rightStep.toFixed(3)), (newValue) => {
                         const parsed = parseFloat(newValue);
                         if (!isNaN(parsed) && parsed >= 0.001 && parsed <= 10.0) {
                             this.rightStep = parsed;
@@ -1008,7 +1002,7 @@ class ScaleWidget extends DazzleWidget {
 
             // Check value edit click
             if (this.isInBounds(pos, this.hitAreas.valueEdit)) {
-                canvas.prompt("Enter scale value (0.0 - 10.0+)", String(this.value.toFixed(2)), (newValue) => {
+                this.services.prompt("Enter scale value (0.0 - 10.0+)", String(this.value.toFixed(2)), (newValue) => {
                     const parsed = parseFloat(newValue);
                     if (!isNaN(parsed) && parsed >= 0.0) {
                         this.value = Math.max(0.0, parsed);

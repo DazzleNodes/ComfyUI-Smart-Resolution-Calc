@@ -111,8 +111,6 @@ class DimensionWidget extends DazzleToggleWidget {
      * Handle mouse events
      */
     mouse(event, pos, node) {
-        const canvas = app.canvas;
-
         // Check info icon first (tooltip on label) if configured
         if (this.handleTooltipMouse(event, pos, node)) return true;
 
@@ -184,7 +182,7 @@ class DimensionWidget extends DazzleToggleWidget {
                 // Value edit (prompt for new value)
                 if (this.isInBounds(pos, this.hitAreas.valueEdit)) {
                     const currentValue = this.isInteger ? Math.round(this.value.value) : this.value.value;
-                    canvas.prompt("Enter value", String(currentValue), (newValue) => {
+                    this.services.prompt("Enter value", String(currentValue), (newValue) => {
                         const parsed = parseFloat(newValue);
                         if (!isNaN(parsed)) {
                             this.value.value = this.isInteger ? Math.round(parsed) : parsed;

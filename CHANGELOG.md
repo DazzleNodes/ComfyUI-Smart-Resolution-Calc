@@ -5,6 +5,27 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2026-03-19
+
+### Added
+- **Services pattern for testability** — DazzleWidget constructor accepts `config.services`
+  with injectable dependencies (prompt, etc.). Defaults to ComfyUI globals for backward
+  compatibility. Tests inject mocks for fast, isolated unit testing.
+- **Vitest unit test suite** — 40 tests running in <2 seconds
+  - SeedWidget: constructor, generateRandomSeed, resolveActualSeed (6 cases), serializeValue
+  - DimensionWidget: constructor, changeValue (7 cases), serializeValue, handleToggleClick
+  - WidgetValidation: output_image_mode, fill_type, dimension widgets, fill_color, unknown widgets
+- `vitest.config.js`, `tests/unit/setup.js` (global mocks), `package.json` test:unit script
+
+### Changed
+- **`app.canvas.prompt()` migrated to `this.services.prompt()`** in 4 widgets:
+  DimensionWidget, SeedWidget, ScaleWidget, CopyImageButton
+- ScaleWidget tooltip check simplified to use inherited `handleTooltipMouse()`
+- Total test count: 70 (40 unit + 30 E2E)
+
+### References
+- Collaborate3 analysis: `2026-03-18__22-17-04__DISCUSS_Rnd4_FINAL_ASSESSMENT_js-refactor-complete-review.md`
+
 ## [0.9.5] - 2026-03-19
 
 ### Added
