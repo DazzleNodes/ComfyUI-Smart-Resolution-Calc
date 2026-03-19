@@ -5,6 +5,27 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2026-03-19
+
+### Added
+- **DazzleToggleWidget intermediate class** (`web/components/DazzleToggleWidget.js`) — thin
+  base for toggle-based widgets (DimensionWidget, SeedWidget, ImageModeWidget)
+  - Value shape enforcement: `{ on: boolean, value: any }`
+  - `handleToggleClick(event, pos)` helper for toggle mouse handling
+  - `drawToggle()`, `drawWidgetFrame()`, `drawNumberWidget()` moved from DazzleWidget
+  - `ToggleBehavior`, `ValueBehavior` constants moved from WidgetValidation.js (UI contracts)
+
+### Changed
+- **DazzleWidget cleaned** — now contains only universally shared methods (isInBounds,
+  handleTooltipMouse, computeSize, hideWidget/showWidget). Toggle-specific code removed.
+- **Widget hierarchy refined**: DimensionWidget, SeedWidget, ImageModeWidget now extend
+  DazzleToggleWidget. ScaleWidget, buttons, ModeStatusWidget extend DazzleWidget directly.
+- **WidgetValidation.js** — ToggleBehavior/ValueBehavior removed (moved to DazzleToggleWidget)
+
+### References
+- Collaborate3 analysis: `2026-03-18__22-17-04__DISCUSS_Rnd4_FINAL_ASSESSMENT_js-refactor-complete-review.md`
+- Issue #5: Refactor web/smart_resolution_calc.js into separate class modules
+
 ## [0.9.4] - 2026-03-18
 
 ### Changed

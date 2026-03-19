@@ -17,7 +17,7 @@ Components:
 # Semantic version components
 MAJOR = 0
 MINOR = 9
-PATCH = 4
+PATCH = 5
 
 # Optional release phase (alpha, beta, rc1, rc2, etc.)
 # Set to None for stable releases

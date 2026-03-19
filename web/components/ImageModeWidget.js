@@ -12,8 +12,8 @@
  *       TOOLTIP_CONTENT passed via constructor config
  */
 
-import { DazzleWidget, WIDGET_MARGIN, WIDGET_INNER_MARGIN, WIDGET_LABEL_FONT, WIDGET_LABEL_COLOR_ON, WIDGET_LABEL_COLOR_OFF } from './DazzleWidget.js';
-import { ToggleBehavior, ValueBehavior } from './WidgetValidation.js';
+import { WIDGET_MARGIN, WIDGET_INNER_MARGIN, WIDGET_LABEL_FONT, WIDGET_LABEL_COLOR_ON, WIDGET_LABEL_COLOR_OFF } from './DazzleWidget.js';
+import { DazzleToggleWidget, ToggleBehavior, ValueBehavior } from './DazzleToggleWidget.js';
 import { logger, dimensionLogger } from '../utils/debug_logger.js';
 
 /**
@@ -21,7 +21,7 @@ import { logger, dimensionLogger } from '../utils/debug_logger.js';
  * Compact widget with toggle (LEFT) and mode selector (RIGHT)
  * Answers the question "USE IMAGE DIMS?" with ON/OFF + AR Only/Exact Dims
  */
-class ImageModeWidget extends DazzleWidget {
+class ImageModeWidget extends DazzleToggleWidget {
     constructor(name = "image_mode", config = {}) {
         super(name, { on: false, value: 0 }, config);  // Default: disabled, 0 = AR Only, 1 = Exact Dims
 

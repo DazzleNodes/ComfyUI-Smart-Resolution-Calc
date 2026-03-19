@@ -29,10 +29,10 @@ import {
 import {
     WIDGET_SCHEMAS,
     validateWidgetValue,
-    logCorruptionDiagnostics,
-    ToggleBehavior,
-    ValueBehavior
+    logCorruptionDiagnostics
 } from './components/WidgetValidation.js';
+
+import { ToggleBehavior, ValueBehavior } from './components/DazzleToggleWidget.js';
 
 // Extracted components (Phase 4: DimensionWidget)
 import { DimensionWidget } from './components/DimensionWidget.js';

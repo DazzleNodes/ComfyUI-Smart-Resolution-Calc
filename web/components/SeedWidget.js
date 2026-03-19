@@ -18,7 +18,8 @@
  * Data: { on: boolean, value: number } (same structure as DimensionWidget)
  */
 
-import { DazzleWidget, WIDGET_MARGIN, WIDGET_INNER_MARGIN, WIDGET_LABEL_FONT, WIDGET_LABEL_COLOR_ON, WIDGET_LABEL_COLOR_OFF } from './DazzleWidget.js';
+import { WIDGET_MARGIN, WIDGET_INNER_MARGIN, WIDGET_LABEL_FONT, WIDGET_LABEL_COLOR_ON, WIDGET_LABEL_COLOR_OFF } from './DazzleWidget.js';
+import { DazzleToggleWidget } from './DazzleToggleWidget.js';
 import { logger } from '../utils/debug_logger.js';
 
 // ===== Seed Widget Special Values (matching rgthree convention) =====
@@ -28,7 +29,7 @@ const SPECIAL_SEED_DECREMENT = -3;
 const SPECIAL_SEEDS = [SPECIAL_SEED_RANDOM, SPECIAL_SEED_INCREMENT, SPECIAL_SEED_DECREMENT];
 const SEED_MAX = 1125899906842624;  // Match rgthree's max
 
-class SeedWidget extends DazzleWidget {
+class SeedWidget extends DazzleToggleWidget {
     constructor(name, defaultValue = -1, config = {}) {
         super(name, { on: true, value: defaultValue }, config);
 

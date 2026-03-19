@@ -15,11 +15,11 @@
  * - ScaleWidget — referenced via instanceof for image refresh; passed via node.widgets
  */
 
-import { DazzleWidget, WIDGET_MARGIN, WIDGET_INNER_MARGIN, WIDGET_LABEL_FONT, WIDGET_LABEL_COLOR_ON, WIDGET_LABEL_COLOR_OFF } from './DazzleWidget.js';
-import { ToggleBehavior, ValueBehavior } from './WidgetValidation.js';
+import { WIDGET_MARGIN, WIDGET_INNER_MARGIN, WIDGET_LABEL_FONT, WIDGET_LABEL_COLOR_ON, WIDGET_LABEL_COLOR_OFF } from './DazzleWidget.js';
+import { DazzleToggleWidget, ToggleBehavior, ValueBehavior } from './DazzleToggleWidget.js';
 import { logger } from '../utils/debug_logger.js';
 
-class DimensionWidget extends DazzleWidget {
+class DimensionWidget extends DazzleToggleWidget {
     constructor(name, defaultValue, isInteger = true, config = {}) {
         super(name, { on: false, value: defaultValue }, config);
         this.isInteger = isInteger;

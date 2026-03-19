@@ -209,37 +209,8 @@ function logCorruptionDiagnostics(warnings, context = {}) {
 // Behavior Constants (was lines 255-285)
 // ============================================================================
 
-/**
- * Toggle Behavior Modes
- *
- * Controls when a toggle can be enabled/disabled.
- *
- * - SYMMETRIC: Can toggle both ON→OFF and OFF→ON freely
- *   Example: DimensionWidget can be enabled/disabled anytime
- *
- * - ASYMMETRIC: Can toggle one direction freely, other direction has constraints
- *   Example: ImageModeWidget can be disabled anytime, but can only be enabled when image connected
- */
-const ToggleBehavior = {
-    SYMMETRIC: 'symmetric',      // Can toggle both directions freely
-    ASYMMETRIC: 'asymmetric'     // One direction free, other has constraints
-};
-
-/**
- * Value Behavior Modes
- *
- * Controls when widget values can be edited.
- *
- * - ALWAYS: Values are always editable regardless of toggle state
- *   Example: DimensionWidget values can be edited even when toggle is OFF
- *
- * - CONDITIONAL: Values only editable when certain conditions met
- *   Example: ImageModeWidget mode selector only editable when toggle is ON and image connected
- */
-const ValueBehavior = {
-    ALWAYS: 'always',            // Always editable
-    CONDITIONAL: 'conditional'   // Only editable when conditions met
-};
+// ToggleBehavior, ValueBehavior — moved to DazzleToggleWidget.js
+// (they're UI interaction contracts, not validation schemas)
 
 // ============================================================================
 // Exports
@@ -248,7 +219,5 @@ const ValueBehavior = {
 export {
     WIDGET_SCHEMAS,
     validateWidgetValue,
-    logCorruptionDiagnostics,
-    ToggleBehavior,
-    ValueBehavior
+    logCorruptionDiagnostics
 };
