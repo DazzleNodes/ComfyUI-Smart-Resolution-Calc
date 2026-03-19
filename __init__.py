@@ -15,6 +15,7 @@ Features:
 """
 
 from .py.smart_resolution_calc import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS, SmartResolutionCalc
+from .py.image_utils import get_image_dimensions_from_path
 from .version import __version__, VERSION, BASE_VERSION, get_version, get_base_version
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS', '__version__', 'VERSION', 'BASE_VERSION']
@@ -47,7 +48,7 @@ try:
                 }, status=400)
 
             # Use the static method from SmartResolutionCalc
-            result = SmartResolutionCalc.get_image_dimensions_from_path(image_path)
+            result = get_image_dimensions_from_path(image_path)
 
             if result['success']:
                 return web.json_response(result)

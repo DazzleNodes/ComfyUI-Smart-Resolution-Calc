@@ -36,14 +36,15 @@ export function applyDazzleSerialization(nodeType, options = {}) {
         const widgetsByName = {};
         if (this.widgets) {
             this.widgets.forEach((widget, index) => {
-                // Custom DazzleWidgets: use serializeValue() for resolved values
-                // Native ComfyUI widgets: use widget.value directly
-                if (widget.type === "custom" && typeof widget.serializeValue === 'function') {
-                    const serialized = widget.serializeValue(this, index);
-                    if (serialized !== undefined) {
-                        widgetsByName[widget.name] = serialized;
-                    }
-                } else {
+                // Save widget.value directly — NOT serializeValue().
+                // serializeValue() has side effects (SeedWidget resolves -1 to a
+                // random seed and updates lastSeed). ComfyUI already calls
+                // serializeValue() separately for the prompt data sent to Python.
+                // Our workflow JSON saves the display state (e.g., -1 for randomize)
+                // so the widget mode is correctly restored on reload.
+                // The actual resolved seed is saved by ComfyUI in widgets_values
+                // (the index-based array) via its own serializeValue call.
+                if (widget.value !== undefined) {
                     widgetsByName[widget.name] = widget.value;
                 }
             });
@@ -69,6 +70,13 @@ export function applyDazzleSerialization(nodeType, options = {}) {
             this.widgets.forEach(widget => {
                 if (info.widgets_values_by_name[widget.name] !== undefined) {
                     widget.value = info.widgets_values_by_name[widget.name];
+
+                    // If a seed widget was restored with a resolved (non-special) value,
+                    // clear randomizeMode so the green tint doesn't show incorrectly.
+                    // This handles loading workflows where the seed was resolved at save time.
+                    if (widget.randomizeMode !== undefined && widget.value?.value >= 0) {
+                        widget.randomizeMode = false;
+                    }
                 }
             });
             logger.debug('[configure] Name-based restore complete');

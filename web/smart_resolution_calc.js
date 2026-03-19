@@ -847,7 +847,73 @@ app.registerExtension({
 
     // Hook into global canvas rendering to draw tooltips on top of EVERYTHING
     async setup() {
-        logger.verbose('setup() called - hooking app.canvas.onDrawForeground');
+        logger.verbose('setup() called');
+
+        // ===== SEED PROMPT INTERCEPTION =====
+        // Intercept prompt data right before it's sent to the server.
+        // This is the ONLY place where seed resolution happens — serializeValue
+        // is a simple passthrough. This pattern follows rgthree's approach:
+        // resolve seeds, patch prompt data, update lastSeed — all in one place,
+        // only during actual queue operations (not auto-save/serialize).
+        const originalQueuePrompt = app.api.queuePrompt.bind(app.api);
+        app.api.queuePrompt = async function(index, prompt, ...args) {
+            // Find all SmartResolutionCalc nodes and resolve their seeds
+            const nodes = app.graph._nodes || [];
+            for (const node of nodes) {
+                if (node.comfyClass !== 'SmartResolutionCalc') continue;
+
+                const seedWidget = node.widgets?.find(w => w.name === 'fill_seed');
+                if (!seedWidget) continue;
+
+                // Only resolve if seed is ON and has a special value
+                if (!seedWidget.value?.on) continue;
+                const seedValue = seedWidget.value?.value;
+                if (!SPECIAL_SEEDS.includes(seedValue)) {
+                    // Fixed seed — just track it as lastSeed
+                    seedWidget.lastSeed = seedValue;
+                    continue;
+                }
+
+                // Resolve the special seed value
+                const resolvedSeed = seedWidget.resolveActualSeed();
+                seedWidget.lastSeed = resolvedSeed;
+                logger.debug(`[Seed Intercept] Node ${node.id}: resolved ${seedValue} -> ${resolvedSeed}`);
+
+                // Patch the prompt data (what gets sent to Python)
+                const nodePrompt = prompt?.output?.[String(node.id)];
+                if (nodePrompt?.inputs?.fill_seed) {
+                    nodePrompt.inputs.fill_seed = { on: true, value: resolvedSeed };
+                }
+
+                // Patch the workflow data (what gets saved in image metadata)
+                const workflowNode = prompt?.workflow?.nodes?.find(n => n.id === node.id);
+                if (workflowNode) {
+                    // Patch index-based widgets_values
+                    if (workflowNode.widgets_values) {
+                        for (let i = 0; i < workflowNode.widgets_values.length; i++) {
+                            const wv = workflowNode.widgets_values[i];
+                            if (wv && typeof wv === 'object' && 'on' in wv && wv.value === seedValue) {
+                                workflowNode.widgets_values[i] = { on: true, value: resolvedSeed };
+                                break;
+                            }
+                        }
+                    }
+                    // Patch name-based widgets_values_by_name (used by our configure restore)
+                    if (workflowNode.widgets_values_by_name && workflowNode.widgets_values_by_name.fill_seed) {
+                        workflowNode.widgets_values_by_name.fill_seed = { on: true, value: resolvedSeed };
+                    }
+                }
+
+                // Redraw to show updated state
+                node.setDirtyCanvas(true);
+            }
+
+            // Call the original queuePrompt
+            return originalQueuePrompt(index, prompt, ...args);
+        };
+        logger.verbose('Installed seed prompt interception hook on app.api.queuePrompt');
+
+        logger.verbose('setup() - hooking app.canvas.onDrawForeground');
 
         const originalDrawForeground = app.canvas.onDrawForeground;
 
