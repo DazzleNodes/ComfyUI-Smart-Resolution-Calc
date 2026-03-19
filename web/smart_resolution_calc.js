@@ -629,55 +629,25 @@ app.registerExtension({
                     this.updateImageOutputVisibility();
                 }, 100);
 
-                // Monitor connection changes - store bound function on instance
+                // Monitor connection changes — single event handler + 50ms one-shot delay.
+                // The delay handles the LiteGraph timing issue where link objects aren't
+                // yet in graph.links when the event fires (VHS uses the same pattern).
+                // Previous implementation had 3 redundant mechanisms (onConnectionsChange,
+                // onConnectionsRemove, 500ms polling). Simplified to 1.
                 const originalOnConnectionsChange = this.onConnectionsChange;
                 this.onConnectionsChange = function(type, index, connected, link_info) {
-                    // Call original handler
                     if (originalOnConnectionsChange) {
                         originalOnConnectionsChange.apply(this, arguments);
                     }
 
-                    // If image INPUT connection changed, update visibility (v0.6.1 fix)
                     if (type === LiteGraph.INPUT && this.inputs && this.inputs[index]) {
                         const input = this.inputs[index];
                         if (input.name === "image") {
-                            this.updateImageOutputVisibility();
+                            // 50ms delay for LiteGraph link graph to settle
+                            setTimeout(() => this.updateImageOutputVisibility(), 50);
                         }
                     }
                 };
-
-                // Also monitor onConnectionsRemove for disconnect events (fallback)
-                const originalOnConnectionsRemove = this.onConnectionsRemove;
-                this.onConnectionsRemove = function(type, index, link_info) {
-                    // Call original handler
-                    if (originalOnConnectionsRemove) {
-                        originalOnConnectionsRemove.apply(this, arguments);
-                    }
-
-                    // If image INPUT was disconnected, update visibility (v0.6.1 fix)
-                    if (type === LiteGraph.INPUT && this.inputs && this.inputs[index]) {
-                        const input = this.inputs[index];
-                        if (input.name === "image") {
-                            this.updateImageOutputVisibility();
-                        }
-                    }
-                };
-
-                // Periodic check for connection status changes (fallback for when events don't fire)
-                // NOTE: This is necessary because LiteGraph disconnect events don't fire reliably
-                // The 500ms polling is acceptable UX-wise and handles the edge case
-                // v0.6.1: Changed to check INPUT image connection instead of OUTPUT
-                this._lastImageConnectionState = false;
-                this._connectionCheckInterval = setInterval(() => {
-                    const imageInput = this.inputs ? this.inputs.find(inp => inp.name === "image") : null;
-                    const currentState = imageInput && imageInput.link != null;
-
-                    if (currentState !== this._lastImageConnectionState) {
-                        visibilityLogger.debug(`Image INPUT connection state changed: ${this._lastImageConnectionState} → ${currentState}`);
-                        this._lastImageConnectionState = currentState;
-                        this.updateImageOutputVisibility();
-                    }
-                }, 500); // Check every 500ms
 
                 return r;
             };
@@ -724,57 +694,14 @@ app.registerExtension({
                 return false;
             };
 
-            // Store scale widget configuration in workflow (not sent to Python)
+            // Serialize widget values by name + scale config
             const onSerialize = nodeType.prototype.serialize;
             nodeType.prototype.serialize = function() {
-                // === SERIALIZATION DIAGNOSTICS (v0.5.0) ===
-                // Capture widget array state at moment of serialization to debug corruption
-                const serializationDiagnostics = {
-                    timestamp: new Date().toISOString(),
-                    widgetCount: this.widgets ? this.widgets.length : 0,
-                    widgetPositions: {},
-                    widgetValues: {},
-                    imageOutputWidgetsState: {}
-                };
-
-                // Track all widget positions and values
-                if (this.widgets) {
-                    this.widgets.forEach((widget, index) => {
-                        serializationDiagnostics.widgetPositions[widget.name] = index;
-                        serializationDiagnostics.widgetValues[widget.name] = {
-                            value: widget.value,
-                            type: typeof widget.value,
-                            visible: widget.type !== undefined // Hidden widgets have type undefined
-                        };
-                    });
-                }
-
-                // Track image output widgets specifically (corruption-prone area)
-                if (this.imageOutputWidgets) {
-                    Object.keys(this.imageOutputWidgets).forEach(key => {
-                        const widget = this.imageOutputWidgets[key];
-                        if (widget) {
-                            const arrayIndex = this.widgets ? this.widgets.indexOf(widget) : -1;
-                            serializationDiagnostics.imageOutputWidgetsState[key] = {
-                                inArray: arrayIndex !== -1,
-                                arrayIndex: arrayIndex,
-                                currentValue: widget.value,
-                                savedValue: this.imageOutputWidgetValues ? this.imageOutputWidgetValues[key] : undefined
-                            };
-                        }
-                    });
-                }
-
-                // Log diagnostics
-                if (visibilityLogger.debugEnabled) {
-                    visibilityLogger.debug('[SERIALIZE] Widget array state:', serializationDiagnostics);
-                }
-
                 const data = onSerialize ? onSerialize.apply(this) : {};
 
-                // === PHASE 2A: NAME-BASED SERIALIZATION (v0.5.1) ===
-                // Serialize widgets by NAME instead of relying on array index
-                // This prevents corruption at the source rather than fixing it during restore
+                // Name-based serialization — widgets saved by name, not array index.
+                // This is the only serialization path (v0.9.3+). Older fallback paths
+                // (diagnostics-based, heuristic matching) have been removed.
                 const widgetsByName = {};
                 if (this.widgets) {
                     this.widgets.forEach(widget => {
@@ -782,9 +709,6 @@ app.registerExtension({
                     });
                 }
                 data.widgets_values_by_name = widgetsByName;
-                if (visibilityLogger.debugEnabled) {
-                    visibilityLogger.debug('[SERIALIZE] Saved widgets by name:', widgetsByName);
-                }
 
                 // Store scale widget step configuration
                 const scaleWidget = this.widgets ? this.widgets.find(w => w instanceof ScaleWidget) : null;
@@ -794,243 +718,42 @@ app.registerExtension({
                         leftStep: scaleWidget.leftStep,
                         rightStep: scaleWidget.rightStep
                     };
-                    logger.debug('Serializing scale config:', data.widgets_config.scale);
                 }
-
-                // Store serialization diagnostics for debugging (not needed in production, but helpful)
-                if (!data.widgets_config) data.widgets_config = {};
-                data.widgets_config._serialization_diagnostics = serializationDiagnostics;
 
                 return data;
             };
 
-            // Handle widget serialization for workflow save/load
+            // Restore widget values from workflow (name-based only)
             const onConfigure = nodeType.prototype.configure;
             nodeType.prototype.configure = function(info) {
-                logger.group('configure called');
-                logger.debug('info:', info);
-                logger.debug('widgets_values:', info.widgets_values);
-
-                // === DESERIALIZATION DIAGNOSTICS (v0.5.0) ===
-                // Capture state before and after deserialization to debug corruption
-                const beforeState = {
-                    timestamp: new Date().toISOString(),
-                    widgetCount: this.widgets ? this.widgets.length : 0,
-                    widgetPositions: {},
-                    widgetValues: {}
-                };
-
-                if (this.widgets) {
-                    this.widgets.forEach((widget, index) => {
-                        beforeState.widgetPositions[widget.name] = index;
-                        beforeState.widgetValues[widget.name] = widget.value;
-                    });
-                }
-
-                if (visibilityLogger.debugEnabled) {
-                    visibilityLogger.debug('[DESERIALIZE-BEFORE] Widget state:', beforeState);
-                }
-
-                // Check if workflow has serialization diagnostics from save
-                if (info.widgets_config && info.widgets_config._serialization_diagnostics) {
-                    if (visibilityLogger.debugEnabled) {
-                        visibilityLogger.debug('[DESERIALIZE] Serialization diagnostics from workflow:', info.widgets_config._serialization_diagnostics);
-                    }
-                }
+                logger.debug('configure called');
 
                 if (onConfigure) {
                     onConfigure.apply(this, arguments);
                 }
 
-                // === PHASE 2A: DIRECT NAME-BASED RESTORE (v0.5.2) ===
-                // Prefer direct name-based serialization format over diagnostics-based restoration
-                // This is the cleanest approach - values serialized by name, restored by name
+                // Name-based restore — the only restore path (v0.9.3+).
+                // Older paths (diagnostics-based v0.5.1, heuristic matching) removed.
+                // Workflows saved before v0.5.2 will use ComfyUI's default index-based
+                // restore from onConfigure above (no corruption risk since widgets no
+                // longer leave the array via splice).
                 if (info.widgets_values_by_name) {
-                    visibilityLogger.info('[NAME-BASED-RESTORE] Using direct name-based serialization (v0.5.2+)');
-                    let restoredCount = 0;
-                    let skippedCount = 0;
-
                     this.widgets.forEach(widget => {
                         if (info.widgets_values_by_name[widget.name] !== undefined) {
                             widget.value = info.widgets_values_by_name[widget.name];
-                            restoredCount++;
-                            if (visibilityLogger.debugEnabled) {
-                                visibilityLogger.debug(`[NAME-BASED-RESTORE] Restored ${widget.name} = ${JSON.stringify(widget.value)}`);
-                            }
-                        } else {
-                            skippedCount++;
-                            if (visibilityLogger.debugEnabled) {
-                                visibilityLogger.debug(`[NAME-BASED-RESTORE] Skipped ${widget.name} (not in saved data)`);
-                            }
                         }
                     });
-
-                    visibilityLogger.info(`[NAME-BASED-RESTORE] Direct restore complete: ${restoredCount} restored, ${skippedCount} skipped`);
-                }
-                // === PHASE 2a: DIAGNOSTICS-BASED RESTORE (v0.5.1 fallback) ===
-                // Fix corruption by restoring widget values by name instead of index
-                // Uses serialization diagnostics to map widget names to their saved values
-                else if (info.widgets_config && info.widgets_config._serialization_diagnostics && info.widgets_values) {
-                    const diagnostics = info.widgets_config._serialization_diagnostics;
-                    visibilityLogger.info('[NAME-BASED-RESTORE] Using serialization diagnostics to restore by name');
-
-                    // Build name→value map from save-time widget positions
-                    const valuesByName = {};
-                    Object.keys(diagnostics.widgetPositions).forEach(widgetName => {
-                        const savedIndex = diagnostics.widgetPositions[widgetName];
-                        if (savedIndex < info.widgets_values.length) {
-                            valuesByName[widgetName] = info.widgets_values[savedIndex];
-                            if (visibilityLogger.debugEnabled) {
-                                visibilityLogger.debug(`[NAME-BASED-RESTORE] Mapped ${widgetName} from saved index ${savedIndex}`);
-                            }
-                        }
-                    });
-
-                    // Restore values by name (current positions may differ from save time)
-                    let restoredCount = 0;
-                    let skippedCount = 0;
-                    this.widgets.forEach(widget => {
-                        if (valuesByName[widget.name] !== undefined) {
-                            const savedValue = valuesByName[widget.name];
-                            const currentIndex = this.widgets.indexOf(widget);
-
-                            // Log position changes (indicates why index-based would corrupt)
-                            const savedIndex = diagnostics.widgetPositions[widget.name];
-                            if (savedIndex !== currentIndex) {
-                                visibilityLogger.info(`[NAME-BASED-RESTORE] ${widget.name} position changed: saved index ${savedIndex} → current index ${currentIndex}`);
-                            }
-
-                            // Restore value (will be validated later)
-                            widget.value = savedValue;
-                            restoredCount++;
-                            if (visibilityLogger.debugEnabled) {
-                                visibilityLogger.debug(`[NAME-BASED-RESTORE] Restored ${widget.name} = ${JSON.stringify(savedValue)}`);
-                            }
-                        } else {
-                            skippedCount++;
-                            if (visibilityLogger.debugEnabled) {
-                                visibilityLogger.debug(`[NAME-BASED-RESTORE] Skipped ${widget.name} (not in diagnostics, keeping current value)`);
-                            }
-                        }
-                    });
-
-                    visibilityLogger.info(`[NAME-BASED-RESTORE] Restored ${restoredCount} widgets by name, skipped ${skippedCount}`);
+                    logger.debug('[configure] Name-based restore complete');
                 }
 
-                // Restore widget values from saved workflow (old heuristic method for workflows without diagnostics)
-                // NOTE: If name-based restore succeeded above, this section is skipped to avoid double-restoration
-                const useNameBasedRestore = !!(info.widgets_config && info.widgets_config._serialization_diagnostics);
-                if (info.widgets_values && !useNameBasedRestore) {
-                    // Fallback for old workflows without diagnostics - use type-based heuristic matching
-                    visibilityLogger.info('[FALLBACK-RESTORE] No serialization diagnostics - using old heuristic restore (may corrupt)');
-                    visibilityLogger.info('[FALLBACK-RESTORE] Please re-save workflow to enable name-based restore');
-
-                    // Restore ImageModeWidget (has {on, value} structure)
-                    const imageModeWidgets = this.widgets.filter(w => w instanceof ImageModeWidget);
-                    const imageModeValues = info.widgets_values.filter(v => v && typeof v === 'object' && 'on' in v && 'value' in v && typeof v.value === 'number' && v.value <= 1);
-
-                    logger.debug('Found', imageModeWidgets.length, 'ImageModeWidgets and', imageModeValues.length, 'image mode values');
-
-                    if (imageModeWidgets.length > 0 && imageModeValues.length > 0) {
-                        logger.debug(`Restoring ${imageModeWidgets[0].name}:`, imageModeValues[0]);
-                        imageModeWidgets[0].value = { ...imageModeValues[0] };
+                // Restore ScaleWidget step configuration
+                if (info.widgets_config && info.widgets_config.scale) {
+                    const scaleWidget = this.widgets.find(w => w instanceof ScaleWidget);
+                    if (scaleWidget) {
+                        scaleWidget.leftStep = info.widgets_config.scale.leftStep || 0.05;
+                        scaleWidget.rightStep = info.widgets_config.scale.rightStep || 0.1;
                     }
-
-                    // Restore DimensionWidgets (have {on, value} structure)
-                    const dimWidgets = this.widgets.filter(w => w instanceof DimensionWidget);
-                    const dimValues = info.widgets_values.filter(v => v && typeof v === 'object' && 'on' in v && 'value' in v && typeof v.value === 'number' && v.value > 1);
-
-                    logger.debug('Found', dimWidgets.length, 'DimensionWidgets and', dimValues.length, 'dimension values');
-
-                    for (let i = 0; i < Math.min(dimWidgets.length, dimValues.length); i++) {
-                        if (dimValues[i]) {
-                            logger.debug(`Restoring ${dimWidgets[i].name}:`, dimValues[i]);
-                            dimWidgets[i].value = { ...dimValues[i] };
-                        }
-                    }
-
-                    // Restore ScaleWidget value (just the number)
-                    const scaleWidgets = this.widgets.filter(w => w instanceof ScaleWidget);
-                    const scaleValues = info.widgets_values.filter(v => typeof v === 'number');
-
-                    logger.debug('Found', scaleWidgets.length, 'ScaleWidgets and', scaleValues.length, 'scale values');
-
-                    for (let i = 0; i < Math.min(scaleWidgets.length, scaleValues.length); i++) {
-                        if (typeof scaleValues[i] === 'number') {
-                            logger.debug(`Restoring ${scaleWidgets[i].name} value:`, scaleValues[i]);
-                            scaleWidgets[i].value = scaleValues[i];
-                        }
-                    }
-
-                    // Restore ScaleWidget step configuration from widgets_config
-                    if (info.widgets_config && info.widgets_config.scale) {
-                        const scaleWidget = this.widgets.find(w => w instanceof ScaleWidget);
-                        if (scaleWidget) {
-                            scaleWidget.leftStep = info.widgets_config.scale.leftStep || 0.05;
-                            scaleWidget.rightStep = info.widgets_config.scale.rightStep || 0.1;
-                            logger.debug('Restored scale config:', info.widgets_config.scale);
-                        }
-                    }
-
-                    // === DESERIALIZATION DIAGNOSTICS - AFTER (v0.5.0) ===
-                    // Capture state after deserialization to compare with before state
-                    const afterState = {
-                        timestamp: new Date().toISOString(),
-                        widgetCount: this.widgets ? this.widgets.length : 0,
-                        widgetPositions: {},
-                        widgetValues: {}
-                    };
-
-                    if (this.widgets) {
-                        this.widgets.forEach((widget, index) => {
-                            afterState.widgetPositions[widget.name] = index;
-                            afterState.widgetValues[widget.name] = widget.value;
-                        });
-                    }
-
-                    if (visibilityLogger.debugEnabled) {
-                        visibilityLogger.debug('[DESERIALIZE-AFTER] Widget state:', afterState);
-                    }
-
-                    // Detect position changes (potential corruption source)
-                    Object.keys(beforeState.widgetPositions).forEach(widgetName => {
-                        const beforeIndex = beforeState.widgetPositions[widgetName];
-                        const afterIndex = afterState.widgetPositions[widgetName];
-                        if (beforeIndex !== afterIndex) {
-                            visibilityLogger.info(`[DESERIALIZE] Widget position changed: ${widgetName} moved from index ${beforeIndex} → ${afterIndex}`);
-                        }
-                    });
-
-                    // Validate combo widgets after workflow load (v0.5.0 corruption protection)
-                    // This catches corruption that happens during serialization/deserialization
-                    const comboWidgetsToValidate = ['output_image_mode', 'fill_type', 'fill_color',
-                                                     'batch_size', 'scale', 'divisible_by', 'custom_ratio',
-                                                     'dimension_megapixel', 'dimension_width', 'dimension_height'];
-                    comboWidgetsToValidate.forEach(widgetName => {
-                        const widget = this.widgets.find(w => w.name === widgetName);
-                        if (widget && widget.value !== undefined) {
-                            const validation = validateWidgetValue(widgetName, widget.value, 'workflow-load');
-                            if (!validation.valid) {
-                                logCorruptionDiagnostics(validation.warnings, {
-                                    widget: widgetName,
-                                    loadedValue: widget.value,
-                                    widgetIndex: this.widgets.indexOf(widget),
-                                    operation: 'configure (workflow load)',
-                                    workflowInfo: {
-                                        hasWidgetsValues: !!info.widgets_values,
-                                        widgetsValuesCount: info.widgets_values ? info.widgets_values.length : 0
-                                    },
-                                    beforeState: beforeState,
-                                    afterState: afterState
-                                });
-                                widget.value = validation.correctedValue;
-                                logger.info(`[Validation-workflow-load] Corrected ${widgetName}: ${widget.value} → ${validation.correctedValue}`);
-                            }
-                        }
-                    });
                 }
-
-                logger.groupEnd();
             };
 
             // Add visual indicator when image input is connected

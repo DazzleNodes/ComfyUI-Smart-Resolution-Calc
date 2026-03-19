@@ -5,6 +5,31 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] - 2026-03-18
+
+### Changed
+- **Serialization simplified to name-based only** — removed diagnostics-based restore (Path B,
+  v0.5.1) and heuristic matching restore (Path C, legacy). Only `widgets_values_by_name`
+  remains. Serialize override: 78 -> 25 lines. Configure override: 180 -> 30 lines.
+  Removed `_serialization_diagnostics` capture, before/after state tracking, position change
+  detection, and combo widget post-load validation (no longer needed without splice).
+- **Connection detection simplified to single event + one-shot delay** — removed redundant
+  `onConnectionsRemove` handler and 500ms `setInterval` polling. Single `onConnectionsChange`
+  with 50ms `setTimeout` for LiteGraph timing (VHS pattern). 3 mechanisms -> 1.
+
+### Removed
+- Serialization Path B (diagnostics-based restore, ~46 lines)
+- Serialization Path C (heuristic type-matching restore, ~100 lines) — was marked "may corrupt"
+- Serialization diagnostics capture (~40 lines in serialize, ~40 lines in configure)
+- `onConnectionsRemove` handler (~16 lines)
+- `setInterval` 500ms connection polling (~15 lines)
+- `_lastImageConnectionState` tracking
+- `imageOutputWidgetValues` tracking (no longer needed without splice)
+
+### References
+- Analysis: `2026-03-18__18-27-55__dev-workflow-orchestrator-correctness-audit.md`
+- Orchestrator reduced from 1,232 to 955 lines (277 lines removed)
+
 ## [0.9.3] - 2026-03-18
 
 ### Changed
