@@ -704,8 +704,21 @@ app.registerExtension({
                 // (diagnostics-based, heuristic matching) have been removed.
                 const widgetsByName = {};
                 if (this.widgets) {
-                    this.widgets.forEach(widget => {
-                        widgetsByName[widget.name] = widget.value;
+                    this.widgets.forEach((widget, index) => {
+                        // For custom DazzleWidgets, use serializeValue() — this is critical
+                        // for SeedWidget which returns a resolved seed copy (e.g., 42) instead
+                        // of the display value (-1 in randomize mode). Without this, workflow
+                        // reload loses the actual seed that generated the image.
+                        // For native ComfyUI widgets, use widget.value directly (their
+                        // serializeValue may have unexpected behavior when hidden).
+                        if (widget.type === "custom" && typeof widget.serializeValue === 'function') {
+                            const serialized = widget.serializeValue(this, index);
+                            if (serialized !== undefined) {
+                                widgetsByName[widget.name] = serialized;
+                            }
+                        } else {
+                            widgetsByName[widget.name] = widget.value;
+                        }
                     });
                 }
                 data.widgets_values_by_name = widgetsByName;
