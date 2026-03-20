@@ -5,6 +5,21 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-03-20
+
+### Fixed
+- **img2noise spectral blend**: VAE-encode the input image as pattern source instead of
+  pixel-space resize + channel tiling. Eliminates diagonal hatching artifacts caused by
+  correlated RGB channels being naively tiled to 16 latent channels. (#47)
+- **img2img + img2noise layered path**: Reuse VAE-encoded image as noise pattern source
+  (same fix, zero extra cost since image is already VAE-encoded for samples)
+
+### Known Issues
+- **img2img + img2noise at high blend_strength**: Artifacts appear at blend > ~0.15 because
+  the same VAE-encoded image serves as both signal (samples) and noise pattern source,
+  creating correlated signal-noise that the diffusion model can't properly denoise.
+  Workaround: keep blend_strength low (0.05-0.15) in layered mode. (#47)
+
 ## [0.10.0] - 2026-03-20
 
 ### Added

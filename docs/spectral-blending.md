@@ -7,6 +7,7 @@
     <img src="images/Now-Youre-Thinking-With-Noise_cubes.jpg" alt="Now You're Thinking With Noise" width="400">
   </a>
 </p>
+
 ## Overview
 
 Spectral blending lets you influence the spatial composition of generated images by blending the low-frequency structure of a noise pattern (Plasma, Gaussian, etc.) into the latent noise that the diffusion model uses for generation. The result: your noise pattern's spatial layout subtly guides where objects, colors, and features appear in the generated image — while maintaining full prompt adherence.

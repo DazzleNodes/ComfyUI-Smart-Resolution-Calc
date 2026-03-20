@@ -7,13 +7,13 @@
 [![Views](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/djdarcy/5df99ad3a380360fa8d72813eb0d2ce7/raw/views.json)](https://dazzlenodes.github.io/ComfyUI-Smart-Resolution-Calc/stats/#views)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+Flexible resolution and latent generation for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Tell the node what you know — width, height, megapixels, aspect ratio, or a reference image — and it figures out the rest. No manual math, no separate Empty Latent Image node, no panic algebra.
+
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=BePtsISQQpk&t=135s">
-    <img src="docs/images/Now-Youre-Thinking-With-Noise.jpg" alt="Now You're Thinking With Noise" width="400">
+  <a href="docs/spectral-blending.md">
+    <img src="docs/images/Now-Youre-Thinking-With-Noise.jpg" alt="Now You're Thinking With Noise" width="350">
   </a>
 </p>
-
-Flexible resolution and latent generation for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Tell the node what you know — width, height, megapixels, aspect ratio, or a reference image — and it figures out the rest. No manual math, no separate Empty Latent Image node, no panic algebra.
 
 ## Overview
 

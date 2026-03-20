@@ -1020,23 +1020,15 @@ class SmartResolutionCalc:
                 logger.debug(f"VAE encoding successful, latent shape: {latent['samples'].shape}")
 
                 # img2img + img2noise: also generate image-shaped noise alongside VAE-encoded latent
+                # Uses the same VAE-encoded image as pattern source (already in latent space)
                 if use_image_for_noise_shape and image is not None:
                     if seed_active and actual_seed >= 0:
                         torch.manual_seed(actual_seed)
                     gaussian_noise = torch.randn_like(latent["samples"])
 
-                    # Resize input image to latent spatial dims as pattern source
-                    latent_h, latent_w = latent["samples"].shape[-2], latent["samples"].shape[-1]
-                    latent_channels = latent["samples"].shape[1]
-                    pattern_pixel = image.permute(0, 3, 1, 2)
-                    pattern_resized = torch.nn.functional.interpolate(
-                        pattern_pixel, size=(latent_h, latent_w), mode='bilinear', align_corners=False
-                    )
-                    if pattern_resized.shape[1] < latent_channels:
-                        repeats = (latent_channels + pattern_resized.shape[1] - 1) // pattern_resized.shape[1]
-                        pattern_resized = pattern_resized.repeat(1, repeats, 1, 1)[:, :latent_channels]
-                    if gaussian_noise.ndim == 5:
-                        pattern_resized = pattern_resized.unsqueeze(2)
+                    # Use the VAE-encoded image itself as the pattern source
+                    # It's already in latent space with correct channels and spatial dims
+                    pattern_resized = encoded.clone()
                     pattern_resized = pattern_resized - pattern_resized.mean()
 
                     effective_blend = blend_strength if blend_strength > 0.0 else 0.15
@@ -1105,7 +1097,7 @@ class SmartResolutionCalc:
 
                     # Choose pattern source: input image (img2noise) or fill_type output
                     if use_image_for_noise_shape and image is not None:
-                        # img2noise: transform INPUT IMAGE per output_image_mode, then use as pattern
+                        # img2noise: transform INPUT IMAGE, then use as pattern source
                         transform_mode = noise_shape_transform or "transform (distort)"
                         if transform_mode == "transform (distort)":
                             transformed = _transform_image(image, w, h)
@@ -1117,9 +1109,34 @@ class SmartResolutionCalc:
                             transformed = _transform_image_scale_pad(image, w, h, fill_type, fill_color, fill_image)
                         else:
                             transformed = _transform_image(image, w, h)
-                        pattern_pixel = transformed.permute(0, 3, 1, 2)  # [B, C, H, W]
-                        pattern_label = f"image ({transform_mode})"
                         logger.debug(f"img2noise: transformed input image via '{transform_mode}' to {w}x{h}")
+
+                        if vae is not None:
+                            # VAE-encode to get proper latent-space pattern
+                            # This avoids pixel-space channel tiling artifacts (3 RGB → 16 latent)
+                            # and gives correct channel decorrelation and spatial compression
+                            pixels = transformed
+                            if pixels.shape[3] > 3:
+                                pixels = pixels[:, :, :, :3]
+                            if not pixels.is_contiguous():
+                                pixels = pixels.contiguous()
+                            pattern_resized = vae.encode(pixels)
+                            pattern_label = f"image/VAE ({transform_mode})"
+                            logger.debug(f"img2noise: VAE-encoded pattern, shape={pattern_resized.shape}")
+                        else:
+                            # Fallback: pixel-space resize + channel tile (no VAE available)
+                            pattern_pixel = transformed.permute(0, 3, 1, 2)  # [B, C, H, W]
+                            pattern_resized = torch.nn.functional.interpolate(
+                                pattern_pixel, size=(latent_h, latent_w), mode='bilinear', align_corners=False
+                            )
+                            if pattern_resized.shape[1] < latent_channels:
+                                repeats = (latent_channels + pattern_resized.shape[1] - 1) // pattern_resized.shape[1]
+                                pattern_resized = pattern_resized.repeat(1, repeats, 1, 1)[:, :latent_channels]
+                            if gaussian_noise.ndim == 5:
+                                pattern_resized = pattern_resized.unsqueeze(2)
+                            pattern_label = f"image/pixel ({transform_mode})"
+                            logger.debug(f"img2noise: pixel-space pattern (no VAE), shape={pattern_resized.shape}")
+
                         # For img2noise, use blend_strength if set, otherwise default to 0.15
                         effective_blend = blend_strength if blend_strength > 0.0 else 0.15
                     else:
@@ -1128,19 +1145,19 @@ class SmartResolutionCalc:
                         pattern_label = fill_type
                         effective_blend = blend_strength
 
-                    # Resize to latent spatial dims
-                    pattern_resized = torch.nn.functional.interpolate(
-                        pattern_pixel, size=(latent_h, latent_w), mode='bilinear', align_corners=False
-                    )
+                        # Resize to latent spatial dims
+                        pattern_resized = torch.nn.functional.interpolate(
+                            pattern_pixel, size=(latent_h, latent_w), mode='bilinear', align_corners=False
+                        )
 
-                    # Expand/tile to match latent channel count (e.g., 3 RGB → 16 latent channels)
-                    if pattern_resized.shape[1] < latent_channels:
-                        repeats = (latent_channels + pattern_resized.shape[1] - 1) // pattern_resized.shape[1]
-                        pattern_resized = pattern_resized.repeat(1, repeats, 1, 1)[:, :latent_channels]
+                        # Expand/tile to match latent channel count (e.g., 3 RGB → 16 latent channels)
+                        if pattern_resized.shape[1] < latent_channels:
+                            repeats = (latent_channels + pattern_resized.shape[1] - 1) // pattern_resized.shape[1]
+                            pattern_resized = pattern_resized.repeat(1, repeats, 1, 1)[:, :latent_channels]
 
-                    # Handle 5D video latents: add temporal dim
-                    if gaussian_noise.ndim == 5:
-                        pattern_resized = pattern_resized.unsqueeze(2)  # [B, C, 1, h, w]
+                        # Handle 5D video latents: add temporal dim
+                        if gaussian_noise.ndim == 5:
+                            pattern_resized = pattern_resized.unsqueeze(2)  # [B, C, 1, h, w]
 
                     # Normalize pattern to zero-mean before blending
                     pattern_resized = pattern_resized - pattern_resized.mean()
