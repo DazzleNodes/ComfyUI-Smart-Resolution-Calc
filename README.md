@@ -7,40 +7,58 @@
 [![Views](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/djdarcy/5df99ad3a380360fa8d72813eb0d2ce7/raw/views.json)](https://dazzlenodes.github.io/ComfyUI-Smart-Resolution-Calc/stats/#views)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Flexible resolution and latent generation for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) with compact custom widgets. Specify any combination of dimensions and aspect ratio - the node calculates missing values automatically.
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=BePtsISQQpk&t=135s">
+    <img src="docs/images/Now-Youre-Thinking-With-Noise.jpg" alt="Now You're Thinking With Noise" width="400">
+  </a>
+</p>
+
+Flexible resolution and latent generation for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Tell the node what you know — width, height, megapixels, aspect ratio, or a reference image — and it figures out the rest. No manual math, no separate Empty Latent Image node, no panic algebra.
 
 ## Overview
 
-Smart Resolution Calculator brings intuitive dimension control to ComfyUI workflows. Instead of manually calculating widths (W) from heights (H) using a known aspect ratio, or W:H dimensions from megapixels, simply enable the values you know and let the node compute the rest. Compact rgthree-style widgets keep your workflow clean while providing powerful calculation modes.
+Smart Resolution Calculator replaces the tedious dimension math in ComfyUI workflows. Enable the values you know, and the node calculates everything else. But it's grown beyond a calculator — it's now a noise composition tool that lets you shape how images are generated.
 
 ![Smart Resolution Calculator in action](docs/images/Smart-Res-Calculator-node_outputs_and-ClownSharKSampler.jpg)
 
-*Example workflow showing the Smart Resolution Calculator with enabled image input but disabled "image dims" ("AR Only" mode off), SmartResCalc changes image aspect ratio from 1:1 to 4:5, WIDTH enabled initially conforming to 1024px, SCALE at 1.10x (1024px\*1.1 = 1126.4px), divisible by 16 (1126.4px/16 = ⌊70.375⌋ → 70\*16 = 1120px), calculating new height from aspect ratio 4:5 (1408px), and outputting 1120×1408. The info output shows "Latent: VAE Encoded" indicating VAE encoding is active. Output "latent" connects to KSampler for img2img workflow.*
+### What it does
+
+- **Resolution**: Toggle width, height, or megapixels — missing values are computed automatically from your aspect ratio
+- **Image transforms**: Connect an image and choose how to fit it to target dimensions (distort, crop/pad, scale/crop, scale/pad, and more to come soon in a pick-your-own-recipe-list)
+- **Noise shaping**: Use noise patterns or images as composition guides via [spectral blending](docs/spectral-blending.md) — the spatial structure of your pattern influences where objects appear in the generated image
+- **Flexible outputs**: The [`image_purpose`](docs/image-purpose.md) dropdown controls exactly what the IMAGE and LATENT outputs contain — from standard img2img to independent noise generation to image-guided composition transfer
 
 ## Features
 
-- **Image dimension extraction** - Connect images to auto-extract aspect ratio or exact dimensions ([detailed guide](docs/image-input.md))
-- **IMAGE output with transform modes** - Generate or transform images with 4 distinct strategies:
-  - **transform (distort)**: Scale to exact dimensions (stretch/squash to fit)
-  - **transform (crop/pad)**: Pure crop/pad at original 1:1 scale (no scaling)
-  - **transform (scale/crop)**: Scale to cover target, crop excess (maintains aspect ratio)
-  - **transform (scale/pad)**: Scale to fit inside target, pad remainder (maintains aspect ratio)
-- **Empty image generation** - Create images with 5 fill patterns (black, white, custom color, noise, random)
-- **Extended fill types** - 5 additional DazNoise fills (Pink, Brown, Plasma, Greyscale, Gaussian) when [dazzle-comfy-plasma-fast](https://github.com/DazzleNodes/dazzle-comfy-plasma-fast) or [DazzleNodes](https://github.com/DazzleNodes/DazzleNodes) is installed, plus a `fill_image` input for custom fill from any source ([details](docs/extended-fill-types.md))
-- **Interactive tooltips** - Hover over widget labels for quick help, extended explanations, and links to documentation
-- **One-click resolution setup** - Toggle dimensions you want, node calculates the rest
-- **5 calculation modes** - Width+Height, Width+AR, Height+AR, Megapixels+AR, or defaults
-- **Scale multiplier** - Scale dimensions up/down (0-7x) with custom widget and real-time preview
-- **Compact custom widgets** - rgthree-style controls with inline toggles
-- **Values preserved when toggled off** - Change your mind without losing settings
-- **Direct latent output** - No separate Empty Latent Image node needed; supports all VAE types including video VAEs (Wan/Qwen)
-- **VAE encoding support (v0.6+)** - Optional VAE input for img2img workflows; automatically encodes image output to latent
-- **Seed widget (v0.8+)** - Reproducible noise fills with randomize/fix/recall controls; mirrors rgthree Seed behavior
-- **Spectral blending (v0.8.2+)** - Inject noise pattern spatial structure into latent noise for composition control while maintaining prompt adherence ([details](docs/spectral-blending.md))
-- **23 preset aspect ratios** - From 1:1 to 32:9, plus custom ratio support
-- **Visual preview** - See exact dimensions and aspect ratio before generation
-- **Divisibility control** - Ensures compatibility with SD/Flux models (8/16/32/64)
-- **Workflow persistence** - Widget states save/load with workflows
+### Resolution & Dimensions
+- **5 calculation modes** — Width+Height, Width+AR, Height+AR, Megapixels+AR, or defaults
+- **23 preset aspect ratios** — 1:1 to 32:9, plus custom ratios
+- **Image dimension extraction** — auto-extract AR or exact dims from a connected image ([guide](docs/image-input.md))
+- **Scale multiplier** — 0-7x with real-time preview
+- **Divisibility rounding** — 8/16/32/64 for model compatibility
+
+### Image & Latent Output
+- **4 transform modes** — distort, crop/pad, scale/crop, scale/pad ([details](docs/image-purpose.md))
+- **Image purpose control** — decouple the image input from output behavior ([details](docs/image-purpose.md)):
+  - `img2img` — transform image, VAE-encode to latent (default)
+  - `dimensions only` — image for dimensions, noise for latent
+  - `img2noise` — image shapes noise composition (composition transfer)
+  - `image + noise` — independent IMAGE and LATENT paths
+  - `img2img + img2noise` — layered: VAE-encode + image-shaped noise
+- **Direct latent output** — supports all VAE types including video VAEs (Wan/Qwen/HunyuanVideo)
+- **Preview thumbnail** — see how your image will be transformed before execution
+
+### Noise & Composition
+- **10 fill patterns** — 5 built-in + 5 DazNoise types with [dazzle-comfy-plasma-fast](https://github.com/DazzleNodes/dazzle-comfy-plasma-fast) ([details](docs/extended-fill-types.md))
+- **Spectral blending** — inject pattern spatial structure into latent noise while maintaining prompt adherence ([details](docs/spectral-blending.md))
+- **Seed widget** — reproducible noise with randomize/fix/recall controls
+- **Custom fill input** — connect any image source as fill via `fill_image`
+
+### Widget UX
+- **Compact custom widgets** — rgthree-style inline toggles, 24px height
+- **Interactive tooltips** — hover for quick help, detailed explanations
+- **Values preserved when toggled off** — change your mind without losing settings
+- **Workflow persistence** — all widget states save/load with workflows
 
 ## Prerequisites
 
@@ -55,7 +73,7 @@ Smart Resolution Calculator brings intuitive dimension control to ComfyUI workfl
 The easiest way to install is through the ComfyUI Registry:
 
 1. Open **ComfyUI Manager** in your ComfyUI interface
-2. Search for **"Smart Resolution Calculator"** or **"djdarcy"**
+2. Search for **"Smart Resolution Calculator"** or "[**DazzleNodes**](https://github.com/DazzleNodes/DazzleNodes/)" (packed with related nodes) or **"djdarcy"**
 3. Click **Install** and restart ComfyUI
 
 The node will appear under: **Smart Resolution → Smart Resolution Calculator**
@@ -186,7 +204,7 @@ Connect an IMAGE output to automatically extract dimensions or aspect ratio. See
 ### Common Issues
 
 **Widget toggles don't affect calculation**
-- Enable debug mode to verify data flow
+- Enable debug mode (below) to verify data flow
 - Ensure ComfyUI restarted after installation
 - Check browser console for JavaScript errors
 
@@ -234,6 +252,7 @@ localStorage.removeItem('VERBOSE_SMART_RES_CALC');
 ## Documentation
 
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
+- **[Image Purpose Guide](docs/image-purpose.md)** - Control how connected input images affect IMAGE and LATENT outputs
 - **[Image Input Guide](docs/image-input.md)** - Detailed documentation for image dimension extraction feature
 - **[Extended Fill Types](docs/extended-fill-types.md)** - DazNoise fill patterns and custom fill_image input
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup and contribution guidelines

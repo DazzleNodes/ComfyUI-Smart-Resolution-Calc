@@ -90,9 +90,13 @@ VAE-encoded noise lives on the VAE's learned latent manifold — a structured sp
 
 Raw `torch.randn()` noise is what diffusion models are trained to denoise. Using it produces proper prompt-adherent generation, just with a different seed than the sampler would normally use.
 
-### Future: Spectral Blending
+### Spectral Blending (v0.8.2+)
 
-A future update will implement spectral blending — injecting the spatial structure of visual noise patterns (Plasma, etc.) into the latent noise while maintaining Gaussian statistics. This will allow fill_type to influence the spatial composition of generated images (e.g., Plasma blobs biasing where objects appear) while preserving full prompt adherence.
+When `blend_strength > 0`, the fill_type noise pattern's spatial structure is injected into the latent noise via FFT-based spectral blending. This allows the noise pattern to influence the composition of generated images while maintaining the Gaussian statistics diffusion models require. See the [Spectral Blending Guide](spectral-blending.md) for algorithm details, empirical thresholds, and workflow patterns.
+
+### Image-to-Noise Fusion (v0.10+)
+
+With the [`image_purpose`](image-purpose.md) widget set to `img2noise`, a connected input image replaces the fill_type pattern as the spectral blend source. The image's spatial structure shapes the noise composition. See the [Image Purpose Guide](image-purpose.md#img2noise) for details.
 
 ## Sampler Integration (Experimental)
 
@@ -141,6 +145,7 @@ Detection is automatic. The node checks for the presence of `dazzle-comfy-plasma
 
 ## Version History
 
+- **v0.10.0**: Image-to-noise spectral fusion via `image_purpose` widget
 - **v0.8.4**: Fixed seed serialization — workflow reload recovers actual seed used
 - **v0.8.2**: Spectral blending, noise caching
 - **v0.8.0**: Seed widget, VAE encoding of noise fills, noise caching, `fill_type` always visible, sampler integration docs

@@ -177,6 +177,19 @@ app.registerExtension({
                     }
                 }
 
+                // Reposition image_purpose: move it right after seed widget
+                // (visual order: fill_type → blend_strength → SEED → image_purpose → output_image_mode)
+                const imagePurposeRef = this.widgets.find(w => w.name === "image_purpose");
+                if (imagePurposeRef && seedWidget) {
+                    const ipCurrentIdx = this.widgets.indexOf(imagePurposeRef);
+                    if (ipCurrentIdx !== -1) {
+                        this.widgets.splice(ipCurrentIdx, 1);
+                    }
+                    const seedIdx = this.widgets.indexOf(seedWidget);
+                    this.widgets.splice(seedIdx + 1, 0, imagePurposeRef);
+                    logger.debug(`Repositioned image_purpose after seed at index ${seedIdx + 1}`);
+                }
+
                 logger.debug('Added 7 custom widgets to node (image mode + copy button + dimensions + scale + seed)');
                 logger.debug('Widget names:', imageModeWidget.name, copyButton.name, mpWidget.name, widthWidget.name, heightWidget.name, scaleWidget.name, seedWidget.name);
 
@@ -517,9 +530,29 @@ app.registerExtension({
                 // to act as a value storage and stable anchor for the color picker button
                 this.imageOutputWidgets = {
                     output_image_mode: this.widgets.find(w => w.name === "output_image_mode"),
+                    image_purpose: this.widgets.find(w => w.name === "image_purpose"),
                     image_mode: this.widgets.find(w => w.name === "image_mode"),
                     copy_from_image: this.widgets.find(w => w.name === "copy_from_image")
                 };
+
+                // image_purpose controls output_image_mode visibility
+                const imagePurposeWidget = this.imageOutputWidgets.image_purpose;
+                if (imagePurposeWidget) {
+                    const origCallback = imagePurposeWidget.callback;
+                    const outputImageModeWidget = this.imageOutputWidgets.output_image_mode;
+                    imagePurposeWidget.callback = function(value) {
+                        if (origCallback) origCallback.call(this, value);
+                        // output_image_mode only relevant when image_purpose uses transforms
+                        const showTransformOptions = ["img2img", "img2noise", "image + noise", "img2img + img2noise"].includes(value);
+                        if (outputImageModeWidget) {
+                            if (showTransformOptions) {
+                                showWidget(outputImageModeWidget);
+                            } else {
+                                hideWidget(outputImageModeWidget);
+                            }
+                        }
+                    };
+                }
 
                 // ===== Color picker button widget =====
                 // Create a dedicated button widget for color picking, separate from text widget
@@ -717,6 +750,12 @@ app.registerExtension({
                             scaleWidget.leftStep = info.widgets_config.scale.leftStep || 0.05;
                             scaleWidget.rightStep = info.widgets_config.scale.rightStep || 0.1;
                         }
+                    }
+
+                    // Sync output_image_mode visibility with restored image_purpose value
+                    const ipWidget = node.widgets?.find(w => w.name === "image_purpose");
+                    if (ipWidget?.callback) {
+                        ipWidget.callback(ipWidget.value);
                     }
                 }
             });

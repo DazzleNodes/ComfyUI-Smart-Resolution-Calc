@@ -97,6 +97,11 @@ class CalculationContext:
         Populated by _prepare_output_mode:
             actual_mode, cache_key
 
+        Populated by _resolve_image_purpose:
+            use_image_for_output, use_image_for_latent_encode,
+            use_image_for_noise_shape
+            May modify: actual_mode (forced to "empty" for dims-only/img2noise)
+
         Populated by _generate_output_image:
             output_image (torch.Tensor [B, H, W, C])
 
@@ -110,7 +115,7 @@ class CalculationContext:
             resolution, preview
     """
     def __init__(self, aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
-                 batch_size, scale, image, vae, output_image_mode, fill_type,
+                 batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
                  fill_color, blend_strength, fill_image, fill_seed, kwargs):
         # ===== Inputs (from ComfyUI) =====
         self.aspect_ratio: str = aspect_ratio
@@ -121,6 +126,7 @@ class CalculationContext:
         self.scale: float = max(0.0, scale)
         self.image = image                    # Optional[torch.Tensor] — [B, H, W, C]
         self.vae = vae                        # Optional — ComfyUI VAE object
+        self.image_purpose: str = image_purpose
         self.output_image_mode: str = output_image_mode
         self.fill_type: str = fill_type
         self.fill_color: str = fill_color
@@ -158,6 +164,11 @@ class CalculationContext:
         # ===== Seed state (populated by _resolve_seed) =====
         self.seed_active: bool = False
         self.actual_seed: int = 0
+
+        # ===== Image purpose routing flags (populated by _resolve_image_purpose) =====
+        self.use_image_for_output: bool = True       # IMAGE output uses transformed image
+        self.use_image_for_latent_encode: bool = True # LATENT should VAE-encode the image
+        self.use_image_for_noise_shape: bool = False  # Image is spectral blend pattern source
 
         # ===== Output state (populated by pipeline stages) =====
         self.actual_mode: str = output_image_mode  # Populated by _prepare_output_mode
@@ -262,6 +273,11 @@ class SmartResolutionCalc:
                     "step": 0.05,
                     "tooltip": "Spectral blend strength for noise-to-latent pipeline.\nControls how much the fill_type noise pattern's spatial structure\ninfluences the latent output.\n\n0.0 = Pure Gaussian noise (no pattern influence)\n0.1-0.3 = Subtle structural influence\n0.3-0.5 = Moderate (recommended for most patterns)\n0.5-0.7 = Strong influence (may reduce prompt adherence)\n0.7-1.0 = Very strong (pattern dominates composition)\n\nOnly active when fill_type is a noise pattern (noise, random, DazNoise).\nHas no effect when fill_type is black/white/custom_color."
                 }),
+                # Image purpose: how the connected image affects outputs (hidden until image connected)
+                "image_purpose": (["img2img", "dimensions only", "img2noise", "image + noise", "img2img + img2noise"], {
+                    "default": "img2img",
+                    "tooltip": "Controls how the connected INPUT image affects the OUTPUT nubs.\n\n• img2img: Transform INPUT image per output_image_mode → OUTPUT image.\n  VAE-encode transformed image → OUTPUT latent.\n\n• dimensions only: Use INPUT image for dimension/AR extraction only.\n  fill_type pattern → OUTPUT image. Seeded noise → OUTPUT latent.\n  The INPUT image does NOT appear in any output.\n\n• img2noise: Use INPUT image's spatial structure to shape noise.\n  fill_type pattern → OUTPUT image.\n  Image-shaped spectral noise → OUTPUT latent. (Composition transfer)\n\n• image + noise: Independent output paths.\n  Transform INPUT image → OUTPUT image.\n  Seeded noise from fill_type → OUTPUT latent. (Not VAE-encoded)\n\n• img2img + img2noise: Layered mode.\n  Transform INPUT image → OUTPUT image.\n  VAE-encoded image + image-shaped noise → OUTPUT latent.\n  (Self-consistent noise reinforces image composition)"
+                }),
                 # Image output parameters (hidden by JavaScript until image input connected)
                 "output_image_mode": (["auto", "empty", "transform (distort)", "transform (crop/pad)", "transform (scale/crop)", "transform (scale/pad)"], {
                     "default": "auto",
@@ -293,14 +309,16 @@ class SmartResolutionCalc:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
-        # Force re-execution when seed is active to prevent stale cache
-        # This is needed because noise fills are non-deterministic (or seeded),
-        # and ComfyUI's cache doesn't know about our internal RNG state
+        # Force re-execution only when seed is active AND set to a special value
+        # (-1 = random, -2 = noise passthrough, -3 = increment, etc.)
+        # Fixed seeds (>= 0) produce deterministic output, so ComfyUI can cache normally
         fill_seed = kwargs.get('fill_seed')
         if fill_seed is not None and isinstance(fill_seed, dict):
             if fill_seed.get('on', False):
-                return float("NaN")  # Always re-execute when seed is active
-        return ""  # Default: let ComfyUI cache normally
+                seed_value = fill_seed.get('value', 0)
+                if isinstance(seed_value, (int, float)) and seed_value < 0:
+                    return float("NaN")  # Special seed — always re-execute
+        return ""  # Fixed seed or seed off — let ComfyUI cache normally
     # get_image_dimensions_from_path extracted to image_utils.py
 
     def calculate_dimensions_api(widgets, runtime_context=None):
@@ -451,7 +469,8 @@ class SmartResolutionCalc:
 
     def calculate_dimensions(self, aspect_ratio, divisible_by, custom_ratio=False,
                             custom_aspect_ratio="16:9", batch_size=1, scale=1.0,
-                            image=None, vae=None, output_image_mode="auto", fill_type="black",
+                            image=None, vae=None, image_purpose="img2img",
+                            output_image_mode="auto", fill_type="black",
                             fill_color="#808080", blend_strength=0.0, fill_image=None,
                             fill_seed=None, **kwargs):
         """
@@ -516,7 +535,7 @@ class SmartResolutionCalc:
         # Create pipeline context with all inputs
         ctx = CalculationContext(
             aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
-            batch_size, scale, image, vae, output_image_mode, fill_type,
+            batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
             fill_color, blend_strength, fill_image, fill_seed, kwargs
         )
 
@@ -526,20 +545,46 @@ class SmartResolutionCalc:
         self._apply_scale_and_divisibility(ctx)
         self._resolve_seed(ctx)
 
-        # Preview (always generated, never modified)
-        ctx.resolution = f"{ctx.w} x {ctx.h}"
-        ctx.preview = _create_preview_image(ctx.w, ctx.h, ctx.resolution, ctx.ratio_display, ctx.mp)
-
         # Image + latent generation
         self._prepare_output_mode(ctx)
+        self._resolve_image_purpose(ctx)
         ctx.output_image = self._generate_output_image(
             ctx.actual_mode, ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color,
             ctx.batch_size, ctx.fill_image, ctx.cache_key, ctx.seed_active, ctx.actual_seed
         )
+
+        # Preview (generated after output_image so we can show the transform result)
+        ctx.resolution = f"{ctx.w} x {ctx.h}"
+        # Determine which image to show in the preview thumbnail:
+        # - img2img / image+noise / img2img+img2noise: show ctx.output_image (already transformed)
+        # - img2noise: transform the input image per noise_shape_transform for preview
+        # - dimensions only: no thumbnail
+        preview_image = None
+        if ctx.image is not None:
+            if ctx.use_image_for_output:
+                # output_image is the transformed input image
+                preview_image = ctx.output_image
+            elif ctx.use_image_for_noise_shape:
+                # For img2noise, output_image is the fill pattern — transform input image for preview
+                transform_mode = getattr(ctx, 'noise_shape_transform', 'transform (distort)')
+                if transform_mode == "transform (distort)":
+                    preview_image = _transform_image(ctx.image, ctx.w, ctx.h)
+                elif transform_mode == "transform (crop/pad)":
+                    preview_image = _transform_image_crop_pad(ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color, ctx.fill_image)
+                elif transform_mode == "transform (scale/crop)":
+                    preview_image = _transform_image_scale_crop(ctx.image, ctx.w, ctx.h)
+                elif transform_mode == "transform (scale/pad)":
+                    preview_image = _transform_image_scale_pad(ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color, ctx.fill_image)
+                else:
+                    preview_image = _transform_image(ctx.image, ctx.w, ctx.h)
+        ctx.preview = _create_preview_image(ctx.w, ctx.h, ctx.resolution, ctx.ratio_display, ctx.mp,
+                                            preview_image=preview_image)
         ctx.latent, ctx.latent_source = self._generate_latent(
             ctx.vae, ctx.image, ctx.output_image, ctx.actual_mode, ctx.w, ctx.h,
             ctx.batch_size, ctx.fill_type, ctx.fill_image, ctx.blend_strength,
-            ctx.seed_active, ctx.actual_seed, ctx.cache_key
+            ctx.seed_active, ctx.actual_seed, ctx.cache_key,
+            ctx.use_image_for_latent_encode, ctx.use_image_for_noise_shape,
+            getattr(ctx, 'noise_shape_transform', None), ctx.fill_color
         )
 
         # Info string assembly
@@ -748,6 +793,58 @@ class SmartResolutionCalc:
         ctx.cache_key = (ctx.fill_type, ctx.actual_seed if ctx.seed_active else None,
                          ctx.w, ctx.h, ctx.batch_size, ctx.fill_image is not None)
 
+    def _resolve_image_purpose(self, ctx):
+        """Resolve image_purpose into routing flags for output generation.
+
+        Sets three flags that control how _generate_output_image and _generate_latent
+        route the image:
+        - use_image_for_output: IMAGE output uses transformed image (vs fill pattern)
+        - use_image_for_latent_encode: LATENT should VAE-encode the image
+        - use_image_for_noise_shape: image is spectral blend pattern source for noise LATENT
+        """
+        purpose = ctx.image_purpose
+
+        if purpose == "img2img":
+            # Standard behavior — transform image, VAE-encode to latent
+            ctx.use_image_for_output = True
+            ctx.use_image_for_latent_encode = True
+            ctx.use_image_for_noise_shape = False
+
+        elif purpose == "dimensions only":
+            # Image for dims only — fill pattern for IMAGE, noise for LATENT
+            ctx.use_image_for_output = False
+            ctx.use_image_for_latent_encode = False
+            ctx.use_image_for_noise_shape = False
+            ctx.actual_mode = "empty"
+
+        elif purpose == "img2noise":
+            # Image as spectral blend source — fill pattern for IMAGE, image-shaped noise for LATENT
+            # output_image_mode controls how the input image is transformed before noise shaping
+            ctx.use_image_for_output = False
+            ctx.use_image_for_latent_encode = False
+            ctx.use_image_for_noise_shape = True
+            # Store the user's transform choice for noise shaping, then force empty for IMAGE output
+            ctx.noise_shape_transform = ctx.actual_mode if ctx.actual_mode.startswith("transform") else "transform (distort)"
+            ctx.actual_mode = "empty"
+
+        elif purpose == "image + noise":
+            # Independent paths — transform image for IMAGE, noise for LATENT
+            ctx.use_image_for_output = True
+            ctx.use_image_for_latent_encode = False
+            ctx.use_image_for_noise_shape = False
+
+        elif purpose == "img2img + img2noise":
+            # Layered — transform image for IMAGE, VAE-encode + image-shaped noise for LATENT
+            ctx.use_image_for_output = True
+            ctx.use_image_for_latent_encode = True
+            ctx.use_image_for_noise_shape = True
+
+        if purpose != "img2img":
+            logger.debug(f"Image purpose '{purpose}': output={ctx.use_image_for_output}, "
+                         f"latent_encode={ctx.use_image_for_latent_encode}, "
+                         f"noise_shape={ctx.use_image_for_noise_shape}, "
+                         f"actual_mode={ctx.actual_mode}")
+
     def _build_info_string(self, ctx):
         """Stage 7: Assemble the info output string."""
         import re
@@ -770,10 +867,12 @@ class SmartResolutionCalc:
 
         seed_info = f"Seed: {ctx.actual_seed}" if ctx.seed_active else ""
 
+        purpose_info = f" | Purpose: {ctx.image_purpose}" if ctx.image_purpose != "img2img" else ""
+
         if not has_ar_mention:
-            ctx.info = f"{base_info} | AR: {ctx.calculated_ar} | Div: {div_info} | Latent: {ctx.latent_source}"
+            ctx.info = f"{base_info} | AR: {ctx.calculated_ar} | Div: {div_info}{purpose_info} | Latent: {ctx.latent_source}"
         else:
-            ctx.info = f"{base_info} | Div: {div_info} | Latent: {ctx.latent_source}"
+            ctx.info = f"{base_info} | Div: {div_info}{purpose_info} | Latent: {ctx.latent_source}"
 
         if seed_info:
             ctx.info = f"{ctx.info} | {seed_info}"
@@ -865,14 +964,18 @@ class SmartResolutionCalc:
 
     def _generate_latent(self, vae, image, output_image, actual_mode, w, h, batch_size,
                          fill_type, fill_image, blend_strength, seed_active, actual_seed,
-                         cache_key):
+                         cache_key, use_image_for_latent_encode=True,
+                         use_image_for_noise_shape=False, noise_shape_transform=None,
+                         fill_color="#808080"):
         """
-        Generate latent output based on VAE presence and fill type.
+        Generate latent output based on VAE presence, fill type, and image_purpose flags.
 
-        Three paths:
-        1. VAE + image + transform mode → encode transformed image
-        2. VAE + non-trivial fill (noise/DazNoise/random/fill_image) → raw latent noise
-        3. Otherwise → empty latent (zeros)
+        Paths (controlled by image_purpose routing flags):
+        1. VAE + image + latent_encode → encode transformed image (img2img)
+        2. VAE + non-trivial fill + !latent_encode → raw latent noise (txt2img with seed)
+        3. VAE + noise_shape + image → spectral blend with image as pattern source (img2noise)
+        4. VAE + latent_encode + noise_shape → VAE-encode + image-shaped noise dict (layered)
+        5. Otherwise → empty latent (zeros)
 
         Returns:
             tuple: (latent_dict, latent_source_label)
@@ -888,15 +991,16 @@ class SmartResolutionCalc:
             or fill_type.startswith("DazNoise:")
         )
 
-        # Three latent output paths:
-        # 1. Image attached + VAE → VAE-encode the transformed image (img2img)
-        # 2. No image + noise fill + VAE → raw latent noise (txt2img with seed control)
+        # Latent output paths (controlled by image_purpose routing flags):
+        # 1. VAE + image + latent_encode → VAE-encode the transformed image (img2img)
+        # 2. VAE + !latent_encode + noise fill → raw latent noise (txt2img with seed control)
         # 3. Otherwise → empty zeros latent
         should_vae_encode_image = (
-            vae is not None and image is not None and actual_mode != "empty"
+            vae is not None and image is not None
+            and use_image_for_latent_encode and actual_mode != "empty"
         )
         should_generate_raw_noise = (
-            vae is not None and image is None and has_nontrivial_fill
+            vae is not None and not use_image_for_latent_encode and has_nontrivial_fill
         )
 
         if should_vae_encode_image:
@@ -915,6 +1019,36 @@ class SmartResolutionCalc:
                 latent_source = "VAE Encoded"
                 logger.debug(f"VAE encoding successful, latent shape: {latent['samples'].shape}")
 
+                # img2img + img2noise: also generate image-shaped noise alongside VAE-encoded latent
+                if use_image_for_noise_shape and image is not None:
+                    if seed_active and actual_seed >= 0:
+                        torch.manual_seed(actual_seed)
+                    gaussian_noise = torch.randn_like(latent["samples"])
+
+                    # Resize input image to latent spatial dims as pattern source
+                    latent_h, latent_w = latent["samples"].shape[-2], latent["samples"].shape[-1]
+                    latent_channels = latent["samples"].shape[1]
+                    pattern_pixel = image.permute(0, 3, 1, 2)
+                    pattern_resized = torch.nn.functional.interpolate(
+                        pattern_pixel, size=(latent_h, latent_w), mode='bilinear', align_corners=False
+                    )
+                    if pattern_resized.shape[1] < latent_channels:
+                        repeats = (latent_channels + pattern_resized.shape[1] - 1) // pattern_resized.shape[1]
+                        pattern_resized = pattern_resized.repeat(1, repeats, 1, 1)[:, :latent_channels]
+                    if gaussian_noise.ndim == 5:
+                        pattern_resized = pattern_resized.unsqueeze(2)
+                    pattern_resized = pattern_resized - pattern_resized.mean()
+
+                    effective_blend = blend_strength if blend_strength > 0.0 else 0.15
+                    shaped_noise = spectral_noise_blend(
+                        pattern_resized, gaussian_noise,
+                        alpha=effective_blend, cutoff=0.2
+                    )
+                    latent["noise"] = shaped_noise
+                    latent["use_as_noise"] = True
+                    latent_source = f"VAE Encoded + Image-Shaped Noise (blend={effective_blend})"
+                    logger.debug(f"Layered img2img+img2noise: noise shape={shaped_noise.shape}")
+
             except Exception as e:
                 import traceback
                 logger.error(f"VAE encoding failed: {e}")
@@ -932,8 +1066,12 @@ class SmartResolutionCalc:
             # Note: Decoding this latent via VAEDecode will produce random-looking output.
             # Use the IMAGE output to preview the noise pattern instead.
 
-            # Build cache key that includes blend_strength
-            noise_cache_key = (cache_key, blend_strength)
+            # Build cache key that includes blend_strength and image_purpose routing
+            # For img2noise, include image shape as a proxy for "same image" detection
+            # (we can't hash the full tensor efficiently, but shape change = different image)
+            image_shape_key = tuple(image.shape) if (use_image_for_noise_shape and image is not None) else None
+            noise_cache_key = (cache_key, blend_strength, use_image_for_noise_shape,
+                               noise_shape_transform, image_shape_key)
 
             # Check cache first
             if (self._noise_cache_key == noise_cache_key and self._noise_cache_latent is not None):
@@ -941,7 +1079,9 @@ class SmartResolutionCalc:
                 blend_label = f" blend={blend_strength}" if blend_strength > 0 else ""
                 latent_source = f"Raw Noise ({fill_type}{blend_label}) [cached]"
                 logger.debug(f"Using cached raw noise latent")
+                print(f"[SmartResCalc] Using cached noise latent (skipping regeneration)")
             else:
+                logger.debug(f"Noise cache miss: stored={self._noise_cache_key}, current={noise_cache_key}")
                 # Create the latent shape (handles 5D for video VAEs)
                 latent = _create_latent(w, h, batch_size, vae=vae, device=self.device)
 
@@ -950,19 +1090,48 @@ class SmartResolutionCalc:
                     torch.manual_seed(actual_seed)
                 gaussian_noise = torch.randn_like(latent["samples"])
 
-                if blend_strength > 0.0:
-                    # Spectral blending: inject spatial structure from noise pattern
-                    # Resize output_image to latent spatial dimensions as pattern source
+                # Determine if spectral blending should run:
+                # - blend_strength > 0 with fill_type noise (current behavior)
+                # - use_image_for_noise_shape with connected image (img2noise)
+                should_spectral_blend = (
+                    blend_strength > 0.0
+                    or (use_image_for_noise_shape and image is not None)
+                )
+
+                if should_spectral_blend:
+                    # Spectral blending: inject spatial structure into noise
                     latent_h, latent_w = latent["samples"].shape[-2], latent["samples"].shape[-1]
                     latent_channels = latent["samples"].shape[1]
 
-                    # output_image is [B, H, W, C] (ComfyUI format) — convert to [B, C, h, w]
-                    pattern_pixel = output_image.permute(0, 3, 1, 2)  # [B, 3, H, W]
+                    # Choose pattern source: input image (img2noise) or fill_type output
+                    if use_image_for_noise_shape and image is not None:
+                        # img2noise: transform INPUT IMAGE per output_image_mode, then use as pattern
+                        transform_mode = noise_shape_transform or "transform (distort)"
+                        if transform_mode == "transform (distort)":
+                            transformed = _transform_image(image, w, h)
+                        elif transform_mode == "transform (crop/pad)":
+                            transformed = _transform_image_crop_pad(image, w, h, fill_type, fill_color, fill_image)
+                        elif transform_mode == "transform (scale/crop)":
+                            transformed = _transform_image_scale_crop(image, w, h)
+                        elif transform_mode == "transform (scale/pad)":
+                            transformed = _transform_image_scale_pad(image, w, h, fill_type, fill_color, fill_image)
+                        else:
+                            transformed = _transform_image(image, w, h)
+                        pattern_pixel = transformed.permute(0, 3, 1, 2)  # [B, C, H, W]
+                        pattern_label = f"image ({transform_mode})"
+                        logger.debug(f"img2noise: transformed input image via '{transform_mode}' to {w}x{h}")
+                        # For img2noise, use blend_strength if set, otherwise default to 0.15
+                        effective_blend = blend_strength if blend_strength > 0.0 else 0.15
+                    else:
+                        # Standard: use fill_type noise as pattern source
+                        pattern_pixel = output_image.permute(0, 3, 1, 2)  # [B, 3, H, W]
+                        pattern_label = fill_type
+                        effective_blend = blend_strength
 
                     # Resize to latent spatial dims
                     pattern_resized = torch.nn.functional.interpolate(
                         pattern_pixel, size=(latent_h, latent_w), mode='bilinear', align_corners=False
-                    )  # [B, 3, latent_h, latent_w]
+                    )
 
                     # Expand/tile to match latent channel count (e.g., 3 RGB → 16 latent channels)
                     if pattern_resized.shape[1] < latent_channels:
@@ -979,11 +1148,14 @@ class SmartResolutionCalc:
                     # Apply spectral blending
                     latent["samples"] = spectral_noise_blend(
                         pattern_resized, gaussian_noise,
-                        alpha=blend_strength, cutoff=0.2
+                        alpha=effective_blend, cutoff=0.2
                     )
-                    blend_label = f" blend={blend_strength}"
-                    latent_source = f"Spectral Noise ({fill_type}{blend_label})"
-                    logger.debug(f"Spectral blend: alpha={blend_strength}, cutoff=0.2, "
+                    blend_label = f" blend={effective_blend}"
+                    if use_image_for_noise_shape and image is not None:
+                        latent_source = f"Image-Shaped Noise ({pattern_label}{blend_label})"
+                    else:
+                        latent_source = f"Spectral Noise ({pattern_label}{blend_label})"
+                    logger.debug(f"Spectral blend: source={pattern_label}, alpha={effective_blend}, cutoff=0.2, "
                                  f"shape={latent['samples'].shape}, "
                                  f"mean={latent['samples'].mean():.4f}, std={latent['samples'].std():.4f}")
                 else:

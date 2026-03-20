@@ -5,6 +5,44 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-03-20
+
+### Added
+- **`image_purpose` widget** — dropdown controlling how connected images affect outputs.
+  5 modes: `img2img` (default, unchanged behavior), `dimensions only`, `img2noise`,
+  `image + noise`, `img2img + img2noise`. Shown when image is connected, hidden otherwise.
+  ([docs](docs/image-purpose.md), #36, #42)
+- **`_resolve_image_purpose()`** — new pipeline stage decomposing dropdown into routing flags
+  (`use_image_for_output`, `use_image_for_latent_encode`, `use_image_for_noise_shape`)
+- **img2noise mode** — use input image's spatial structure as spectral blend pattern source
+  for composition transfer. `output_image_mode` controls how image is transformed before
+  noise shaping. Known issue: diagonal artifacts at blend_strength > 0.3 with real images
+  (pixel-space channel tiling; fix planned via VAE-encode pattern source)
+- **img2img + img2noise mode** — layered: VAE-encode image + generate image-shaped noise.
+  Latent dict includes `samples`, `noise`, and `use_as_noise` keys. Experimental,
+  requires ClownsharKSampler support.
+- **Preview thumbnail** — transformed input image shown at 70% opacity inside preview box
+  when image is connected. Compact text layout (dims+AR above, MP below) when thumbnail
+  present; original centered layout when no image. (#46)
+- **`docs/image-purpose.md`** — guide with behavior matrix, mode details, workflow examples
+- **"Now you're thinking with noise"** — tagline and branding images
+
+### Changed
+- **README.md** — restructured features into 4 categories (Resolution, Image/Latent,
+  Noise/Composition, Widget UX). New tagline, branding image, approachable language.
+- **`docs/spectral-blending.md`** — expanded with cutoff parameter explanation,
+  blend_strength + cutoff interaction, frequency mask math, image-to-noise section,
+  research citations (InitNo, FreeNoise, SDEdit)
+- **`docs/extended-fill-types.md`** — replaced stale "Future: Spectral Blending" note
+  with current status, added image-to-noise cross-reference
+
+### Fixed
+- **`IS_CHANGED` caching** — only forces re-execution for special seeds (< 0, e.g. random).
+  Fixed seeds (>= 0) now allow ComfyUI to cache normally, avoiding unnecessary regeneration
+  of expensive noise patterns like DazNoise:Plasma
+- **Noise cache key** — includes image_purpose routing flags and image shape, preventing
+  stale cache hits when switching between modes
+
 ## [0.9.10] - 2026-03-19
 
 ### Added

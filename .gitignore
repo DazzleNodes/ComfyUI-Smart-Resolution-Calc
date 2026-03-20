@@ -138,6 +138,7 @@ credentials.json
 *config*.json
 
 # Project-specific directories
+bak/
 /log/
 /logs/
 /private/

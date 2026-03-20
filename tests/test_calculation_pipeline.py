@@ -37,6 +37,7 @@ def make_ctx(**overrides):
         'scale': 1.0,
         'image': None,
         'vae': None,
+        'image_purpose': 'img2img',
         'output_image_mode': 'auto',
         'fill_type': 'black',
         'fill_color': '#808080',

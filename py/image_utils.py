@@ -417,10 +417,18 @@ def transform_image_scale_crop(
 
 
 
-def create_preview_image(width, height, resolution, ratio_display, megapixels):
+def create_preview_image(width, height, resolution, ratio_display, megapixels, preview_image=None):
     """
     Create preview image showing aspect ratio box with dimensions.
-    Based on controlaltai-nodes implementation.
+    Optionally includes a thumbnail of the transformed input image inside the box.
+
+    Args:
+        width: Target width
+        height: Target height
+        resolution: Resolution string (e.g., "1200 x 1600")
+        ratio_display: Aspect ratio string (e.g., "3:4")
+        megapixels: Megapixel value
+        preview_image: Optional torch tensor [B, H, W, C] to show as thumbnail inside the box
     """
     # 1024x1024 preview size
     preview_size = (1024, 1024)
@@ -448,7 +456,37 @@ def create_preview_image(width, height, resolution, ratio_display, megapixels):
     x_offset = (preview_size[0] - preview_width) // 2
     y_offset = (preview_size[1] - preview_height) // 2
 
-    # Draw the aspect ratio box with red outline
+    # Draw transformed image thumbnail inside the box (if provided)
+    if preview_image is not None:
+        try:
+            import numpy as np
+            # Convert tensor [B, H, W, C] to PIL — take first image in batch
+            img_np = preview_image[0].cpu().numpy()
+            img_np = (img_np * 255).clip(0, 255).astype(np.uint8)
+            thumb_pil = Image.fromarray(img_np)
+
+            # Resize to fit inside the preview box with padding to maintain AR
+            thumb_pil.thumbnail((preview_width - 8, preview_height - 8), Image.LANCZOS)
+
+            # Center the thumbnail inside the box
+            thumb_w, thumb_h = thumb_pil.size
+            thumb_x = x_offset + (preview_width - thumb_w) // 2
+            thumb_y = y_offset + (preview_height - thumb_h) // 2
+
+            # Paste at reduced opacity by blending with the background
+            # Create a semi-transparent version (70% opacity)
+            if thumb_pil.mode != 'RGBA':
+                thumb_pil = thumb_pil.convert('RGBA')
+            alpha = Image.new('L', thumb_pil.size, int(255 * 0.7))
+            thumb_pil.putalpha(alpha)
+            image.paste(thumb_pil, (thumb_x, thumb_y), thumb_pil)
+
+            # Redraw on the composited image
+            draw = ImageDraw.Draw(image)
+        except Exception as e:
+            logger.debug(f"Preview thumbnail failed: {e}")
+
+    # Draw the aspect ratio box with red outline (on top of thumbnail)
     draw.rectangle(
         [(x_offset, y_offset), (x_offset + preview_width, y_offset + preview_height)],
         outline='red',
@@ -456,40 +494,62 @@ def create_preview_image(width, height, resolution, ratio_display, megapixels):
     )
 
     # Add text with dimension info
+    # Two layouts depending on whether a thumbnail is shown:
+    # - With thumbnail: compact single line at top, MP at bottom (box interior shows image)
+    # - Without thumbnail: centered text inside box (original layout)
+    has_thumbnail = preview_image is not None
     try:
-        # Resolution text in center (red)
-        text_y = y_offset + preview_height // 2
-        draw.text(
-            (preview_size[0] // 2, text_y),
-            f"{width}x{height}",
-            fill='red',
-            anchor="mm",
-            font=ImageFont.truetype("arial.ttf", 48)
-        )
-
-        # Aspect ratio text below resolution (red)
-        draw.text(
-            (preview_size[0] // 2, text_y + 60),
-            f"({ratio_display})",
-            fill='red',
-            anchor="mm",
-            font=ImageFont.truetype("arial.ttf", 36)
-        )
-
-        # Megapixels text at bottom (white)
-        draw.text(
-            (preview_size[0] // 2, y_offset + preview_height + 60),
-            f"{megapixels:.2f} MP",
-            fill='white',
-            anchor="mm",
-            font=ImageFont.truetype("arial.ttf", 32)
-        )
+        if has_thumbnail:
+            # Compact layout: one line above box, MP below box
+            draw.text(
+                (preview_size[0] // 2, y_offset - 40),
+                f"{width}x{height} ({ratio_display})",
+                fill='red',
+                anchor="mm",
+                font=ImageFont.truetype("arial.ttf", 40)
+            )
+            draw.text(
+                (preview_size[0] // 2, y_offset + preview_height + 40),
+                f"{megapixels:.2f} MP",
+                fill='white',
+                anchor="mm",
+                font=ImageFont.truetype("arial.ttf", 32)
+            )
+        else:
+            # Original layout: centered text inside box
+            text_y = y_offset + preview_height // 2
+            draw.text(
+                (preview_size[0] // 2, text_y),
+                f"{width}x{height}",
+                fill='red',
+                anchor="mm",
+                font=ImageFont.truetype("arial.ttf", 48)
+            )
+            draw.text(
+                (preview_size[0] // 2, text_y + 60),
+                f"({ratio_display})",
+                fill='red',
+                anchor="mm",
+                font=ImageFont.truetype("arial.ttf", 36)
+            )
+            draw.text(
+                (preview_size[0] // 2, y_offset + preview_height + 60),
+                f"{megapixels:.2f} MP",
+                fill='white',
+                anchor="mm",
+                font=ImageFont.truetype("arial.ttf", 32)
+            )
 
     except:
         # Fallback if font loading fails (non-Windows systems)
-        draw.text((preview_size[0] // 2, text_y), f"{width}x{height}", fill='red', anchor="mm")
-        draw.text((preview_size[0] // 2, text_y + 60), f"({ratio_display})", fill='red', anchor="mm")
-        draw.text((preview_size[0] // 2, y_offset + preview_height + 60), f"{megapixels:.2f} MP", fill='white', anchor="mm")
+        if has_thumbnail:
+            draw.text((preview_size[0] // 2, y_offset - 40), f"{width}x{height} ({ratio_display})", fill='red', anchor="mm")
+            draw.text((preview_size[0] // 2, y_offset + preview_height + 40), f"{megapixels:.2f} MP", fill='white', anchor="mm")
+        else:
+            text_y = y_offset + preview_height // 2
+            draw.text((preview_size[0] // 2, text_y), f"{width}x{height}", fill='red', anchor="mm")
+            draw.text((preview_size[0] // 2, text_y + 60), f"({ratio_display})", fill='red', anchor="mm")
+            draw.text((preview_size[0] // 2, y_offset + preview_height + 60), f"{megapixels:.2f} MP", fill='white', anchor="mm")
 
     # Convert to tensor
     return pil2tensor(image)
