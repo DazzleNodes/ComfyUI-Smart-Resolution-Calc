@@ -57,6 +57,7 @@ import { CopyImageButton } from './components/CopyImageButton.js';
 import { ScaleWidget } from './components/ScaleWidget.js';
 import { ImageDimensionUtils } from './utils/ImageDimensionUtils.js';
 import { applyDazzleSerialization } from './utils/serialization.js';
+import { SpectralBlend2DWidget } from './components/SpectralBlend2DWidget.js';
 
 // Dynamic import helper for standalone vs DazzleNodes compatibility (Option A: Inline)
 async function importComfyCore() {
@@ -188,6 +189,32 @@ app.registerExtension({
                     const seedIdx = this.widgets.indexOf(seedWidget);
                     this.widgets.splice(seedIdx + 1, 0, imagePurposeRef);
                     logger.debug(`Repositioned image_purpose after seed at index ${seedIdx + 1}`);
+                }
+
+                // ===== SpectralBlend2DWidget =====
+                // 2D XY pad for blend_strength + cutoff visualization
+                // Augments the native widgets (they stay for value storage + noodle input)
+                const blendWidget = this.widgets.find(w => w.name === "blend_strength");
+                const cutoffNativeWidget = this.widgets.find(w => w.name === "cutoff");
+                if (blendWidget && cutoffNativeWidget) {
+                    const blend2DWidget = new SpectralBlend2DWidget(
+                        "spectral_blend_2d", blendWidget, cutoffNativeWidget
+                    );
+                    this.addCustomWidget(blend2DWidget);
+
+                    // Remove from end (addCustomWidget appends) and insert after cutoff
+                    const addedIdx = this.widgets.indexOf(blend2DWidget);
+                    if (addedIdx !== -1) {
+                        this.widgets.splice(addedIdx, 1);
+                    }
+                    const cutoffIdx = this.widgets.indexOf(cutoffNativeWidget);
+                    this.widgets.splice(cutoffIdx + 1, 0, blend2DWidget);
+
+                    // Hide native blend_strength and cutoff sliders (2D pad replaces them visually)
+                    hideWidget(blendWidget);
+                    hideWidget(cutoffNativeWidget);
+
+                    logger.debug('Added SpectralBlend2DWidget after cutoff');
                 }
 
                 logger.debug('Added 7 custom widgets to node (image mode + copy button + dimensions + scale + seed)');

@@ -5,6 +5,25 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-03-21
+
+### Added
+- **`cutoff` parameter** — exposed as user-facing FLOAT (0.01-0.50, default 0.20, step 0.001).
+  Controls which spatial frequencies get pattern influence during spectral blending.
+  Previously hardcoded at 0.20. (#35)
+- **SpectralBlend2DWidget** — interactive 2D XY pad for visualizing blend_strength + cutoff
+  interaction. Collapsed view shows values with zone indicator dot; click to expand full graph
+  with heatmap (green=safe, yellow=boundary, red=abstract), draggable point, and crosshairs.
+  Click values for inline editing. Reset button snaps cutoff to default 0.200. (#45)
+- **Phase randomization** for img2img+img2noise layered mode — decorrelates noise pattern
+  from VAE-encoded samples by preserving amplitude spectrum (spatial structure) while
+  randomizing phases. Reduces artifacts from signal-noise correlation. (#47)
+
+### Changed
+- **blend_strength step** — 0.05 -> 0.001 for finer control
+- Native blend_strength and cutoff sliders hidden when SpectralBlend2DWidget is active
+  (values still accessible via widget augmentation pattern for noodle input compatibility)
+
 ## [0.10.1] - 2026-03-20
 
 ### Fixed

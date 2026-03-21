@@ -116,7 +116,7 @@ class CalculationContext:
     """
     def __init__(self, aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
                  batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
-                 fill_color, blend_strength, fill_image, fill_seed, kwargs):
+                 fill_color, blend_strength, cutoff, fill_image, fill_seed, kwargs):
         # ===== Inputs (from ComfyUI) =====
         self.aspect_ratio: str = aspect_ratio
         self.divisible_by: str = divisible_by
@@ -131,6 +131,7 @@ class CalculationContext:
         self.fill_type: str = fill_type
         self.fill_color: str = fill_color
         self.blend_strength: float = blend_strength
+        self.cutoff: float = max(0.01, min(0.5, cutoff))
         self.fill_image = fill_image          # Optional[torch.Tensor]
         self.fill_seed = fill_seed            # Optional[dict] — {on: bool, value: int}
         self.kwargs: dict = kwargs
@@ -270,8 +271,15 @@ class SmartResolutionCalc:
                     "default": 0.0,
                     "min": 0.0,
                     "max": 1.0,
-                    "step": 0.05,
+                    "step": 0.001,
                     "tooltip": "Spectral blend strength for noise-to-latent pipeline.\nControls how much the fill_type noise pattern's spatial structure\ninfluences the latent output.\n\n0.0 = Pure Gaussian noise (no pattern influence)\n0.1-0.3 = Subtle structural influence\n0.3-0.5 = Moderate (recommended for most patterns)\n0.5-0.7 = Strong influence (may reduce prompt adherence)\n0.7-1.0 = Very strong (pattern dominates composition)\n\nOnly active when fill_type is a noise pattern (noise, random, DazNoise).\nHas no effect when fill_type is black/white/custom_color."
+                }),
+                "cutoff": ("FLOAT", {
+                    "default": 0.2,
+                    "min": 0.01,
+                    "max": 0.50,
+                    "step": 0.001,
+                    "tooltip": "Spectral blend frequency cutoff (fraction of Nyquist).\nControls WHICH spatial frequencies get pattern influence.\n\nLow (0.05-0.10): Only large-scale composition (big blobs)\nMedium (0.15-0.25): Blob-scale structure (default 0.20)\nHigh (0.30-0.50): Medium detail + blobs\n\nInteracts with blend_strength: raising cutoff increases total\npattern influence because more frequency bands are affected.\nUse the 2D pad to visualize the combined effect."
                 }),
                 # Image purpose: how the connected image affects outputs (hidden until image connected)
                 "image_purpose": (["img2img", "dimensions only", "img2noise", "image + noise", "img2img + img2noise"], {
@@ -471,7 +479,8 @@ class SmartResolutionCalc:
                             custom_aspect_ratio="16:9", batch_size=1, scale=1.0,
                             image=None, vae=None, image_purpose="img2img",
                             output_image_mode="auto", fill_type="black",
-                            fill_color="#808080", blend_strength=0.0, fill_image=None,
+                            fill_color="#808080", blend_strength=0.0, cutoff=0.2,
+                            fill_image=None,
                             fill_seed=None, **kwargs):
         """
         Calculate dimensions based on active toggle inputs from custom widgets.
@@ -536,7 +545,7 @@ class SmartResolutionCalc:
         ctx = CalculationContext(
             aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
             batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
-            fill_color, blend_strength, fill_image, fill_seed, kwargs
+            fill_color, blend_strength, cutoff, fill_image, fill_seed, kwargs
         )
 
         # Pipeline stages
@@ -582,7 +591,7 @@ class SmartResolutionCalc:
         ctx.latent, ctx.latent_source = self._generate_latent(
             ctx.vae, ctx.image, ctx.output_image, ctx.actual_mode, ctx.w, ctx.h,
             ctx.batch_size, ctx.fill_type, ctx.fill_image, ctx.blend_strength,
-            ctx.seed_active, ctx.actual_seed, ctx.cache_key,
+            ctx.cutoff, ctx.seed_active, ctx.actual_seed, ctx.cache_key,
             ctx.use_image_for_latent_encode, ctx.use_image_for_noise_shape,
             getattr(ctx, 'noise_shape_transform', None), ctx.fill_color
         )
@@ -963,7 +972,8 @@ class SmartResolutionCalc:
         return output_image
 
     def _generate_latent(self, vae, image, output_image, actual_mode, w, h, batch_size,
-                         fill_type, fill_image, blend_strength, seed_active, actual_seed,
+                         fill_type, fill_image, blend_strength, cutoff,
+                         seed_active, actual_seed,
                          cache_key, use_image_for_latent_encode=True,
                          use_image_for_noise_shape=False, noise_shape_transform=None,
                          fill_color="#808080"):
@@ -1026,15 +1036,29 @@ class SmartResolutionCalc:
                         torch.manual_seed(actual_seed)
                     gaussian_noise = torch.randn_like(latent["samples"])
 
-                    # Use the VAE-encoded image itself as the pattern source
-                    # It's already in latent space with correct channels and spatial dims
-                    pattern_resized = encoded.clone()
+                    # Use the VAE-encoded image as pattern source, but phase-randomize
+                    # to decorrelate from samples. Keeps amplitude spectrum (spatial structure)
+                    # but destroys pixel-level correlation with x_0, preventing signal-noise
+                    # reinforcement artifacts at high blend_strength.
+                    pattern_latent = encoded.clone()
+                    F_pattern = torch.fft.rfft2(pattern_latent, dim=(-2, -1))
+                    amplitude = torch.abs(F_pattern)
+                    random_phase = torch.angle(
+                        torch.randn_like(F_pattern.real) + 1j * torch.randn_like(F_pattern.real)
+                    )
+                    F_decorrelated = amplitude * torch.exp(1j * random_phase)
+                    pattern_resized = torch.fft.irfft2(
+                        F_decorrelated, s=(pattern_latent.shape[-2], pattern_latent.shape[-1]), dim=(-2, -1)
+                    )
+                    # Normalize to zero-mean, unit std
                     pattern_resized = pattern_resized - pattern_resized.mean()
+                    pattern_resized = pattern_resized / (pattern_resized.std() + 1e-8)
+                    logger.debug(f"Phase-randomized pattern: mean={pattern_resized.mean():.4f}, std={pattern_resized.std():.4f}")
 
                     effective_blend = blend_strength if blend_strength > 0.0 else 0.15
                     shaped_noise = spectral_noise_blend(
                         pattern_resized, gaussian_noise,
-                        alpha=effective_blend, cutoff=0.2
+                        alpha=effective_blend, cutoff=cutoff
                     )
                     latent["noise"] = shaped_noise
                     latent["use_as_noise"] = True
@@ -1165,14 +1189,14 @@ class SmartResolutionCalc:
                     # Apply spectral blending
                     latent["samples"] = spectral_noise_blend(
                         pattern_resized, gaussian_noise,
-                        alpha=effective_blend, cutoff=0.2
+                        alpha=effective_blend, cutoff=cutoff
                     )
                     blend_label = f" blend={effective_blend}"
                     if use_image_for_noise_shape and image is not None:
                         latent_source = f"Image-Shaped Noise ({pattern_label}{blend_label})"
                     else:
                         latent_source = f"Spectral Noise ({pattern_label}{blend_label})"
-                    logger.debug(f"Spectral blend: source={pattern_label}, alpha={effective_blend}, cutoff=0.2, "
+                    logger.debug(f"Spectral blend: source={pattern_label}, alpha={effective_blend}, cutoff={cutoff}, "
                                  f"shape={latent['samples'].shape}, "
                                  f"mean={latent['samples'].mean():.4f}, std={latent['samples'].std():.4f}")
                 else:
