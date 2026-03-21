@@ -5,6 +5,16 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-03-21
+
+### Fixed
+- **SpectralBlend2DWidget canvas corruption** — `_readValues()` now coerces widget values
+  to numbers via `Number()` before calling `.toFixed()`. On older ComfyUI frontend versions
+  (e.g., 1.39.19), widget values deserialize as strings instead of numbers, causing
+  `toFixed()` to throw on every `requestAnimationFrame` (60fps) and corrupting the
+  canvas render pipeline. The error was silent (no visible console error in some browsers)
+  but broke scroll/zoom/selection on the entire canvas.
+
 ## [0.10.2] - 2026-03-21
 
 ### Added

@@ -108,8 +108,8 @@ class SpectralBlend2DWidget extends DazzleWidget {
      * Read current values from the native widgets
      */
     _readValues() {
-        const blend = this.blendWidget ? (this.blendWidget.value ?? 0.0) : this.value.blend;
-        const cutoff = this.cutoffWidget ? (this.cutoffWidget.value ?? 0.2) : this.value.cutoff;
+        const blend = Number(this.blendWidget ? (this.blendWidget.value ?? 0.0) : this.value.blend) || 0.0;
+        const cutoff = Number(this.cutoffWidget ? (this.cutoffWidget.value ?? 0.2) : this.value.cutoff) || 0.2;
         return { blend, cutoff };
     }
 
