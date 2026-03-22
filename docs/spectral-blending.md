@@ -120,7 +120,7 @@ Spectral blending has two parameters that control different aspects of the blend
 
 **`blend_strength`** (user-facing, 0.0-1.0) controls **how much** pattern influence is mixed in. At 0.0, the output is pure Gaussian noise. At 1.0, the maximum amount of pattern structure is injected across all affected frequencies.
 
-**`cutoff`** (currently hardcoded at 0.2) controls **which frequencies** are affected. It's a fraction of the Nyquist frequency that defines the boundary between "pattern frequencies" and "Gaussian frequencies." Frequencies below the cutoff get blended; frequencies above stay as pure Gaussian noise.
+**`cutoff`** (user-facing parameter, default 0.2) controls **which frequencies** are affected. It's a fraction of the Nyquist frequency that defines the boundary between "pattern frequencies" and "Gaussian frequencies." Frequencies below the cutoff get blended; frequencies above stay as pure Gaussian noise. Adjustable via the SpectralBlend2DWidget or by clicking the cutoff value directly.
 
 These two parameters interact:
 
@@ -130,7 +130,7 @@ These two parameters interact:
 
 Raising `cutoff` while keeping `blend_strength` the same increases total pattern influence because more frequency bands are being blended. A `blend_strength=0.15` that's coherent at `cutoff=0.2` might produce abstract output at `cutoff=0.5`.
 
-**Why cutoff is hardcoded at 0.2**: At this value, only blob-scale spatial structure (~5 latent pixels, ~40 pixel-space pixels) is transferred from the pattern. Fine detail (edges, textures) stays as pure Gaussian noise. This is a good default because:
+**Why the default is 0.2**: At this value, only blob-scale spatial structure (~5 latent pixels, ~40 pixel-space pixels) is transferred from the pattern. Fine detail (edges, textures) stays as pure Gaussian noise. This is a good default because:
 - It captures the composition-scale features users want to transfer
 - It leaves enough frequency range as pure Gaussian for the model to work with
 - The empirical thresholds above were measured at this cutoff
@@ -223,6 +223,8 @@ See [extended-fill-types.md](extended-fill-types.md#sampler-integration-experime
 
 ## Version History
 
+- **v0.10.2**: `cutoff` exposed as user-facing parameter (was hardcoded at 0.2); SpectralBlend2DWidget for visualizing blend_strength + cutoff interaction
+- **v0.10.1**: VAE-encode image pattern source for img2noise (eliminates channel tiling artifacts)
 - **v0.10.0**: Image-to-noise spectral fusion via `image_purpose` widget; `output_image_mode` controls image transform before noise shaping
 - **v0.8.4**: Fixed seed serialization — actual seed saved in workflow JSON for reproducibility
 - **v0.8.2**: Added spectral blending with `blend_strength` parameter

@@ -813,10 +813,15 @@ class SmartResolutionCalc:
         """
         purpose = ctx.image_purpose
 
+        # If no image is connected, image-dependent flags must be False
+        # regardless of image_purpose setting (the dropdown may still show "img2img"
+        # from a previous connection)
+        has_image = ctx.image is not None
+
         if purpose == "img2img":
             # Standard behavior — transform image, VAE-encode to latent
-            ctx.use_image_for_output = True
-            ctx.use_image_for_latent_encode = True
+            ctx.use_image_for_output = has_image
+            ctx.use_image_for_latent_encode = has_image
             ctx.use_image_for_noise_shape = False
 
         elif purpose == "dimensions only":
@@ -831,22 +836,22 @@ class SmartResolutionCalc:
             # output_image_mode controls how the input image is transformed before noise shaping
             ctx.use_image_for_output = False
             ctx.use_image_for_latent_encode = False
-            ctx.use_image_for_noise_shape = True
+            ctx.use_image_for_noise_shape = has_image
             # Store the user's transform choice for noise shaping, then force empty for IMAGE output
             ctx.noise_shape_transform = ctx.actual_mode if ctx.actual_mode.startswith("transform") else "transform (distort)"
             ctx.actual_mode = "empty"
 
         elif purpose == "image + noise":
             # Independent paths — transform image for IMAGE, noise for LATENT
-            ctx.use_image_for_output = True
+            ctx.use_image_for_output = has_image
             ctx.use_image_for_latent_encode = False
             ctx.use_image_for_noise_shape = False
 
         elif purpose == "img2img + img2noise":
             # Layered — transform image for IMAGE, VAE-encode + image-shaped noise for LATENT
-            ctx.use_image_for_output = True
-            ctx.use_image_for_latent_encode = True
-            ctx.use_image_for_noise_shape = True
+            ctx.use_image_for_output = has_image
+            ctx.use_image_for_latent_encode = has_image
+            ctx.use_image_for_noise_shape = has_image
 
         if purpose != "img2img":
             logger.debug(f"Image purpose '{purpose}': output={ctx.use_image_for_output}, "
@@ -1013,6 +1018,11 @@ class SmartResolutionCalc:
             vae is not None and not use_image_for_latent_encode and has_nontrivial_fill
         )
 
+        logger.debug(f"Latent routing: vae={vae is not None}, image={image is not None}, "
+                     f"use_latent_encode={use_image_for_latent_encode}, actual_mode={actual_mode}, "
+                     f"has_nontrivial_fill={has_nontrivial_fill}, fill_type={fill_type}")
+        logger.debug(f"-> should_vae_encode={should_vae_encode_image}, should_raw_noise={should_generate_raw_noise}")
+
         if should_vae_encode_image:
             # Path 1: VAE-encode the transformed image for img2img workflows
             try:
@@ -1086,7 +1096,7 @@ class SmartResolutionCalc:
             # For img2noise, include image shape as a proxy for "same image" detection
             # (we can't hash the full tensor efficiently, but shape change = different image)
             image_shape_key = tuple(image.shape) if (use_image_for_noise_shape and image is not None) else None
-            noise_cache_key = (cache_key, blend_strength, use_image_for_noise_shape,
+            noise_cache_key = (cache_key, blend_strength, cutoff, use_image_for_noise_shape,
                                noise_shape_transform, image_shape_key)
 
             # Check cache first

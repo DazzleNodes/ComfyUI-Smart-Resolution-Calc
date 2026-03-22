@@ -5,6 +5,13 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] - 2026-03-21
+
+### Fixed
+- **Spectral blend cutoff cache miss** — `cutoff` was missing from the noise cache key,
+  causing cached noise to be served when only cutoff changed. Changing cutoff now correctly
+  invalidates the cache and regenerates with the new frequency threshold.
+
 ## [0.10.3] - 2026-03-21
 
 ### Fixed

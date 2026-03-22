@@ -210,9 +210,18 @@ app.registerExtension({
                     const cutoffIdx = this.widgets.indexOf(cutoffNativeWidget);
                     this.widgets.splice(cutoffIdx + 1, 0, blend2DWidget);
 
-                    // Hide native blend_strength and cutoff sliders (2D pad replaces them visually)
-                    hideWidget(blendWidget);
-                    hideWidget(cutoffNativeWidget);
+                    // Make native blend_strength and cutoff sliders zero-height but still functional
+                    // Using hideWidget() would suppress serialization/dirty detection
+                    // Instead, override only draw and computeSize to make them invisible
+                    // while keeping the widget fully functional for ComfyUI's value tracking
+                    for (const w of [blendWidget, cutoffNativeWidget]) {
+                        if (w) {
+                            w._origDraw = w.draw;
+                            w.draw = function() {};
+                            w._origComputeSize = w.computeSize;
+                            w.computeSize = function() { return [0, -4]; };
+                        }
+                    }
 
                     logger.debug('Added SpectralBlend2DWidget after cutoff');
                 }
