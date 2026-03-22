@@ -198,7 +198,9 @@ app.registerExtension({
                 const cutoffNativeWidget = this.widgets.find(w => w.name === "cutoff");
                 if (blendWidget && cutoffNativeWidget) {
                     const blend2DWidget = new SpectralBlend2DWidget(
-                        "spectral_blend_2d", blendWidget, cutoffNativeWidget
+                        "spectral_blend_2d", blendWidget, cutoffNativeWidget, {
+                            tooltipContent: TOOLTIP_CONTENT.spectral_blend
+                        }
                     );
                     this.addCustomWidget(blend2DWidget);
 
@@ -220,6 +222,8 @@ app.registerExtension({
                             w.draw = function() {};
                             w._origComputeSize = w.computeSize;
                             w.computeSize = function() { return [0, -4]; };
+                            // Native tooltips kept — they show on the hidden widgets' area
+                            // Our custom tooltip on "SPECTRAL" provides richer context
                         }
                     }
 
@@ -597,7 +601,7 @@ app.registerExtension({
                 if (fillColorWidget) {
                     // Hide the fill_color text widget since button shows the color
                     // Keep widget for value storage but don't render it (acts as stable anchor)
-                    fillColorWidget.computeSize = function() { return [0, 0]; };
+                    fillColorWidget.computeSize = function() { return [0, -4]; };
                     fillColorWidget.draw = function() { /* Hidden */ };
 
                     // Initialize value if needed

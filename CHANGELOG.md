@@ -5,6 +5,39 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.5] - 2026-03-22
+
+### Added
+- **Pixel cutoff mode** — cutoff values > 1.0 are interpreted as pixel-space feature size
+  and auto-converted to Nyquist-relative internally based on current resolution
+- **Feature size display** — `~448px` shown in bottom-right of expanded spectral graph,
+  computed from `cutoff * latent_size * spatial_divisor`. Click to enter pixel value that
+  back-calculates cutoff. Enter -1 to reset to default.
+- **Spectral tooltip** — SPECTRAL label triggers custom tooltip with usage guide and
+  shift+click opens spectral-blending.md docs
+- **Axis tooltips** — hover "blend", "cutoff", or feature size in expanded graph for
+  inline explanations
+- **Hover value preview** — moving cursor over 2D pad shows blend/cutoff values at that
+  position without committing. Axis labels update with zone-colored values.
+- **Resolution tips** in docs — notes about resolution affecting blend behavior and
+  desaturation recommendation for img2noise
+
+### Fixed
+- **ColorPickerButton canvas corruption** — guard against non-string fill_color values
+  from old workflows (`currentColor.startsWith is not a function` error on every frame)
+- **Widget margins** — reduced DazzleWidget default height from 24 to 20px, adjusted
+  ColorPickerButton, CopyImageButton, ModeStatusWidget to match native ComfyUI spacing.
+  Hidden fill_color widget uses -4 height to eliminate extra gap.
+
+### Changed
+- **SpectralBlend2DWidget** — hover preview with zone-colored axis labels (split: label
+  in zone color, number in readable #ddd), adaptive outline (black for green/yellow zones),
+  letter-spacing 0.3px for readability, cutoff reset button
+- **Tooltip text** — rewritten for natural line breaks in native tooltip system, spectral
+  blend tooltip added to tooltip_content.js with docsUrl
+- **Native widget suppression** — blend/cutoff native tooltips kept (not suppressed),
+  widgets use zero-height approach instead of hideWidget
+
 ## [0.10.4] - 2026-03-21
 
 ### Fixed

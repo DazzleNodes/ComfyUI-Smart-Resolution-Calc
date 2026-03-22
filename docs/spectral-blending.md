@@ -111,6 +111,11 @@ When using an image as the pattern source, `blend_strength` defaults to 0.15 if 
 | DazNoise: Gaussian/Pink/Brown | 0.20 - 0.50 | Per-pixel, safe at high values |
 | Photo (img2noise) | 0.05 - 0.15 | Very strong low-frequency content |
 | Sketch (img2noise) | 0.10 - 0.25 | Less low-frequency energy |
+| Desaturated photo | 0.05 - 0.20 | Structure without color bleed |
+
+**Resolution affects blend behavior**: The same blend_strength and cutoff values produce different results at different output resolutions. The cutoff is relative to Nyquist frequency, which changes with latent tensor size. At higher resolutions (larger latent), cutoff=0.2 captures a wider physical area of the pattern, potentially injecting more structure than expected. If you change resolution significantly, you may need to re-tune blend_strength and cutoff. As a rule of thumb: higher resolution may need slightly lower blend_strength or cutoff to achieve a similar level of pattern influence.
+
+**Tip**: When using images as pattern sources, consider desaturating the input first. The spectral blend transfers both spatial structure AND color information from the VAE-encoded pattern. At moderate blend values, the image's colors can seep through as stylistic tinting. Desaturating the input keeps the composition influence while preventing unwanted color bias. This pairs well with DazNoise: Greyscale as the fill_type.
 
 ## Technical Details
 
@@ -120,7 +125,7 @@ Spectral blending has two parameters that control different aspects of the blend
 
 **`blend_strength`** (user-facing, 0.0-1.0) controls **how much** pattern influence is mixed in. At 0.0, the output is pure Gaussian noise. At 1.0, the maximum amount of pattern structure is injected across all affected frequencies.
 
-**`cutoff`** (user-facing parameter, default 0.2) controls **which frequencies** are affected. It's a fraction of the Nyquist frequency that defines the boundary between "pattern frequencies" and "Gaussian frequencies." Frequencies below the cutoff get blended; frequencies above stay as pure Gaussian noise. Adjustable via the SpectralBlend2DWidget or by clicking the cutoff value directly.
+**`cutoff`** (user-facing parameter, default 0.2) controls **which frequencies** are affected. It's the center of a soft Gaussian rolloff — not a hard boundary. Frequencies well below the cutoff get strong pattern influence, frequencies near the cutoff get partial influence (~61%), and frequencies well above fade to pure Gaussian noise. Think of it as "how far into the frequency spectrum does the pattern reach?" Lower cutoff = only the biggest blobs; higher cutoff = blobs + medium detail. Adjustable via the SpectralBlend2DWidget or by clicking the cutoff value directly.
 
 These two parameters interact:
 

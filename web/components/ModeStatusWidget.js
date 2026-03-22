@@ -23,7 +23,7 @@ import { logger } from '../utils/debug_logger.js';
  */
 class ModeStatusWidget extends DazzleWidget {
     constructor(name = "mode_status") {
-        super(name, "Calculating...", { height: 28 });
+        super(name, "Calculating...", { height: 20 });
 
         this.conflicts = [];  // Calculation conflicts (AR mismatches, etc.)
         this.sourceWarning = null;  // Source validation warning (disconnect, disabled node, etc.) - SEPARATE from conflicts

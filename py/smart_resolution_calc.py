@@ -131,7 +131,8 @@ class CalculationContext:
         self.fill_type: str = fill_type
         self.fill_color: str = fill_color
         self.blend_strength: float = blend_strength
-        self.cutoff: float = max(0.01, min(0.5, cutoff))
+        self.cutoff_raw: float = cutoff  # Raw value from widget (may be Nyquist or pixels)
+        self.cutoff: float = cutoff     # Effective Nyquist-relative (resolved in _resolve_cutoff)
         self.fill_image = fill_image          # Optional[torch.Tensor]
         self.fill_seed = fill_seed            # Optional[dict] — {on: bool, value: int}
         self.kwargs: dict = kwargs
@@ -272,14 +273,14 @@ class SmartResolutionCalc:
                     "min": 0.0,
                     "max": 1.0,
                     "step": 0.001,
-                    "tooltip": "Spectral blend strength for noise-to-latent pipeline.\nControls how much the fill_type noise pattern's spatial structure\ninfluences the latent output.\n\n0.0 = Pure Gaussian noise (no pattern influence)\n0.1-0.3 = Subtle structural influence\n0.3-0.5 = Moderate (recommended for most patterns)\n0.5-0.7 = Strong influence (may reduce prompt adherence)\n0.7-1.0 = Very strong (pattern dominates composition)\n\nOnly active when fill_type is a noise pattern (noise, random, DazNoise).\nHas no effect when fill_type is black/white/custom_color."
+                    "tooltip": "Spectral blend strength for noise-to-latent pipeline. Controls how much the fill_type noise pattern's spatial structure influences the latent output.\n\n0.0 = Pure Gaussian (no influence)\n0.1-0.3 = Subtle structural influence\n0.3-0.5 = Moderate (recommended)\n0.5-0.7 = Strong (less prompt adherence)\n0.7-1.0 = Very strong (pattern dominates)\n\nOnly active when fill_type is a noise pattern (noise, random, DazNoise). No effect with black/white/custom_color."
                 }),
                 "cutoff": ("FLOAT", {
                     "default": 0.2,
                     "min": 0.01,
-                    "max": 0.50,
+                    "max": 500.0,
                     "step": 0.001,
-                    "tooltip": "Spectral blend frequency cutoff (fraction of Nyquist).\nControls WHICH spatial frequencies get pattern influence.\n\nLow (0.05-0.10): Only large-scale composition (big blobs)\nMedium (0.15-0.25): Blob-scale structure (default 0.20)\nHigh (0.30-0.50): Medium detail + blobs\n\nInteracts with blend_strength: raising cutoff increases total\npattern influence because more frequency bands are affected.\nUse the 2D pad to visualize the combined effect."
+                    "tooltip": "Spectral blend frequency cutoff. Soft Gaussian rolloff center -- not a hard boundary.\n\nValues <= 1.0: Nyquist-relative (fraction of max frequency)\n  0.05-0.10: Large-scale composition only\n  0.15-0.25: Blob-scale (default 0.20)\n  0.30-0.50: Blobs + medium detail\n\nValues > 1.0: Pixel-space (resolution-independent)\n  e.g., 40 = blend features ~40px wide at any resolution\n\nInteracts with blend_strength: raising cutoff increases total pattern influence. Use the 2D pad to visualize."
                 }),
                 # Image purpose: how the connected image affects outputs (hidden until image connected)
                 "image_purpose": (["img2img", "dimensions only", "img2noise", "image + noise", "img2img + img2noise"], {
@@ -553,6 +554,21 @@ class SmartResolutionCalc:
         self._resolve_dimensions(ctx)
         self._apply_scale_and_divisibility(ctx)
         self._resolve_seed(ctx)
+
+        # Resolve cutoff: values > 1.0 are pixel-space, convert to Nyquist-relative
+        if ctx.cutoff_raw > 1.0:
+            # Pixel mode: cutoff_raw is the feature size in pixels
+            # Convert to Nyquist fraction based on the larger latent dimension
+            spatial_divisor = 8
+            if ctx.vae is not None and hasattr(ctx.vae, 'spacial_compression_encode'):
+                spatial_divisor = ctx.vae.spacial_compression_encode()
+            latent_size = max(ctx.w // spatial_divisor, ctx.h // spatial_divisor)
+            ctx.cutoff = min(0.5, ctx.cutoff_raw / latent_size)
+            logger.debug(f"Cutoff pixel mode: {ctx.cutoff_raw}px -> {ctx.cutoff:.4f} Nyquist "
+                         f"(latent_size={latent_size}, spatial_divisor={spatial_divisor})")
+        else:
+            # Nyquist mode: use as-is, clamp to valid range
+            ctx.cutoff = max(0.01, min(0.5, ctx.cutoff_raw))
 
         # Image + latent generation
         self._prepare_output_mode(ctx)

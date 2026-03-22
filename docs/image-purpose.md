@@ -69,6 +69,10 @@ When you connect an image to Smart Resolution Calculator, the `image_purpose` dr
 - Sketches: 0.10-0.25 (less low-frequency energy)
 - Noise patterns: 0.15-0.50 (similar to existing DazNoise behavior)
 
+**Tip: Resolution matters.** The spectral blend operates in latent space, so output resolution directly affects how much pattern structure gets injected. Higher resolution = larger latent = the same cutoff covers a wider physical area. If you scale up significantly (e.g., 1200px to 2400px), you may need to lower blend_strength or cutoff to maintain similar composition influence. Workflows tuned at one resolution may need re-tuning at another.
+
+**Tip: Desaturate your input image.** When using img2noise, you typically want the image's spatial *structure* (composition, layout, silhouette) to influence the noise, not its *color*. Color information in the VAE-encoded pattern can seep through as stylistic coloring at moderate blend values, producing psychedelic tinting that's usually undesirable. Run the input image through a desaturate or grayscale node before connecting it to SmartResCalc. This pairs especially well with DazNoise: Greyscale as the fill_type, keeping the entire pipeline in luminance space.
+
 ### image + noise
 
 **What it does**: Independent output paths. The IMAGE output gets the transformed input image (per `output_image_mode`), but the LATENT output gets seeded noise — NOT a VAE-encoded version of the image.

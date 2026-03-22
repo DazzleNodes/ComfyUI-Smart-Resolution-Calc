@@ -45,7 +45,7 @@ class DazzleWidget {
             ? new InfoIcon(config.tooltipContent) : null;
 
         // Compact height default (overridable via config or computeSize override)
-        this._height = config.height ?? 24;
+        this._height = config.height ?? 20;
 
         // Services — injectable dependencies for testability.
         // Defaults to ComfyUI globals. Tests inject mocks via config.services.

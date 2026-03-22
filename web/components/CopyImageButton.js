@@ -22,7 +22,7 @@ import { logger } from '../utils/debug_logger.js';
  */
 class CopyImageButton extends DazzleWidget {
     constructor(name = "copy_from_image") {
-        super(name, null, { height: 32 });  // Buttons don't need a value
+        super(name, null, { height: 22 });  // Buttons need slightly more space
 
         // Undo state
         this.undoStack = null;  // Stores previous values: {width: {on, value}, height: {on, value}}
@@ -38,7 +38,7 @@ class CopyImageButton extends DazzleWidget {
 
         const x = 15;  // Standard widget left margin
         const margin = 3;  // Space between buttons
-        const buttonHeight = 28;
+        const buttonHeight = 22;
 
         // Check if image is connected
         const imageInput = node.inputs ? node.inputs.find(i => i.name === "image") : null;

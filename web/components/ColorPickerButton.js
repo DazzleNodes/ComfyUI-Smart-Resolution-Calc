@@ -19,7 +19,7 @@ import { visibilityLogger } from '../utils/debug_logger.js';
  */
 class ColorPickerButton extends DazzleWidget {
     constructor(name = "color_picker_button", fillColorWidget) {
-        super(name, null, { height: 28 });  // Buttons don't need a value
+        super(name, null, { height: 20 });  // Match native widget height
         this.fillColorWidget = fillColorWidget;  // Reference to fill_color widget for value storage
 
         // State
@@ -35,11 +35,12 @@ class ColorPickerButton extends DazzleWidget {
         ctx.save();
 
         const x = 15;  // Standard widget left margin
-        const buttonHeight = 28;
+        const buttonHeight = 20;
         const buttonWidth = width - 30;
 
-        // Get current color
-        const currentColor = this.fillColorWidget.value || "#808080";
+        // Get current color (guard against non-string values from old workflows)
+        const rawColor = this.fillColorWidget.value;
+        const currentColor = (typeof rawColor === 'string' ? rawColor : String(rawColor || "#808080")) || "#808080";
         const normalizedColor = currentColor.startsWith('#') ? currentColor : '#' + currentColor;
 
         // Helper to get contrasting text color

@@ -128,5 +128,21 @@ export const TOOLTIP_CONTENT = {
               "fractional values like 1:2.5 or 1.85:1.",
         docsUrl: null,
         hoverDelay: 250
+    },
+
+    spectral_blend: {
+        quick: "Spectral blend: shape noise with patterns or images",
+        full: "SPECTRAL BLEND 2D PAD\n\n" +
+              "Two coupled parameters that shape latent noise:\n" +
+              "  blend = how much influence (0=none, 1=max)\n" +
+              "  cutoff = frequency rolloff (low=blobs, high=detail)\n\n" +
+              "Click bar to expand/collapse the graph.\n" +
+              "Drag the point to set both values at once.\n" +
+              "Click a value to type it directly.\n" +
+              "Hover the graph to preview without changing.\n\n" +
+              "Green = safe | Yellow = boundary | Red = artifacts\n\n" +
+              "Shift+Click for the full guide.",
+        docsUrl: "https://github.com/DazzleNodes/ComfyUI-Smart-Resolution-Calc/blob/main/docs/spectral-blending.md",
+        hoverDelay: 250
     }
 };

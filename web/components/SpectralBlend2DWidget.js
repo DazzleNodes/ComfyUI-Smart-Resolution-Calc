@@ -36,8 +36,10 @@ class SpectralBlend2DWidget extends DazzleWidget {
         this.blendWidget = blendWidget;   // Reference to native blend_strength widget
         this.cutoffWidget = cutoffWidget; // Reference to native cutoff widget
         this.expanded = false;            // Collapsed by default — click to expand
-        this._height = 24;               // Collapsed height (compact line)
+        this._height = 23;               // Collapsed height (extra px for spacing below)
         this.isDragging = false;
+        this.hoverValues = null;          // {blend, cutoff} when hovering over pad (preview only)
+        this.axisTooltip = null;          // "blend" or "cutoff" when hovering axis label
     }
 
     /**
@@ -121,9 +123,14 @@ class SpectralBlend2DWidget extends DazzleWidget {
         blend = Math.round(blend * 1000) / 1000;
         cutoff = Math.round(cutoff * 1000) / 1000;
 
-        // Clamp
+        // Clamp blend to 0-1 range
         blend = Math.max(BLEND_MIN, Math.min(BLEND_MAX, blend));
-        cutoff = Math.max(CUTOFF_MIN, Math.min(CUTOFF_MAX, cutoff));
+        // Cutoff: clamp to Nyquist range (0.01-0.50) OR allow pixel mode (>1.0)
+        if (cutoff <= 1.0) {
+            cutoff = Math.max(CUTOFF_MIN, Math.min(CUTOFF_MAX, cutoff));
+        } else {
+            cutoff = Math.max(1.0, Math.min(500.0, cutoff)); // Pixel mode
+        }
 
         if (this.blendWidget) {
             this.blendWidget.value = blend;
@@ -137,7 +144,7 @@ class SpectralBlend2DWidget extends DazzleWidget {
     }
 
     computeSize(width) {
-        return [width, this.expanded ? PAD_HEIGHT + 20 : 24];
+        return [width, this.expanded ? PAD_HEIGHT + 20 : 23];
     }
 
     /**
@@ -172,6 +179,12 @@ class SpectralBlend2DWidget extends DazzleWidget {
         ctx.textAlign = "left";
         ctx.fillText("SPECTRAL", margin + 22, y + 16);
 
+        // Set tooltip hit area on the "SPECTRAL" label
+        if (this.infoIcon) {
+            const spectralW = ctx.measureText("SPECTRAL").width;
+            this.infoIcon.setHitArea(margin + 22, y + 2, spectralW, 18);
+        }
+
         // Blend value (clickable)
         const blendText = `blend: ${blend.toFixed(3)}`;
         const blendLabelWidth = ctx.measureText("blend: ").width;
@@ -190,8 +203,11 @@ class SpectralBlend2DWidget extends DazzleWidget {
         ctx.fillStyle = "#666";
         ctx.fillText("|", blendX + blendTextWidth + 6, y + 16);
 
-        // Cutoff value (clickable)
-        const cutoffText = `cutoff: ${cutoff.toFixed(3)}`;
+        // Cutoff value (clickable) — show "px" suffix when in pixel mode (>1.0)
+        const isPixelMode = cutoff > 1.0;
+        const cutoffText = isPixelMode
+            ? `cutoff: ${cutoff.toFixed(0)}px`
+            : `cutoff: ${cutoff.toFixed(3)}`;
         const cutoffLabelWidth = ctx.measureText("cutoff: ").width;
         ctx.fillStyle = "#ddd";
         const cutoffX = blendX + blendTextWidth + 18;
@@ -309,18 +325,115 @@ class SpectralBlend2DWidget extends DazzleWidget {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // === Axis labels ===
-        ctx.fillStyle = "#aaa";
+        // === Axis labels (show hover values when hovering) ===
         ctx.font = AXIS_LABEL_FONT;
-        ctx.textAlign = "center";
-        // X axis: cutoff
-        ctx.fillText("cutoff", padX + padW / 2, padY + padH + 14);
-        // Y axis: blend (rotated)
-        ctx.save();
-        ctx.translate(padX - 18, padY + padH / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.fillText("blend", 0, 0);
-        ctx.restore();
+
+        // Helper: draw text with dark outline for readability on colored backgrounds
+        const drawOutlinedText = (text, x, y, fillColor, align, score) => {
+            ctx.textAlign = align || "center";
+            ctx.lineJoin = "round";
+            ctx.letterSpacing = "0.3px";
+            ctx.strokeStyle = "rgba(0,0,0,0.7)";
+            ctx.lineWidth = 1.2;
+            ctx.strokeText(text, x, y);
+            // Fill: zone color
+            ctx.fillStyle = fillColor;
+            ctx.fillText(text, x, y);
+            ctx.letterSpacing = "0px";
+        };
+
+        if (this.hoverValues) {
+            const hv = this.hoverValues;
+            const hoverScore = this._influenceScore(hv.blend, hv.cutoff);
+            const hoverColor = this._scoreToColor(hoverScore, 1.0);
+
+            // Y axis: "blend" label colored to match hover zone
+            ctx.save();
+            ctx.translate(padX - 18, padY + padH / 2);
+            ctx.rotate(-Math.PI / 2);
+            drawOutlinedText("blend", 0, 0, hoverColor, "center", hoverScore);
+            ctx.restore();
+
+            // X axis: "cutoff=" in zone color, value in default readable color
+            const cutoffLabel = "cutoff=";
+            const cutoffVal = hv.cutoff.toFixed(3);
+            const cutoffLabelW = ctx.measureText(cutoffLabel).width;
+            const cutoffFullW = ctx.measureText(cutoffLabel + cutoffVal).width;
+            const cutoffStartX = padX + padW / 2 - cutoffFullW / 2;
+            drawOutlinedText(cutoffLabel, cutoffStartX, padY + padH + 14, hoverColor, "left", hoverScore);
+            drawOutlinedText(cutoffVal, cutoffStartX + cutoffLabelW, padY + padH + 14, "#ddd", "left", hoverScore);
+
+            // Blend hover: "=" in zone color, value in default readable color
+            drawOutlinedText("= ", padX - 25, padY + padH + 14, hoverColor, "left", hoverScore);
+            const eqW = ctx.measureText("= ").width;
+            drawOutlinedText(hv.blend.toFixed(3), padX - 25 + eqW, padY + padH + 14, "#ddd", "left", hoverScore);
+        } else {
+            // Static labels when not hovering (match letter spacing of outlined text)
+            ctx.letterSpacing = "0.3px";
+
+            ctx.save();
+            ctx.translate(padX - 18, padY + padH / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillStyle = "#aaa";
+            ctx.textAlign = "center";
+            ctx.fillText("blend", 0, 0);
+            ctx.restore();
+
+            ctx.fillStyle = "#aaa";
+            ctx.textAlign = "center";
+            ctx.fillText("cutoff", padX + padW / 2, padY + padH + 14);
+
+            ctx.letterSpacing = "0px";
+        }
+
+        // Store tight hit areas for axis label tooltips (only in expanded, non-hover state)
+        const blendLabelW = ctx.measureText("blend").width;
+        this.hitAreas.axisBlend = {
+            x: padX - 25, y: padY + padH / 2 - 8,
+            width: 14, height: blendLabelW + 4
+        };
+        const cutoffLabelW2 = ctx.measureText("cutoff").width;
+        this.hitAreas.axisCutoff = {
+            x: padX + padW / 2 - cutoffLabelW2 / 2, y: padY + padH + 4,
+            width: cutoffLabelW2, height: 14
+        };
+
+        // === Axis tooltip (lightweight, drawn on canvas) ===
+        if (this.axisTooltip) {
+            const tipText = this.axisTooltip === "blend"
+                ? "How much pattern influence (0=none, 1=max)"
+                : this.axisTooltip === "cutoff"
+                ? "Soft rolloff center (low=big blobs only, high=blobs+detail)"
+                : "Feature size in pixels at current res. Click to set (cutoff adjusts automatically). -1 resets to default.";
+            const tipFont = "10px sans-serif";
+            ctx.font = tipFont;
+            const tipW = ctx.measureText(tipText).width + 12;
+            const tipH = 18;
+            let tipX, tipY;
+            if (this.axisTooltip === "blend") {
+                tipX = padX + 4;
+                tipY = padY + padH / 2 - tipH / 2;
+            } else if (this.axisTooltip === "cutoff") {
+                tipX = padX + padW / 2 - tipW / 2;
+                tipY = padY + padH - 4 - tipH;
+            } else {
+                // feature — position above the ~NNNpx text (bottom-right)
+                tipX = padX + padW - tipW;
+                tipY = padY + padH - 4 - tipH;
+            }
+            // Background
+            ctx.fillStyle = "rgba(20,20,30,0.9)";
+            ctx.beginPath();
+            ctx.roundRect(tipX, tipY, tipW, tipH, 3);
+            ctx.fill();
+            ctx.strokeStyle = "#555";
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+            // Text
+            ctx.fillStyle = "#ddd";
+            ctx.textAlign = "left";
+            ctx.fillText(tipText, tipX + 6, tipY + 13);
+        }
 
         // === Zone legend (compact) ===
         ctx.textAlign = "right";
@@ -332,6 +445,42 @@ class SpectralBlend2DWidget extends DazzleWidget {
         ctx.fillText("boundary", padX + padW * 0.65, legendY);
         ctx.fillStyle = this._scoreToColor(0.8, 1.0);
         ctx.fillText("abstract", padX + padW, legendY);
+
+        // === Feature size (computed from cutoff * latent_size) ===
+        // Shows what the current cutoff means in pixel-space at current resolution
+        // Displayed bottom-right of the graph, clickable to override
+        const widthWidget = node.widgets?.find(w => w.name === "dimension_width");
+        const heightWidget = node.widgets?.find(w => w.name === "dimension_height");
+        if (widthWidget || heightWidget) {
+            // Get current dimensions (from widget values or node defaults)
+            const imgW = widthWidget?.value?.value || 1024;
+            const imgH = heightWidget?.value?.value || 1024;
+            const spatialDiv = 8; // Default spatial divisor
+            const latentSize = Math.max(imgW / spatialDiv, imgH / spatialDiv);
+            const featureLatentPx = Math.round(cutoff * latentSize);
+            const featurePixelPx = featureLatentPx * spatialDiv;
+
+            const featureText = `~${featurePixelPx}px`;
+            ctx.font = "9px sans-serif";
+            ctx.textAlign = "right";
+            ctx.fillStyle = "#999";
+            ctx.fillText(featureText, padX + padW, padY + padH + 14);
+
+            // Store hit area for click-to-edit
+            // Use ~prefix width to position input on the number only
+            const tildeW = ctx.measureText("~").width;
+            const pxSuffixW = ctx.measureText("px").width;
+            const fullFeatureW = ctx.measureText(featureText).width;
+            const numOnlyW = fullFeatureW - tildeW - pxSuffixW;
+            this.hitAreas.featureSize = {
+                x: padX + padW - fullFeatureW, y: padY + padH + 4,
+                width: fullFeatureW, height: 14,
+                numX: padX + padW - fullFeatureW + tildeW,
+                numW: numOnlyW,
+                currentValue: featurePixelPx,
+                latentSize: latentSize
+            };
+        }
     }
 
     mouse(event, pos, node) {
@@ -339,15 +488,26 @@ class SpectralBlend2DWidget extends DazzleWidget {
         if (this.handleTooltipMouse(event, pos, node)) return true;
 
         if (event.type === "pointerdown") {
-            console.log(`[SpectralBlend2D] pointerdown at pos=[${pos[0].toFixed(1)}, ${pos[1].toFixed(1)}]`);
-            console.log(`[SpectralBlend2D] blendValue hitArea:`, JSON.stringify(this.hitAreas.blendValue));
-            console.log(`[SpectralBlend2D] cutoffValue hitArea:`, JSON.stringify(this.hitAreas.cutoffValue));
-            console.log(`[SpectralBlend2D] header hitArea:`, JSON.stringify(this.hitAreas.header));
-            if (this.hitAreas.blendValue) {
-                console.log(`[SpectralBlend2D] blend inBounds: ${this.isInBounds(pos, this.hitAreas.blendValue)}`);
-            }
-            if (this.hitAreas.cutoffValue) {
-                console.log(`[SpectralBlend2D] cutoff inBounds: ${this.isInBounds(pos, this.hitAreas.cutoffValue)}`);
+            // Check if click is on feature_size in expanded graph — back-calculate cutoff
+            if (this.expanded && this.hitAreas.featureSize && this.isInBounds(pos, this.hitAreas.featureSize)) {
+                const fs = this.hitAreas.featureSize;
+                const { blend } = this._readValues();
+                this._showInlineEdit(node, fs, String(fs.currentValue), "-1=default",
+                    (val) => {
+                        const parsed = parseInt(val);
+                        if (parsed === -1) {
+                            // Reset to default cutoff (0.2) — no feature_size override
+                            this._writeValues(blend, 0.2);
+                            node.setDirtyCanvas(true);
+                        } else if (!isNaN(parsed) && parsed > 0 && fs.latentSize > 0) {
+                            const newCutoff = (parsed / 8) / fs.latentSize;
+                            this._writeValues(blend, Math.max(0.01, Math.min(0.5, newCutoff)));
+                            node.setDirtyCanvas(true);
+                        }
+                    },
+                    { fontSize: 9, widthScale: 1.2, minWidth: 30 }
+                );
+                return true;
             }
 
             // Check if click is on blend value text — inline edit
@@ -366,7 +526,7 @@ class SpectralBlend2DWidget extends DazzleWidget {
                 this._showInlineEdit(node, this.hitAreas.cutoffValue, cutoff.toFixed(3), "0.01-0.50", (val) => {
                     const parsed = parseFloat(val);
                     if (!isNaN(parsed)) { this._writeValues(blend, parsed); node.setDirtyCanvas(true); }
-                });
+                }, { minWidth: 47 });
                 return true;
             }
 
@@ -401,14 +561,46 @@ class SpectralBlend2DWidget extends DazzleWidget {
             }
         }
 
-        if (event.type === "pointermove" && this.isDragging) {
-            const pad = this.hitAreas.pad;
-            if (pad) {
-                const values = this._pixelToValues(pos[0], pos[1], pad.x, pad.y, pad.width, pad.height);
-                this._writeValues(values.blend, values.cutoff);
-                node.setDirtyCanvas(true);
+        if (event.type === "pointermove") {
+            if (this.isDragging) {
+                const pad = this.hitAreas.pad;
+                if (pad) {
+                    const values = this._pixelToValues(pos[0], pos[1], pad.x, pad.y, pad.width, pad.height);
+                    this._writeValues(values.blend, values.cutoff);
+                    this.hoverValues = null; // Clear hover during drag (committed values shown in header)
+                    node.setDirtyCanvas(true);
+                }
+                return true;
             }
-            return true;
+
+            // Hover preview — show values at cursor position without committing
+            if (this.expanded) {
+                const pad = this.hitAreas.pad;
+                if (pad && this.isInBounds(pos, pad)) {
+                    const values = this._pixelToValues(pos[0], pos[1], pad.x, pad.y, pad.width, pad.height);
+                    this.hoverValues = {
+                        blend: Math.max(BLEND_MIN, Math.min(BLEND_MAX, values.blend)),
+                        cutoff: Math.max(CUTOFF_MIN, Math.min(CUTOFF_MAX, values.cutoff))
+                    };
+                    this.axisTooltip = null; // Clear axis tooltip when over pad
+                    node.setDirtyCanvas(true);
+                    return true;
+                } else {
+                    // Not over pad — check axis label tooltips
+                    if (this.hoverValues) {
+                        this.hoverValues = null;
+                        node.setDirtyCanvas(true);
+                    }
+                    const overBlend = this.hitAreas.axisBlend && this.isInBounds(pos, this.hitAreas.axisBlend);
+                    const overCutoff = this.hitAreas.axisCutoff && this.isInBounds(pos, this.hitAreas.axisCutoff);
+                    const overFeature = this.hitAreas.featureSize && this.isInBounds(pos, this.hitAreas.featureSize);
+                    const newTip = overBlend ? "blend" : overCutoff ? "cutoff" : overFeature ? "feature" : null;
+                    if (newTip !== this.axisTooltip) {
+                        this.axisTooltip = newTip;
+                        node.setDirtyCanvas(true);
+                    }
+                }
+            }
         }
 
         if (event.type === "pointerup") {
@@ -426,7 +618,7 @@ class SpectralBlend2DWidget extends DazzleWidget {
      * Show an inline text input at the mouse click position.
      * Uses the pointer event's screen coordinates directly — no canvas transform math needed.
      */
-    _showInlineEdit(node, hitArea, currentValue, placeholder, onCommit) {
+    _showInlineEdit(node, hitArea, currentValue, placeholder, onCommit, options) {
         // Position the input over the hit area using canvas transform
         const canvasEl = document.getElementById("graph-canvas")
             || document.querySelector("canvas.lgraphcanvas")
@@ -461,14 +653,16 @@ class SpectralBlend2DWidget extends DazzleWidget {
         input.value = currentValue;
         input.placeholder = placeholder;
         const scale = gc?.ds?.scale || 1;
-        const scaledFont = Math.max(Math.round(12 * scale), 10);
-        const scaledHeight = Math.max(Math.round(20 * scale), 16);
+        const opts = options || {};
+        const baseFontSize = opts.fontSize || 12;
+        const scaledFont = Math.max(Math.round(baseFontSize * scale), 8);
+        const scaledHeight = Math.max(Math.round((baseFontSize + 6) * scale), 12);
 
         input.style.cssText = `
             position: fixed;
             left: ${screenX}px;
             top: ${screenY}px;
-            width: ${Math.max(screenW + 4 * scale, 45)}px;
+            width: ${Math.max(screenW * (opts.widthScale || 1) + 4 * scale, opts.minWidth || 45)}px;
             height: ${scaledHeight}px;
             font: ${scaledFont}px sans-serif;
             padding: 0 4px;
