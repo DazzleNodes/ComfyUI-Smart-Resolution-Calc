@@ -50,7 +50,8 @@ Smart Resolution Calculator replaces the tedious dimension math in ComfyUI workf
 
 ### Noise & Composition
 - **10 fill patterns** — 5 built-in + 5 DazNoise types with [dazzle-comfy-plasma-fast](https://github.com/DazzleNodes/dazzle-comfy-plasma-fast) ([details](docs/extended-fill-types.md))
-- **Spectral blending** — inject pattern spatial structure into latent noise while maintaining prompt adherence ([details](docs/spectral-blending.md))
+- **Spectral blending** — inject pattern spatial structure into latent noise while maintaining prompt adherence. Per-bin normalization (spectral whitening) for resolution-independent composition transfer ([details](docs/spectral-blending.md))
+- **Dazzle Options** — advanced configuration node for spectral normalization mode, cutoff curves, and more ([details](docs/spectral-blending.md#dazzleoptions-advanced-configuration))
 - **Seed widget** — reproducible noise with randomize/fix/recall controls
 - **Custom fill input** — connect any image source as fill via `fill_image`
 

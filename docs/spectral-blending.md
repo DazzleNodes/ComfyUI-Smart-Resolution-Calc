@@ -103,17 +103,41 @@ With the [`image_purpose`](image-purpose.md) widget, spectral blending extends b
 
 - **img2img + img2noise**: Layered mode. VAE-encodes the image for standard img2img AND generates image-shaped noise. The corruption noise reinforces the image's own spatial structure instead of fighting it.
 
-When using an image as the pattern source, `blend_strength` defaults to 0.15 if not explicitly set. Real images have much stronger low-frequency content than noise patterns, so lower values are needed:
+When using an image as the pattern source, `blend_strength` defaults to 0.15 if not explicitly set.
 
-| Pattern Source | Recommended blend_strength | Notes |
-|---------------|---------------------------|-------|
-| DazNoise: Plasma | 0.10 - 0.15 | Strong low-frequency blobs |
-| DazNoise: Gaussian/Pink/Brown | 0.20 - 0.50 | Per-pixel, safe at high values |
-| Photo (img2noise) | 0.05 - 0.15 | Very strong low-frequency content |
-| Sketch (img2noise) | 0.10 - 0.25 | Less low-frequency energy |
-| Desaturated photo | 0.05 - 0.20 | Structure without color bleed |
+#### Blend Thresholds with Spectral Whitening (v0.10.6+, default)
 
-**Resolution affects blend behavior**: The same blend_strength and cutoff values produce different results at different output resolutions. The cutoff is relative to Nyquist frequency, which changes with latent tensor size. At higher resolutions (larger latent), cutoff=0.2 captures a wider physical area of the pattern, potentially injecting more structure than expected. If you change resolution significantly, you may need to re-tune blend_strength and cutoff. As a rule of thumb: higher resolution may need slightly lower blend_strength or cutoff to achieve a similar level of pattern influence.
+Since v0.10.6, img2noise uses **per-bin normalization** (spectral whitening) by default. This transfers spatial structure via phase only, making blend behavior resolution-independent and dramatically expanding the usable range:
+
+| Pattern Source | Recommended blend_strength | Max coherent | Notes |
+|---------------|---------------------------|-------------|-------|
+| DazNoise: Plasma | 0.15 - 0.30 | ~0.50+ | Previously limited to ~0.17. Whitening removes amplitude dominance. |
+| DazNoise: Gaussian/Pink/Brown | 0.20 - 1.00 | 1.0 | Per-pixel noise, safe at full blend. |
+| Photo (img2noise) | 0.10 - 0.30 | ~0.50 | Much wider range than before. Resolution-independent. |
+| Sketch (img2noise) | 0.10 - 0.40 | ~0.60 | Less energy to begin with, tolerates higher blend. |
+| Desaturated photo | 0.10 - 0.35 | ~0.50 | Structure without color bleed. |
+
+#### Blend Thresholds with Global RMS (legacy, via DazzleOptions)
+
+To reproduce outputs from v0.10.4 and earlier, connect a DazzleOptions node with `norm_mode: global_rms`. This preserves the original amplitude-based transfer:
+
+| Pattern Source | Recommended blend_strength | Max coherent | Notes |
+|---------------|---------------------------|-------------|-------|
+| DazNoise: Plasma | 0.10 - 0.15 | ~0.17 | Strong low-frequency blobs overwhelm at higher values. |
+| DazNoise: Gaussian/Pink/Brown | 0.20 - 0.50 | 1.0 | Per-pixel, safe at high values. |
+| Photo (img2noise) | 0.05 - 0.15 | ~0.20 | Resolution-dependent — breaks at higher resolutions. |
+
+#### What Changed: Per-Bin Normalization (Spectral Whitening)
+
+The key difference is HOW the pattern's frequency spectrum is normalized before blending:
+
+**Global RMS** (old): All frequency bins scaled by the same factor. An image with 90% of its energy at low frequencies still has that concentration after normalization. At high resolutions, those dominant low-frequency bins overwhelm the Gaussian noise.
+
+**Per-bin / Spectral whitening** (new, default): Each frequency bin is individually normalized to match the Gaussian's magnitude at that bin. The result has a flat (white) power spectrum — identical to Gaussian — but the PHASE from the pattern is preserved. Phase carries spatial structure (where things are positioned); amplitude carries intensity (how strong they are). For composition transfer, phase is what matters.
+
+This is why the usable blend range expanded dramatically — the noise maintains correct Gaussian statistics at every frequency bin regardless of resolution.
+
+**Resolution independence**: Per-bin normalization is inherently resolution-independent because each bin is normalized individually. No accumulated power imbalance at higher resolutions. The same blend_strength produces perceptually similar results at 768px and 2400px.
 
 **Tip**: When using images as pattern sources, consider desaturating the input first. The spectral blend transfers both spatial structure AND color information from the VAE-encoded pattern. At moderate blend values, the image's colors can seep through as stylistic tinting. Desaturating the input keeps the composition influence while preventing unwanted color bias. This pairs well with DazNoise: Greyscale as the fill_type.
 
@@ -221,6 +245,29 @@ The blended noise is output via the **latent** pin with a `use_as_noise: True` f
 
 See [extended-fill-types.md](extended-fill-types.md#sampler-integration-experimental) for patching instructions.
 
+## DazzleOptions (Advanced Configuration)
+
+The **Dazzle Options** node provides advanced control over spectral blending behavior. Connect it to SmartResCalc's `dazzle_options` input to override defaults. Without it connected, SmartResCalc uses context-aware auto settings.
+
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| **norm_mode** | auto, per_bin, global_rms | auto | Normalization algorithm. `auto` uses per-bin for images, global_rms for noise patterns. `per_bin` (spectral whitening) transfers phase only — resolution-independent. `global_rms` preserves amplitude structure (v0.10.4 behavior, for reproducing old outputs). |
+| **whitening** | 0.0 - 1.0 | 1.0 | Planned: interpolation between global_rms (0.0) and per_bin (1.0). Not yet active — reserved for future hybrid mode. |
+| **cutoff_curve** | gaussian, cosine, sharp | gaussian | Planned: shape of the frequency rolloff mask. Gaussian is smooth (default), cosine is slightly sharper, sharp is a brick-wall cutoff. |
+| **phase_randomize** | true/false | false | Planned: randomize pattern phases before blending. Decorrelates pattern from samples in img2img+img2noise mode. |
+| **options_in** | DAZZLE_OPTIONS | — | Chain input. Connect another DazzleOptions node to compose settings. This node's values override the chained input. |
+
+### Reproducing Old Outputs
+
+To reproduce images generated before v0.10.6 (before spectral whitening):
+
+1. Add a **Dazzle Options** node (DazzleNodes/Options category)
+2. Set `norm_mode` to `global_rms`
+3. Connect to SmartResCalc's `dazzle_options` input
+4. Use the same blend_strength, cutoff, seed, and fill_type as the original
+
+This restores the exact v0.10.4 normalization behavior.
+
 ## Related Documentation
 
 - **[Image Purpose Guide](image-purpose.md)** — `img2noise` and `img2img + img2noise` modes use spectral blending with the input image as pattern source
@@ -228,6 +275,8 @@ See [extended-fill-types.md](extended-fill-types.md#sampler-integration-experime
 
 ## Version History
 
+- **v0.10.6**: Per-bin normalization (spectral whitening) for img2noise — phase-only transfer, resolution-independent. DazzleOptions node for advanced configuration. `global_rms` available via DazzleOptions for backward compatibility.
+- **v0.10.5**: Pixel cutoff mode, feature_size display, hover preview in SpectralBlend2DWidget
 - **v0.10.2**: `cutoff` exposed as user-facing parameter (was hardcoded at 0.2); SpectralBlend2DWidget for visualizing blend_strength + cutoff interaction
 - **v0.10.1**: VAE-encode image pattern source for img2noise (eliminates channel tiling artifacts)
 - **v0.10.0**: Image-to-noise spectral fusion via `image_purpose` widget; `output_image_mode` controls image transform before noise shaping

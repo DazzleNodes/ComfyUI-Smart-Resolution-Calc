@@ -116,7 +116,8 @@ class CalculationContext:
     """
     def __init__(self, aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
                  batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
-                 fill_color, blend_strength, cutoff, fill_image, fill_seed, kwargs):
+                 fill_color, blend_strength, cutoff, feature_size, fill_image,
+                 dazzle_options, fill_seed, kwargs):
         # ===== Inputs (from ComfyUI) =====
         self.aspect_ratio: str = aspect_ratio
         self.divisible_by: str = divisible_by
@@ -132,7 +133,9 @@ class CalculationContext:
         self.fill_color: str = fill_color
         self.blend_strength: float = blend_strength
         self.cutoff_raw: float = cutoff  # Raw value from widget (may be Nyquist or pixels)
-        self.cutoff: float = cutoff     # Effective Nyquist-relative (resolved in _resolve_cutoff)
+        self.cutoff: float = cutoff     # Effective Nyquist-relative (resolved before latent gen)
+        self.feature_size: int = feature_size  # Pixel feature size override (-1 = disabled)
+        self.dazzle_options: dict = dazzle_options or {}  # Advanced config from DazzleOptionsNode
         self.fill_image = fill_image          # Optional[torch.Tensor]
         self.fill_seed = fill_seed            # Optional[dict] — {on: bool, value: int}
         self.kwargs: dict = kwargs
@@ -282,6 +285,13 @@ class SmartResolutionCalc:
                     "step": 0.001,
                     "tooltip": "Spectral blend frequency cutoff. Soft Gaussian rolloff center -- not a hard boundary.\n\nValues <= 1.0: Nyquist-relative (fraction of max frequency)\n  0.05-0.10: Large-scale composition only\n  0.15-0.25: Blob-scale (default 0.20)\n  0.30-0.50: Blobs + medium detail\n\nValues > 1.0: Pixel-space (resolution-independent)\n  e.g., 40 = blend features ~40px wide at any resolution\n\nInteracts with blend_strength: raising cutoff increases total pattern influence. Use the 2D pad to visualize."
                 }),
+                "feature_size": ("INT", {
+                    "default": -1,
+                    "min": -1,
+                    "max": 4096,
+                    "step": 1,
+                    "tooltip": "Lock feature size in pixels for resolution-independent workflows. When set (> 0), cutoff auto-adjusts with resolution to maintain this feature size. -1 = disabled (use cutoff directly, original behavior)."
+                }),
                 # Image purpose: how the connected image affects outputs (hidden until image connected)
                 "image_purpose": (["img2img", "dimensions only", "img2noise", "image + noise", "img2img + img2noise"], {
                     "default": "img2img",
@@ -298,6 +308,9 @@ class SmartResolutionCalc:
                 }),
                 "fill_image": ("IMAGE", {
                     "tooltip": "Optional custom fill image. When connected, overrides fill_type for padding/empty areas.\nConnect any noise generator (e.g., DazNoise OmniNoise) for custom fill patterns.\nThe image will be scaled to match target dimensions."
+                }),
+                "dazzle_options": ("DAZZLE_OPTIONS", {
+                    "tooltip": "Advanced configuration from DazzleOptions node. Controls spectral normalization algorithm, cutoff curve shape, and other advanced features. Optional — defaults apply without connection."
                 }),
             },
             # Custom widgets added via JavaScript - declare in hidden so ComfyUI passes them to Python
@@ -481,8 +494,8 @@ class SmartResolutionCalc:
                             image=None, vae=None, image_purpose="img2img",
                             output_image_mode="auto", fill_type="black",
                             fill_color="#808080", blend_strength=0.0, cutoff=0.2,
-                            fill_image=None,
-                            fill_seed=None, **kwargs):
+                            feature_size=-1, fill_image=None,
+                            dazzle_options=None, fill_seed=None, **kwargs):
         """
         Calculate dimensions based on active toggle inputs from custom widgets.
 
@@ -536,6 +549,7 @@ class SmartResolutionCalc:
         """
         # ALWAYS log that function was called (critical diagnostic)
         print(f"[SmartResCalc] calculate_dimensions() CALLED - aspect_ratio={aspect_ratio}, divisible_by={divisible_by}")
+        print(f"[SmartResCalc] PARAMS: blend_strength={blend_strength}, cutoff={cutoff}, feature_size={feature_size}, fill_type={fill_type}, image_purpose={image_purpose}")
 
         # Debug logging for kwargs
         logger.debug(f"Function called with standard args: aspect_ratio={aspect_ratio}, divisible_by={divisible_by}, custom_ratio={custom_ratio}")
@@ -546,7 +560,8 @@ class SmartResolutionCalc:
         ctx = CalculationContext(
             aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
             batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
-            fill_color, blend_strength, cutoff, fill_image, fill_seed, kwargs
+            fill_color, blend_strength, cutoff, feature_size, fill_image,
+            dazzle_options, fill_seed, kwargs
         )
 
         # Pipeline stages
@@ -555,19 +570,24 @@ class SmartResolutionCalc:
         self._apply_scale_and_divisibility(ctx)
         self._resolve_seed(ctx)
 
-        # Resolve cutoff: values > 1.0 are pixel-space, convert to Nyquist-relative
-        if ctx.cutoff_raw > 1.0:
-            # Pixel mode: cutoff_raw is the feature size in pixels
-            # Convert to Nyquist fraction based on the larger latent dimension
-            spatial_divisor = 8
-            if ctx.vae is not None and hasattr(ctx.vae, 'spacial_compression_encode'):
-                spatial_divisor = ctx.vae.spacial_compression_encode()
-            latent_size = max(ctx.w // spatial_divisor, ctx.h // spatial_divisor)
-            ctx.cutoff = min(0.5, ctx.cutoff_raw / latent_size)
-            logger.debug(f"Cutoff pixel mode: {ctx.cutoff_raw}px -> {ctx.cutoff:.4f} Nyquist "
+        # Resolve cutoff: feature_size override takes priority, then pixel mode, then Nyquist
+        spatial_divisor = 8
+        if ctx.vae is not None and hasattr(ctx.vae, 'spacial_compression_encode'):
+            spatial_divisor = ctx.vae.spacial_compression_encode()
+        latent_size = max(ctx.w // spatial_divisor, ctx.h // spatial_divisor)
+
+        if ctx.feature_size > 0:
+            # Feature size override: compute cutoff from locked pixel target
+            # This is resolution-independent — same feature_size at any resolution
+            ctx.cutoff = max(0.01, min(0.5, (ctx.feature_size / spatial_divisor) / latent_size))
+            logger.debug(f"Feature size mode: {ctx.feature_size}px -> cutoff={ctx.cutoff:.4f} Nyquist "
                          f"(latent_size={latent_size}, spatial_divisor={spatial_divisor})")
+        elif ctx.cutoff_raw > 1.0:
+            # Legacy pixel mode (cutoff > 1.0 threshold)
+            ctx.cutoff = max(0.01, min(0.5, ctx.cutoff_raw / latent_size))
+            logger.debug(f"Cutoff pixel mode: {ctx.cutoff_raw}px -> {ctx.cutoff:.4f} Nyquist")
         else:
-            # Nyquist mode: use as-is, clamp to valid range
+            # Standard Nyquist mode
             ctx.cutoff = max(0.01, min(0.5, ctx.cutoff_raw))
 
         # Image + latent generation
@@ -609,7 +629,8 @@ class SmartResolutionCalc:
             ctx.batch_size, ctx.fill_type, ctx.fill_image, ctx.blend_strength,
             ctx.cutoff, ctx.seed_active, ctx.actual_seed, ctx.cache_key,
             ctx.use_image_for_latent_encode, ctx.use_image_for_noise_shape,
-            getattr(ctx, 'noise_shape_transform', None), ctx.fill_color
+            getattr(ctx, 'noise_shape_transform', None), ctx.fill_color,
+            ctx.dazzle_options
         )
 
         # Info string assembly
@@ -997,7 +1018,7 @@ class SmartResolutionCalc:
                          seed_active, actual_seed,
                          cache_key, use_image_for_latent_encode=True,
                          use_image_for_noise_shape=False, noise_shape_transform=None,
-                         fill_color="#808080"):
+                         fill_color="#808080", dazzle_options=None):
         """
         Generate latent output based on VAE presence, fill type, and image_purpose flags.
 
@@ -1082,9 +1103,15 @@ class SmartResolutionCalc:
                     logger.debug(f"Phase-randomized pattern: mean={pattern_resized.mean():.4f}, std={pattern_resized.std():.4f}")
 
                     effective_blend = blend_strength if blend_strength > 0.0 else 0.15
+                    # Determine normalization from DazzleOptions
+                    opts = dazzle_options or {}
+                    norm_mode = opts.get('norm_mode', 'auto')
+                    use_per_bin = norm_mode != 'global_rms'  # per-bin unless explicitly global_rms
+
                     shaped_noise = spectral_noise_blend(
                         pattern_resized, gaussian_noise,
-                        alpha=effective_blend, cutoff=cutoff
+                        alpha=effective_blend, cutoff=cutoff,
+                        per_bin_normalize=use_per_bin
                     )
                     latent["noise"] = shaped_noise
                     latent["use_as_noise"] = True
@@ -1213,9 +1240,20 @@ class SmartResolutionCalc:
                     pattern_resized = pattern_resized - pattern_resized.mean()
 
                     # Apply spectral blending
+                    # Determine normalization mode from DazzleOptions or auto-detect
+                    opts = dazzle_options or {}
+                    norm_mode = opts.get('norm_mode', 'auto')
+                    if norm_mode == 'auto':
+                        use_per_bin = use_image_for_noise_shape  # per-bin for images, global for noise
+                    elif norm_mode == 'per_bin':
+                        use_per_bin = True
+                    else:  # global_rms
+                        use_per_bin = False
+
                     latent["samples"] = spectral_noise_blend(
                         pattern_resized, gaussian_noise,
-                        alpha=effective_blend, cutoff=cutoff
+                        alpha=effective_blend, cutoff=cutoff,
+                        per_bin_normalize=use_per_bin
                     )
                     blend_label = f" blend={effective_blend}"
                     if use_image_for_noise_shape and image is not None:

@@ -43,6 +43,8 @@ def make_ctx(**overrides):
         'fill_color': '#808080',
         'blend_strength': 0.0,
         'cutoff': 0.2,
+        'feature_size': -1,
+        'dazzle_options': None,
         'fill_image': None,
         'fill_seed': None,
         'kwargs': {

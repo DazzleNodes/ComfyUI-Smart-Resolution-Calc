@@ -196,10 +196,12 @@ app.registerExtension({
                 // Augments the native widgets (they stay for value storage + noodle input)
                 const blendWidget = this.widgets.find(w => w.name === "blend_strength");
                 const cutoffNativeWidget = this.widgets.find(w => w.name === "cutoff");
+                const featureSizeWidget = this.widgets.find(w => w.name === "feature_size");
                 if (blendWidget && cutoffNativeWidget) {
                     const blend2DWidget = new SpectralBlend2DWidget(
                         "spectral_blend_2d", blendWidget, cutoffNativeWidget, {
-                            tooltipContent: TOOLTIP_CONTENT.spectral_blend
+                            tooltipContent: TOOLTIP_CONTENT.spectral_blend,
+                            featureSizeWidget: featureSizeWidget
                         }
                     );
                     this.addCustomWidget(blend2DWidget);
@@ -216,7 +218,7 @@ app.registerExtension({
                     // Using hideWidget() would suppress serialization/dirty detection
                     // Instead, override only draw and computeSize to make them invisible
                     // while keeping the widget fully functional for ComfyUI's value tracking
-                    for (const w of [blendWidget, cutoffNativeWidget]) {
+                    for (const w of [blendWidget, cutoffNativeWidget, featureSizeWidget].filter(Boolean)) {
                         if (w) {
                             w._origDraw = w.draw;
                             w.draw = function() {};

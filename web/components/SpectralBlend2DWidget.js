@@ -35,11 +35,13 @@ class SpectralBlend2DWidget extends DazzleWidget {
         super(name, { blend: 0.0, cutoff: 0.2 }, config);
         this.blendWidget = blendWidget;   // Reference to native blend_strength widget
         this.cutoffWidget = cutoffWidget; // Reference to native cutoff widget
+        this.featureSizeWidget = config.featureSizeWidget || null; // Reference to native feature_size widget
         this.expanded = false;            // Collapsed by default — click to expand
         this._height = 23;               // Collapsed height (extra px for spacing below)
         this.isDragging = false;
         this.hoverValues = null;          // {blend, cutoff} when hovering over pad (preview only)
         this.axisTooltip = null;          // "blend" or "cutoff" when hovering axis label
+        this._lastClickTime = 0;          // For double-click detection (LiteGraph doesn't pass event.detail)
     }
 
     /**
@@ -112,7 +114,8 @@ class SpectralBlend2DWidget extends DazzleWidget {
     _readValues() {
         const blend = Number(this.blendWidget ? (this.blendWidget.value ?? 0.0) : this.value.blend) || 0.0;
         const cutoff = Number(this.cutoffWidget ? (this.cutoffWidget.value ?? 0.2) : this.value.cutoff) || 0.2;
-        return { blend, cutoff };
+        const featureSize = this.featureSizeWidget ? (Number(this.featureSizeWidget.value) || -1) : -1;
+        return { blend, cutoff, featureSize };
     }
 
     /**
@@ -139,6 +142,11 @@ class SpectralBlend2DWidget extends DazzleWidget {
         if (this.cutoffWidget) {
             this.cutoffWidget.value = cutoff;
             if (this.cutoffWidget.callback) this.cutoffWidget.callback(cutoff);
+        }
+        // Writing cutoff directly resets feature_size (back to cutoff-driven mode)
+        if (this.featureSizeWidget) {
+            this.featureSizeWidget.value = -1;
+            if (this.featureSizeWidget.callback) this.featureSizeWidget.callback(-1);
         }
         this.value = { blend, cutoff };
     }
@@ -242,6 +250,7 @@ class SpectralBlend2DWidget extends DazzleWidget {
         this._drawCollapsed(ctx, node, width, y, height);
 
         if (!this.expanded) return;
+        ctx.save(); // Protect canvas state from expanded draw modifications
         const { blend, cutoff } = this._readValues();
 
         // Pad area dimensions (offset below the collapsed header)
@@ -446,24 +455,25 @@ class SpectralBlend2DWidget extends DazzleWidget {
         ctx.fillStyle = this._scoreToColor(0.8, 1.0);
         ctx.fillText("abstract", padX + padW, legendY);
 
-        // === Feature size (computed from cutoff * latent_size) ===
-        // Shows what the current cutoff means in pixel-space at current resolution
-        // Displayed bottom-right of the graph, clickable to override
+        // === Feature size (computed or locked) ===
+        // ~NNNpx = computed from cutoff (tilde indicates derived)
+        // NNNpx = locked feature_size override (no tilde, brighter)
+        const { featureSize } = this._readValues();
         const widthWidget = node.widgets?.find(w => w.name === "dimension_width");
         const heightWidget = node.widgets?.find(w => w.name === "dimension_height");
         if (widthWidget || heightWidget) {
-            // Get current dimensions (from widget values or node defaults)
             const imgW = widthWidget?.value?.value || 1024;
             const imgH = heightWidget?.value?.value || 1024;
-            const spatialDiv = 8; // Default spatial divisor
+            const spatialDiv = 8;
             const latentSize = Math.max(imgW / spatialDiv, imgH / spatialDiv);
-            const featureLatentPx = Math.round(cutoff * latentSize);
-            const featurePixelPx = featureLatentPx * spatialDiv;
-
-            const featureText = `~${featurePixelPx}px`;
+            const isLocked = featureSize > 0;
+            const displayPx = isLocked
+                ? featureSize
+                : Math.round(cutoff * latentSize) * spatialDiv;
+            const featureText = isLocked ? `${displayPx}px` : `~${displayPx}px`;
             ctx.font = "9px sans-serif";
             ctx.textAlign = "right";
-            ctx.fillStyle = "#999";
+            ctx.fillStyle = isLocked ? "#ddd" : "#999";
             ctx.fillText(featureText, padX + padW, padY + padH + 14);
 
             // Store hit area for click-to-edit
@@ -477,10 +487,11 @@ class SpectralBlend2DWidget extends DazzleWidget {
                 width: fullFeatureW, height: 14,
                 numX: padX + padW - fullFeatureW + tildeW,
                 numW: numOnlyW,
-                currentValue: featurePixelPx,
+                currentValue: displayPx,
                 latentSize: latentSize
             };
         }
+        ctx.restore(); // Restore canvas state after expanded draw
     }
 
     mouse(event, pos, node) {
@@ -492,16 +503,22 @@ class SpectralBlend2DWidget extends DazzleWidget {
             if (this.expanded && this.hitAreas.featureSize && this.isInBounds(pos, this.hitAreas.featureSize)) {
                 const fs = this.hitAreas.featureSize;
                 const { blend } = this._readValues();
-                this._showInlineEdit(node, fs, String(fs.currentValue), "-1=default",
+                this._showInlineEdit(node, fs, String(fs.currentValue), "-1=unlock",
                     (val) => {
                         const parsed = parseInt(val);
-                        if (parsed === -1) {
-                            // Reset to default cutoff (0.2) — no feature_size override
-                            this._writeValues(blend, 0.2);
+                        if (parsed === -1 || parsed === 0) {
+                            // Reset: disable feature_size override, use cutoff directly
+                            if (this.featureSizeWidget) {
+                                this.featureSizeWidget.value = -1;
+                                if (this.featureSizeWidget.callback) this.featureSizeWidget.callback(-1);
+                            }
                             node.setDirtyCanvas(true);
-                        } else if (!isNaN(parsed) && parsed > 0 && fs.latentSize > 0) {
-                            const newCutoff = (parsed / 8) / fs.latentSize;
-                            this._writeValues(blend, Math.max(0.01, Math.min(0.5, newCutoff)));
+                        } else if (!isNaN(parsed) && parsed > 0) {
+                            // Lock feature_size — cutoff stays as-is, Python computes effective cutoff
+                            if (this.featureSizeWidget) {
+                                this.featureSizeWidget.value = parsed;
+                                if (this.featureSizeWidget.callback) this.featureSizeWidget.callback(parsed);
+                            }
                             node.setDirtyCanvas(true);
                         }
                     },
@@ -548,10 +565,23 @@ class SpectralBlend2DWidget extends DazzleWidget {
                 return true;
             }
 
-            // If expanded, check pad area for drag
+            // If expanded, check pad area
             if (this.expanded) {
                 const pad = this.hitAreas.pad;
                 if (pad && this.isInBounds(pos, pad)) {
+                    // Double-click on pad: reset cutoff to default, keep blend at click position
+                    const now = Date.now();
+                    if (now - this._lastClickTime < 300) {
+                        // Double-click detected
+                        const values = this._pixelToValues(pos[0], pos[1], pad.x, pad.y, pad.width, pad.height);
+                        this._writeValues(values.blend, 0.2); // Reset cutoff to default
+                        this._lastClickTime = 0; // Prevent triple-click triggering
+                        node.setDirtyCanvas(true);
+                        return true;
+                    }
+                    this._lastClickTime = now;
+
+                    // Single click: start drag
                     this.isDragging = true;
                     const values = this._pixelToValues(pos[0], pos[1], pad.x, pad.y, pad.width, pad.height);
                     this._writeValues(values.blend, values.cutoff);

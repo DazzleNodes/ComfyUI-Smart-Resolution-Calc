@@ -155,7 +155,7 @@ def _generate_daznoise(fill_type, width, height):
         return None
 
 
-def spectral_noise_blend(pattern, gaussian, alpha=0.5, cutoff=0.2):
+def spectral_noise_blend(pattern, gaussian, alpha=0.5, cutoff=0.2, per_bin_normalize=False):
     """Blend structured noise pattern into Gaussian noise via spectral interpolation.
 
     Injects the low-frequency spatial structure of `pattern` into `gaussian` noise
@@ -169,6 +169,11 @@ def spectral_noise_blend(pattern, gaussian, alpha=0.5, cutoff=0.2):
         alpha: Blend strength 0.0-1.0. 0.0=pure Gaussian, 1.0=maximum blend.
         cutoff: Low-frequency cutoff as fraction of Nyquist (0.0-1.0).
                 0.2 = blob-scale structure (~5 latent pixels = ~40 pixel-space pixels).
+        per_bin_normalize: If True, normalize each frequency bin individually
+                (phase-only transfer). If False, use global RMS (current behavior).
+                Per-bin is recommended for real images (img2noise) — it prevents
+                the image's concentrated low-frequency power from overwhelming
+                the Gaussian noise at high resolutions.
 
     Returns:
         Blended tensor with approximately N(0,1) per-channel statistics.
@@ -190,12 +195,22 @@ def spectral_noise_blend(pattern, gaussian, alpha=0.5, cutoff=0.2):
     F_gaussian = torch.fft.rfft2(gaussian, dim=(-2, -1))
     F_pattern = torch.fft.rfft2(pattern, dim=(-2, -1))
 
-    # Normalize pattern FFT to match Gaussian expected power (global RMS)
-    expected_rms = (H * W_spatial) ** 0.5
-    pattern_rms = torch.sqrt(
-        (torch.abs(F_pattern) ** 2).mean(dim=(-2, -1), keepdim=True) + 1e-8
-    )
-    F_pattern_norm = F_pattern * (expected_rms / (pattern_rms + 1e-8))
+    # Normalize pattern FFT to match Gaussian power
+    if per_bin_normalize:
+        # Per-bin: force each frequency bin to have Gaussian amplitude, keep pattern phase
+        # Transfers spatial structure via phase correlations only — resolution-independent
+        # because no single bin accumulates disproportionate power
+        gaussian_magnitude = torch.abs(F_gaussian)
+        pattern_phase = torch.angle(F_pattern)
+        F_pattern_norm = gaussian_magnitude * torch.exp(1j * pattern_phase)
+    else:
+        # Global RMS: scale all bins by same factor (original behavior)
+        # Works well for noise patterns but can overwhelm at high res with real images
+        expected_rms = (H * W_spatial) ** 0.5
+        pattern_rms = torch.sqrt(
+            (torch.abs(F_pattern) ** 2).mean(dim=(-2, -1), keepdim=True) + 1e-8
+        )
+        F_pattern_norm = F_pattern * (expected_rms / (pattern_rms + 1e-8))
 
     # Build radial frequency mask with Gaussian rolloff
     freq_h = torch.fft.fftfreq(H, device=device, dtype=dtype)

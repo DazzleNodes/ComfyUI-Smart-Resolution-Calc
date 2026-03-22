@@ -5,6 +5,42 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.6] - 2026-03-22
+
+### Added
+- **Per-bin normalization (spectral whitening)** — each frequency bin individually normalized
+  to match Gaussian magnitude, transferring spatial structure via phase only. Resolution-
+  independent by construction. Dramatically expands usable blend_strength range (Plasma
+  coherent at 0.30+ vs previous 0.17 limit). Auto-enabled for img2noise image patterns.
+  (#49)
+- **DazzleOptionsNode** — new extensible configuration node (`py/dazzle_options.py`).
+  Outputs `DAZZLE_OPTIONS` dict consumed by SmartResCalc. Options: norm_mode (auto/per_bin/
+  global_rms), whitening, cutoff_curve, phase_randomize. Chain input (`options_in`) enables
+  compositor pattern. (#48)
+- **feature_size parameter** — decoupled from cutoff. When set (> 0), cutoff auto-adjusts
+  with resolution to maintain fixed pixel feature size. -1 = disabled (use cutoff directly).
+  Display in bottom-right of expanded graph: `~NNNpx` (computed) vs `NNNpx` (locked).
+- **SpectralBlend2DWidget enhancements** — hover preview with zone-colored axis labels,
+  axis tooltips, feature_size display with click-to-edit, double-click to reset cutoff,
+  spectral tooltip with shift+click docsUrl
+- **Pixel cutoff mode** — cutoff values > 1.0 auto-convert to Nyquist-relative
+
+### Fixed
+- **ColorPickerButton canvas corruption** — guard against non-string fill_color from old
+  workflows (`.startsWith` on non-string threw every frame)
+- **Canvas state leak** — expanded SpectralBlend2DWidget now wraps draw in ctx.save/restore,
+  preventing font/style leakage to subsequent widgets
+- **Widget margins** — DazzleWidget default height 24→20px, ColorPickerButton, CopyImageButton,
+  ModeStatusWidget adjusted to match native ComfyUI spacing
+
+### Changed
+- **Backward compatibility** — connect DazzleOptions with `norm_mode: global_rms` to reproduce
+  exact v0.10.4 and earlier spectral blend behavior
+- **blend_strength step** — 0.05 → 0.001 for finer control
+- **Tooltip text** — rewritten for natural line breaks, spectral blend tooltip added with docsUrl
+- **docs/spectral-blending.md** — new blend threshold tables for whitened vs legacy modes,
+  DazzleOptions section, "What Changed" explanation, updated version history
+
 ## [0.10.5] - 2026-03-22
 
 ### Added

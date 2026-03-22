@@ -16,6 +16,11 @@ Features:
 
 from .py.smart_resolution_calc import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS, SmartResolutionCalc
 from .py.image_utils import get_image_dimensions_from_path
+from .py.dazzle_options import DazzleOptionsNode
+
+# Register DazzleOptions node
+NODE_CLASS_MAPPINGS["DazzleOptions"] = DazzleOptionsNode
+NODE_DISPLAY_NAME_MAPPINGS["DazzleOptions"] = "Dazzle Options"
 from .version import __version__, VERSION, BASE_VERSION, get_version, get_base_version
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS', '__version__', 'VERSION', 'BASE_VERSION']
