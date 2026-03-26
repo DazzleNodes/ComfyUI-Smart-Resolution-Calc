@@ -71,6 +71,14 @@ class SeedWidget extends DazzleToggleWidget {
     }
 
     /**
+     * Set random mode on or off. Single call site for all random mode state
+     * transitions — controls green background tint and dice button highlight.
+     */
+    setRandomMode(active) {
+        this.randomizeMode = active;
+    }
+
+    /**
      * Resolve the actual seed to use (handles special values when ON)
      * Called before queue to determine the real seed for RNG seeding.
      * Returns the value as-is when toggle is OFF.
@@ -252,7 +260,7 @@ class SeedWidget extends DazzleToggleWidget {
 
             // Randomize Each Time button — enables persistent random mode
             if (this.isInBounds(pos, this.hitAreas.btnRandomize)) {
-                this.randomizeMode = true;
+                this.setRandomMode(true);
                 this.value.value = SPECIAL_SEED_RANDOM;
                 logger.debug(`SeedWidget: Randomize Each Time (randomizeMode=true)`);
                 node.setDirtyCanvas(true);
@@ -266,7 +274,7 @@ class SeedWidget extends DazzleToggleWidget {
                 if (previousValue >= 0) {
                     this.lastSeed = previousValue;
                 }
-                this.randomizeMode = false;
+                this.setRandomMode(false);
                 this.value.value = this.generateRandomSeed();
                 logger.debug(`SeedWidget: New Fixed Random (value = ${this.value.value}, lastSeed = ${this.lastSeed})`);
                 node.setDirtyCanvas(true);
@@ -277,7 +285,7 @@ class SeedWidget extends DazzleToggleWidget {
             if (this.isInBounds(pos, this.hitAreas.btnRecallLast)) {
                 logger.debug(`SeedWidget: Recycle button (lastSeed=${this.lastSeed}, currentValue=${this.value.value})`);
                 if (this.lastSeed != null) {
-                    this.randomizeMode = false;
+                    this.setRandomMode(false);
                     this.value.value = this.lastSeed;
                     logger.debug(`SeedWidget: Recall Last Seed (value = ${this.lastSeed})`);
                     node.setDirtyCanvas(true);
@@ -290,6 +298,7 @@ class SeedWidget extends DazzleToggleWidget {
             // Value editing (always allowed, matching DimensionWidget ALWAYS behavior)
             // Decrement
             if (this.isInBounds(pos, this.hitAreas.valueDec)) {
+                this.setRandomMode(false);
                 this.value.value = Math.round(this.value.value) - 1;
                 node.setDirtyCanvas(true);
                 return true;
@@ -297,6 +306,7 @@ class SeedWidget extends DazzleToggleWidget {
 
             // Increment
             if (this.isInBounds(pos, this.hitAreas.valueInc)) {
+                this.setRandomMode(false);
                 this.value.value = Math.round(this.value.value) + 1;
                 node.setDirtyCanvas(true);
                 return true;
@@ -308,6 +318,7 @@ class SeedWidget extends DazzleToggleWidget {
                 this.services.prompt("Seed (-1=rnd, -2=inc, -3=dec)", String(currentValue), (newValue) => {
                     const parsed = parseInt(newValue);
                     if (!isNaN(parsed)) {
+                        this.setRandomMode(false);
                         this.value.value = parsed;
                         node.setDirtyCanvas(true);
                     }

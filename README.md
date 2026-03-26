@@ -9,12 +9,6 @@
 
 Flexible resolution and latent generation for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Tell the node what you know — width, height, megapixels, aspect ratio, or a reference image — and it figures out the rest. No manual math, no separate Empty Latent Image node, no panic algebra.
 
-<p align="center">
-  <a href="docs/spectral-blending.md">
-    <img src="docs/images/Now-Youre-Thinking-With-Noise.jpg" alt="Now You're Thinking With Noise" width="350">
-  </a>
-</p>
-
 ## Overview
 
 Smart Resolution Calculator replaces the tedious dimension math in ComfyUI workflows. Enable the values you know, and the node calculates everything else. But it's grown beyond a calculator — it's now a noise composition tool that lets you shape how images are generated.
@@ -25,8 +19,14 @@ Smart Resolution Calculator replaces the tedious dimension math in ComfyUI workf
 
 - **Resolution**: Toggle width, height, or megapixels — missing values are computed automatically from your aspect ratio
 - **Image transforms**: Connect an image and choose how to fit it to target dimensions (distort, crop/pad, scale/crop, scale/pad, and more to come soon in a pick-your-own-recipe-list)
-- **Noise shaping**: Use noise patterns or images as composition guides via [spectral blending](docs/spectral-blending.md) — the spatial structure of your pattern influences where objects appear in the generated image
 - **Flexible outputs**: The [`image_purpose`](docs/image-purpose.md) dropdown controls exactly what the IMAGE and LATENT outputs contain — from standard img2img to independent noise generation to image-guided composition transfer
+- **Noise shaping**: Use noise patterns or images as composition guides via [spectral blending](docs/spectral-blending.md) — the spatial structure of your pattern influences where objects appear in the generated image
+
+<p align="center">
+  <a href="docs/spectral-blending.md">
+    <img src="docs/images/Now-Youre-Thinking-With-Noise.jpg" alt="Now You're Thinking With Noise" width="350">
+  </a>
+</p>
 
 ## Features
 

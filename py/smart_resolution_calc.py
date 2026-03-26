@@ -409,7 +409,10 @@ class SmartResolutionCalc:
     def __init__(self):
         self.device = comfy.model_management.intermediate_device()
         # Cache for expensive noise generation (DazNoise, etc.)
-        # Keyed on (fill_type, seed, width, height, batch_size) — reuse if unchanged
+        # Two independent caches with separate keys:
+        # - Image cache: keyed on (fill_type, seed, w, h, batch_size, fill_image_present)
+        # - Latent cache: extends image key with (blend_strength, cutoff, routing, opts)
+        self._image_cache_key = None
         self._noise_cache_key = None
         self._noise_cache_image = None
         self._noise_cache_latent = None
@@ -951,7 +954,7 @@ class SmartResolutionCalc:
             logger.debug(f"Seeded torch and py_random with {actual_seed} (right before image generation)")
 
         if actual_mode == "empty":
-            if self._noise_cache_key == cache_key and self._noise_cache_image is not None:
+            if self._image_cache_key == cache_key and self._noise_cache_image is not None:
                 output_image = self._noise_cache_image
                 logger.debug(f"Using cached noise image ({fill_type}, seed={actual_seed}, {w}x{h})")
                 print(f"[SmartResCalc] Using cached noise image (skipping {fill_type} generation)")
@@ -961,7 +964,7 @@ class SmartResolutionCalc:
                 output_image = _create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
                 logger.debug(f"output_image: shape={output_image.shape}, min={output_image.min():.4f}, max={output_image.max():.4f}, mean={output_image.mean():.4f}")
                 # Cache the result
-                self._noise_cache_key = cache_key
+                self._image_cache_key = cache_key
                 self._noise_cache_image = output_image
                 self._noise_cache_latent = None  # Invalidate latent cache (will be rebuilt)
                 logger.debug(f"Cached noise image ({fill_type}, seed={actual_seed}, {w}x{h})")
@@ -1135,12 +1138,14 @@ class SmartResolutionCalc:
             # Note: Decoding this latent via VAEDecode will produce random-looking output.
             # Use the IMAGE output to preview the noise pattern instead.
 
-            # Build cache key that includes blend_strength and image_purpose routing
+            # Build cache key that includes blend_strength, image_purpose routing, and options
             # For img2noise, include image shape as a proxy for "same image" detection
             # (we can't hash the full tensor efficiently, but shape change = different image)
             image_shape_key = tuple(image.shape) if (use_image_for_noise_shape and image is not None) else None
+            opts = dazzle_options or {}
+            opts_cache_key = (opts.get('norm_mode', 'auto'),)
             noise_cache_key = (cache_key, blend_strength, cutoff, use_image_for_noise_shape,
-                               noise_shape_transform, image_shape_key)
+                               noise_shape_transform, image_shape_key, opts_cache_key)
 
             # Check cache first
             if (self._noise_cache_key == noise_cache_key and self._noise_cache_latent is not None):

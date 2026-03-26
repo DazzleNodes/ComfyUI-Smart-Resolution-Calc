@@ -75,7 +75,11 @@ export function applyDazzleSerialization(nodeType, options = {}) {
                     // clear randomizeMode so the green tint doesn't show incorrectly.
                     // This handles loading workflows where the seed was resolved at save time.
                     if (widget.randomizeMode !== undefined && widget.value?.value >= 0) {
-                        widget.randomizeMode = false;
+                        if (widget.setRandomMode) {
+                            widget.setRandomMode(false);
+                        } else {
+                            widget.randomizeMode = false;
+                        }
                     }
                 }
             });

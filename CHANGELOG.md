@@ -5,6 +5,20 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.7] - 2026-03-26
+
+### Fixed
+- **Noise cache key collision** -- image and latent caches shared a single `_noise_cache_key`
+  variable but stored incompatible tuple formats (6-tuple vs extended tuple), causing perpetual
+  cache misses when both paths executed. Split into `_image_cache_key` (image cache) and
+  `_noise_cache_key` (latent cache). Regression introduced in v0.8.2 when spectral blending
+  expanded the latent cache key.
+- **DazzleOptions not in noise cache key** -- changing `norm_mode` in DazzleOptionsNode served
+  stale cached latent results. Added `opts_cache_key` to `noise_cache_key` tuple.
+- **Seed random mode visual state** -- clicking +/- buttons or manually typing a seed value while
+  in random mode (dice active) did not clear the green background or dice button highlight.
+  Consolidated all randomizeMode transitions through new `setRandomMode(active)` method.
+
 ## [0.10.6] - 2026-03-22
 
 ### Added
