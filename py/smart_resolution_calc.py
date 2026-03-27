@@ -1,5 +1,6 @@
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
+import sys
 import torch
 import comfy.model_management
 import comfy.utils
@@ -312,6 +313,9 @@ class SmartResolutionCalc:
                 "dazzle_options": ("DAZZLE_OPTIONS", {
                     "tooltip": "Advanced configuration from DazzleOptions node. Controls spectral normalization algorithm, cutoff curve shape, and other advanced features. Optional — defaults apply without connection."
                 }),
+                "dazzle_signal": ("DAZZLE_SIGNAL", {
+                    "tooltip": "Orchestration signal from Dazzle Command node. Controls seed behavior (random/lock) based on workflow state (reviewing/proceeding). Optional — no effect without connection."
+                }),
             },
             # Custom widgets added via JavaScript - declare in hidden so ComfyUI passes them to Python
             # Widget data structure: {'on': bool, 'value': number}
@@ -331,16 +335,30 @@ class SmartResolutionCalc:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
-        # Force re-execution only when seed is active AND set to a special value
-        # (-1 = random, -2 = noise passthrough, -3 = increment, etc.)
-        # Fixed seeds (>= 0) produce deterministic output, so ComfyUI can cache normally
+        # Cache control for seed behavior.
+        #
+        # The JS prompt interception hook resolves special seeds (-1=random)
+        # to real numbers BEFORE the prompt reaches Python. So by the time
+        # IS_CHANGED sees fill_seed, the value is already a positive number.
+        # We return "" (stable) to let ComfyUI cache normally.
+        #
+        # When DazzleCommand is in "play" mode with "lock last seed", the JS
+        # hook reuses the same resolved seed — the input value is identical
+        # across runs, so ComfyUI caches automatically. No special IS_CHANGED
+        # logic needed for the lock case.
+        #
+        # The only case where we'd return NaN is if a special seed somehow
+        # reaches Python unresolved (vestigial safety net).
         fill_seed = kwargs.get('fill_seed')
         if fill_seed is not None and isinstance(fill_seed, dict):
             if fill_seed.get('on', False):
                 seed_value = fill_seed.get('value', 0)
                 if isinstance(seed_value, (int, float)) and seed_value < 0:
-                    return float("NaN")  # Special seed — always re-execute
-        return ""  # Fixed seed or seed off — let ComfyUI cache normally
+                    # Special seed reached Python unresolved (shouldn't happen
+                    # if JS hook is working, but safety net)
+                    logger.debug(f"IS_CHANGED: unresolved special seed {seed_value}, returning NaN")
+                    return float("NaN")
+        return ""  # Fixed/resolved seed or seed off — let ComfyUI cache
     # get_image_dimensions_from_path extracted to image_utils.py
 
     def calculate_dimensions_api(widgets, runtime_context=None):
@@ -416,6 +434,8 @@ class SmartResolutionCalc:
         self._noise_cache_key = None
         self._noise_cache_image = None
         self._noise_cache_latent = None
+        # Last resolved seed for DAZZLE_SIGNAL "lock" intent
+        self._last_resolved_seed = None
 
     def format_aspect_ratio(self, width, height):
         """
@@ -498,7 +518,8 @@ class SmartResolutionCalc:
                             output_image_mode="auto", fill_type="black",
                             fill_color="#808080", blend_strength=0.0, cutoff=0.2,
                             feature_size=-1, fill_image=None,
-                            dazzle_options=None, fill_seed=None, **kwargs):
+                            dazzle_options=None, dazzle_signal=None,
+                            fill_seed=None, **kwargs):
         """
         Calculate dimensions based on active toggle inputs from custom widgets.
 
@@ -572,6 +593,22 @@ class SmartResolutionCalc:
         self._resolve_dimensions(ctx)
         self._apply_scale_and_divisibility(ctx)
         self._resolve_seed(ctx)
+        self._apply_signal(ctx, dazzle_signal)
+
+        # Store resolved seed for future "lock" signal intent
+        if ctx.seed_active and ctx.actual_seed >= 0:
+            self._last_resolved_seed = ctx.actual_seed
+            # Report to shared seed registry for Dazzle Command display
+            # and IS_CHANGED cache optimization
+            if not hasattr(sys, '_dazzle_seed_registry'):
+                sys._dazzle_seed_registry = {}
+            sys._dazzle_seed_registry['last'] = ctx.actual_seed
+            # Signal whether the seed is locked (deterministic) for IS_CHANGED
+            sys._dazzle_seed_registry['locked'] = (
+                dazzle_signal is not None and
+                isinstance(dazzle_signal, dict) and
+                dazzle_signal.get('seed_intent') in ('lock', 'lock_current')
+            )
 
         # Resolve cutoff: feature_size override takes priority, then pixel mode, then Nyquist
         spatial_divisor = 8
@@ -826,6 +863,47 @@ class SmartResolutionCalc:
             # No seed data (backward compat with pre-v0.8.0 workflows)
             ctx.actual_seed = 0
             logger.debug("No fill_seed data, using default (unseeded)")
+
+    def _apply_signal(self, ctx, signal):
+        """Stage 4b: Apply DAZZLE_SIGNAL overrides to seed behavior.
+
+        Reads seed_intent from sys._dazzle_command_state (side-channel)
+        to avoid ComfyUI cache cascade. The noodle signal is still accepted
+        as a fallback but the side-channel is preferred since it doesn't
+        create an ancestor dependency in ComfyUI's cache.
+        """
+        # Prefer side-channel (no cache cascade) over noodle signal
+        cmd_state = getattr(sys, '_dazzle_command_state', None)
+        if cmd_state and isinstance(cmd_state, dict):
+            seed_intent = cmd_state.get('seed_intent')
+        elif signal and isinstance(signal, dict):
+            seed_intent = signal.get('seed_intent')
+        else:
+            return
+        if seed_intent is None:
+            return  # "no override" — leave seed as-is
+
+        if not ctx.seed_active:
+            logger.debug(f"Signal seed_intent='{seed_intent}' ignored — seed toggle is OFF")
+            return
+
+        if seed_intent == 'random':
+            # No override needed — JS prompt hook already resolved to a random seed.
+            # Python uses whatever seed JS sent via fill_seed.value.
+            logger.debug(f"Signal: seed_intent='random' -> using JS-resolved seed {ctx.actual_seed}")
+        elif seed_intent == 'lock':
+            # Lock to last resolved seed (stored on the instance)
+            if hasattr(self, '_last_resolved_seed') and self._last_resolved_seed is not None:
+                ctx.actual_seed = self._last_resolved_seed
+                logger.debug(f"Signal: seed_intent='lock' -> using last seed {ctx.actual_seed}")
+            else:
+                logger.debug(f"Signal: seed_intent='lock' but no last seed available, keeping {ctx.actual_seed}")
+        elif seed_intent == 'lock_current':
+            # Keep whatever the widget currently has — no override needed
+            logger.debug(f"Signal: seed_intent='lock_current' -> keeping widget value {ctx.actual_seed}")
+
+        state = (cmd_state or {}).get('state') or (signal or {}).get('state') or 'unknown'
+        logger.debug(f"Signal: state={state}, seed_intent={seed_intent}, actual_seed={ctx.actual_seed}")
 
     def _prepare_output_mode(self, ctx):
         """Resolve 'auto' mode and set cache key before image/latent generation."""

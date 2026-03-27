@@ -5,6 +5,23 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.8] - 2026-03-27
+
+### Added
+- **DAZZLE_SIGNAL input** -- optional input for Dazzle Command orchestration node. Accepts
+  seed control signals (lock/random/lock_current) via sys side-channel for cache-transparent
+  operation. Noodle provides multi-node binding; seed intent communicated without cache cascade.
+- **`_apply_signal()` pipeline stage** -- reads seed_intent from Dazzle Command side-channel,
+  applies lock/random overrides after seed resolution.
+- **JS seed lock in prompt hook** -- when connected DazzleCommand is "playing" with "lock last
+  seed", the prompt interception hook reuses `lastSeed` instead of generating a new random seed.
+  Preserves ComfyUI cache (identical input values = cache hit). Falls back to graph scan when
+  noodle is not connected.
+
+### Fixed
+- **SpectralBlend2D node resize** -- expanding/collapsing the spectral widget no longer resets
+  the node width. Preserves user's layout.
+
 ## [0.10.7] - 2026-03-26
 
 ### Fixed

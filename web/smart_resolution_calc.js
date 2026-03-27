@@ -955,10 +955,54 @@ app.registerExtension({
                     continue;
                 }
 
-                // Resolve the special seed value
-                const resolvedSeed = seedWidget.resolveActualSeed();
+                // Check if a DazzleCommand is locking the seed.
+                // First check noodle connection (for multi-node binding).
+                // Fallback: search all DazzleCommand nodes in the graph.
+                let signalLocked = false;
+                let cmdNode = null;
+
+                // Try noodle-connected DazzleCommand first
+                const signalInput = node.inputs?.find(i => i.name === 'dazzle_signal');
+                if (signalInput?.link) {
+                    const link = app.graph.links[signalInput.link];
+                    if (link) {
+                        const candidate = app.graph.getNodeById(link.origin_id);
+                        if (candidate?.comfyClass === 'DazzleCommand') {
+                            cmdNode = candidate;
+                        }
+                    }
+                }
+
+                // Fallback: find any DazzleCommand in the graph
+                if (!cmdNode) {
+                    const allNodes = app.graph._nodes || [];
+                    cmdNode = allNodes.find(n => n.comfyClass === 'DazzleCommand');
+                }
+
+                if (cmdNode) {
+                    const cmdState = cmdNode._dazzleCommandState;
+                    const playSeedWidget = cmdNode.widgets?.find(w => w.name === 'play_seed');
+                    if (cmdState === 'playing') {
+                        const playSeed = playSeedWidget?.value || 'lock last seed';
+                        if (playSeed === 'lock last seed' && seedWidget.lastSeed != null) {
+                            signalLocked = true;
+                        } else if (playSeed === 'lock current') {
+                            signalLocked = true;
+                        }
+                    }
+                }
+
+                let resolvedSeed;
+                if (signalLocked && seedWidget.lastSeed != null) {
+                    // DazzleCommand says lock — reuse last seed for cache preservation
+                    resolvedSeed = seedWidget.lastSeed;
+                    logger.debug(`[Seed Intercept] Node ${node.id}: signal LOCKED, reusing lastSeed ${resolvedSeed}`);
+                } else {
+                    // Normal resolution (random, increment, decrement)
+                    resolvedSeed = seedWidget.resolveActualSeed();
+                    logger.debug(`[Seed Intercept] Node ${node.id}: resolved ${seedValue} -> ${resolvedSeed}`);
+                }
                 seedWidget.lastSeed = resolvedSeed;
-                logger.debug(`[Seed Intercept] Node ${node.id}: resolved ${seedValue} -> ${resolvedSeed}`);
 
                 // Patch the prompt data (what gets sent to Python)
                 const nodePrompt = prompt?.output?.[String(node.id)];

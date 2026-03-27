@@ -559,8 +559,10 @@ class SpectralBlend2DWidget extends DazzleWidget {
             const header = this.hitAreas.header;
             if (header && this.isInBounds(pos, header)) {
                 this.expanded = !this.expanded;
-                // Resize node to accommodate expanded/collapsed state
-                node.setSize(node.computeSize());
+                // Resize node height to accommodate expanded/collapsed state
+                // Preserve user's current width — only adjust height
+                const newSize = node.computeSize();
+                node.setSize([node.size[0], newSize[1]]);
                 node.setDirtyCanvas(true, true);
                 return true;
             }
