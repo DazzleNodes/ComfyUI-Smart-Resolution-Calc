@@ -7,11 +7,11 @@
 [![Views](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/djdarcy/5df99ad3a380360fa8d72813eb0d2ce7/raw/views.json)](https://dazzlenodes.github.io/ComfyUI-Smart-Resolution-Calc/stats/#views)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Flexible resolution and latent generation for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Tell the node what you know — width, height, megapixels, aspect ratio, or a reference image — and it figures out the rest. No manual math, no separate Empty Latent Image node, no panic algebra.
+Flexible resolution and latent generation for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Tell the node what you know (width, height, megapixels, aspect ratio, or a reference image) and it figures out the rest. No manual math, no separate Empty Latent Image node, no panic algebra.
 
 ## Overview
 
-Smart Resolution Calculator replaces the tedious dimension math in ComfyUI workflows. Enable the values you know, and the node calculates everything else. But it's grown beyond a calculator — it's now a noise composition tool that lets you shape how images are generated.
+Smart Resolution Calculator replaces the tedious dimension math in ComfyUI workflows. Enable the values you know, and the node calculates everything else. But it's grown beyond a calculator. It is now a noise composition tool that lets you shape how images are generated.
 
 ![Smart Resolution Calculator in action](docs/images/Smart-Res-Calculator-node_outputs_and-ClownSharKSampler.jpg)
 

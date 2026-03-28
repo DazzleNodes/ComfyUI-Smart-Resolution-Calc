@@ -1,15 +1,86 @@
 {
   "id": "1eb0f0a9-0221-4af8-8a6b-c42ef0a9df07",
   "revision": 0,
-  "last_node_id": 15,
-  "last_link_id": 15,
+  "last_node_id": 19,
+  "last_link_id": 21,
   "nodes": [
+    {
+      "id": 16,
+      "type": "Display Any (rgthree)",
+      "pos": [
+        904.5559289530626,
+        848.5959857454494
+      ],
+      "size": [
+        260.1052343749999,
+        123.79500000000007
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "dir": 3,
+          "name": "source",
+          "type": "*",
+          "link": 16
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "rgthree-comfy",
+        "ver": "1.0.2509092031",
+        "Node name for S&R": "Display Any (rgthree)",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.1"
+        }
+      },
+      "widgets_values": [
+        "Mode: defaults & image_ar: 1:1 (1024×1024) | Calculated 1000x1000 from default 1.0MP and image AR 1:1 | MP: 0.98 | Div: 16 | Purpose: image + noise | Latent: Spectral Noise (DazNoise: Gaussian blend=0.88) | Seed: 908305662833699"
+      ]
+    },
+    {
+      "id": 13,
+      "type": "PreviewImage",
+      "pos": [
+        905.9488412903861,
+        564.4811938678605
+      ],
+      "size": [
+        262.5239399097786,
+        246.00000000000006
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 12
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "Node name for S&R": "PreviewImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.1",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": []
+    },
     {
       "id": 10,
       "type": "LoadImage",
       "pos": [
-        206.52666136985522,
-        280.8885015689151
+        274.8916613698553,
+        282.09850156891514
       ],
       "size": [
         282.798828125,
@@ -39,7 +110,8 @@
         "Node name for S&R": "LoadImage",
         "ue_properties": {
           "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
+          "input_ue_unconnectable": {},
+          "version": "7.1"
         }
       },
       "widgets_values": [
@@ -51,8 +123,8 @@
       "id": 12,
       "type": "VAELoader",
       "pos": [
-        244.7867204224674,
-        154.32104840000014
+        281.0867204224676,
+        629.2460484000005
       ],
       "size": [
         270,
@@ -68,7 +140,7 @@
           "type": "VAE",
           "links": [
             11,
-            14
+            18
           ]
         }
       ],
@@ -78,23 +150,24 @@
         "Node name for S&R": "VAELoader",
         "ue_properties": {
           "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
+          "input_ue_unconnectable": {},
+          "version": "7.1"
         }
       },
       "widgets_values": [
-        "qwen_image_vae.safetensors"
+        "sdxl_vae.safetensors"
       ]
     },
     {
-      "id": 13,
+      "id": 19,
       "type": "PreviewImage",
       "pos": [
-        947.6938412903868,
-        580.8161938678614
+        282.89604614056316,
+        717.5959857454501
       ],
       "size": [
-        301.24393990977865,
-        350.93287200927716
+        262.5239399097786,
+        246.00000000000006
       ],
       "flags": {},
       "order": 3,
@@ -103,14 +176,19 @@
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 12
+          "link": 21
         }
       ],
       "outputs": [],
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.17.0",
-        "Node name for S&R": "PreviewImage"
+        "Node name for S&R": "PreviewImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.1",
+          "input_ue_unconnectable": {}
+        }
       },
       "widgets_values": []
     },
@@ -118,55 +196,60 @@
       "id": 15,
       "type": "PreviewImage",
       "pos": [
-        948.9944334124128,
-        188.4367100080545
+        904.2244334124122,
+        313.67171000805456
       ],
       "size": [
-        299.0248790222165,
-        346.1293110321044
+        266.35487902221644,
+        251.1443110321045
       ],
       "flags": {},
-      "order": 5,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 15
+          "link": 19
         }
       ],
       "outputs": [],
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.17.0",
-        "Node name for S&R": "PreviewImage"
+        "Node name for S&R": "PreviewImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.1",
+          "input_ue_unconnectable": {}
+        }
       },
       "widgets_values": []
     },
     {
-      "id": 14,
+      "id": 17,
       "type": "VAEDecode",
       "pos": [
-        902.2886127769817,
-        61.53329700617913
+        908.0410461405633,
+        259.32598574545
       ],
       "size": [
         140,
         46
       ],
       "flags": {},
-      "order": 4,
+      "order": 5,
       "mode": 0,
       "inputs": [
         {
           "name": "samples",
           "type": "LATENT",
-          "link": 13
+          "link": 17
         },
         {
           "name": "vae",
           "type": "VAE",
-          "link": 14
+          "link": 18
         }
       ],
       "outputs": [
@@ -174,26 +257,27 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            15
+            19
           ]
         }
       ],
       "properties": {
         "cnr_id": "comfy-core",
-        "ver": "0.17.0",
+        "ver": "0.18.1",
         "Node name for S&R": "VAEDecode"
-      }
+      },
+      "widgets_values": []
     },
     {
       "id": 11,
       "type": "SmartResolutionCalc",
       "pos": [
-        570.4534074341861,
-        278.98773541171886
+        565.613407434186,
+        282.01273541171895
       ],
       "size": [
-        320,
-        638
+        325.3208984375,
+        692
       ],
       "flags": {},
       "order": 2,
@@ -215,6 +299,18 @@
           "name": "fill_image",
           "shape": 7,
           "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "dazzle_options",
+          "shape": 7,
+          "type": "DAZZLE_OPTIONS",
+          "link": null
+        },
+        {
+          "name": "dazzle_signal",
+          "shape": 7,
+          "type": "DAZZLE_SIGNAL",
           "link": null
         }
       ],
@@ -242,7 +338,9 @@
         {
           "name": "preview",
           "type": "IMAGE",
-          "links": null
+          "links": [
+            21
+          ]
         },
         {
           "name": "image",
@@ -255,38 +353,48 @@
           "name": "latent",
           "type": "LATENT",
           "links": [
-            13
+            17
           ]
         },
         {
           "name": "info",
           "type": "STRING",
-          "links": null
+          "links": [
+            16
+          ]
         }
       ],
       "properties": {
         "Node name for S&R": "SmartResolutionCalc",
         "ue_properties": {
           "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
+          "input_ue_unconnectable": {},
+          "version": "7.1"
         }
       },
       "widgets_values": [
-        "MEGAPIXEL & aspect_ratio & defaults (3:4)",
-        "3:4 (SD Video Portrait)",
+        "WIDTH & aspect_ratio (4:5)",
+        "4:5 (Instagram Portrait)",
         "16",
         false,
         "Calculating...",
         "5.2:2.5",
         1,
         1,
-        "DazNoise: Plasma",
-        "auto",
-        0,
+        "DazNoise: Gaussian",
+        0.88,
         {
           "on": true,
-          "value": 439951112144291
+          "value": -1
         },
+        "image + noise",
+        0.2,
+        {
+          "blend": 0.88,
+          "cutoff": 0.2
+        },
+        -1,
+        "transform (scale/pad)",
         "#522525",
         null,
         {
@@ -299,30 +407,37 @@
           "value": 1
         },
         {
-          "on": false,
+          "on": true,
           "value": 1024
         },
         {
           "on": false,
-          "value": 1024
+          "value": 1200
         },
-        1
+        1.1
       ],
       "widgets_values_by_name": {
         "mode_status": "Calculating...",
-        "aspect_ratio": "3:4 (SD Video Portrait)",
+        "aspect_ratio": "4:5 (Instagram Portrait)",
         "divisible_by": "16",
         "custom_ratio": false,
         "custom_aspect_ratio": "5.2:2.5",
         "batch_size": 1,
-        "scale": 1,
-        "fill_type": "DazNoise: Plasma",
-        "output_image_mode": "auto",
-        "blend_strength": 0,
+        "scale": 1.1,
+        "fill_type": "DazNoise: Gaussian",
+        "blend_strength": 0.88,
         "fill_seed": {
           "on": true,
-          "value": 439951112144291
+          "value": -1
         },
+        "image_purpose": "image + noise",
+        "cutoff": 0.2,
+        "spectral_blend_2d": {
+          "blend": 0.88,
+          "cutoff": 0.2
+        },
+        "feature_size": -1,
+        "output_image_mode": "transform (scale/pad)",
         "fill_color": "#522525",
         "color_picker_button": null,
         "image_mode": {
@@ -335,181 +450,18 @@
           "value": 1
         },
         "dimension_width": {
-          "on": false,
+          "on": true,
           "value": 1024
         },
         "dimension_height": {
           "on": false,
-          "value": 1024
+          "value": 1200
         }
       },
       "widgets_config": {
         "scale": {
           "leftStep": 0.05,
           "rightStep": 0.1
-        },
-        "_serialization_diagnostics": {
-          "timestamp": "2026-03-17T04:45:17.288Z",
-          "widgetCount": 20,
-          "widgetPositions": {
-            "mode_status": 4,
-            "aspect_ratio": 1,
-            "divisible_by": 2,
-            "custom_ratio": 3,
-            "custom_aspect_ratio": 5,
-            "batch_size": 6,
-            "scale": 19,
-            "fill_type": 8,
-            "output_image_mode": 9,
-            "blend_strength": 10,
-            "fill_seed": 11,
-            "fill_color": 12,
-            "color_picker_button": 13,
-            "image_mode": 14,
-            "copy_from_image": 15,
-            "dimension_megapixel": 16,
-            "dimension_width": 17,
-            "dimension_height": 18
-          },
-          "widgetValues": {
-            "mode_status": {
-              "value": "Calculating...",
-              "type": "string",
-              "visible": true
-            },
-            "aspect_ratio": {
-              "value": "3:4 (SD Video Portrait)",
-              "type": "string",
-              "visible": true
-            },
-            "divisible_by": {
-              "value": "16",
-              "type": "string",
-              "visible": true
-            },
-            "custom_ratio": {
-              "value": false,
-              "type": "boolean",
-              "visible": true
-            },
-            "custom_aspect_ratio": {
-              "value": "5.2:2.5",
-              "type": "string",
-              "visible": true
-            },
-            "batch_size": {
-              "value": 1,
-              "type": "number",
-              "visible": true
-            },
-            "scale": {
-              "value": 1,
-              "type": "number",
-              "visible": true
-            },
-            "fill_type": {
-              "value": "DazNoise: Plasma",
-              "type": "string",
-              "visible": true
-            },
-            "output_image_mode": {
-              "value": "auto",
-              "type": "string",
-              "visible": true
-            },
-            "blend_strength": {
-              "value": 0,
-              "type": "number",
-              "visible": true
-            },
-            "fill_seed": {
-              "value": {
-                "on": true,
-                "value": 439951112144291
-              },
-              "type": "object",
-              "visible": true
-            },
-            "fill_color": {
-              "value": "#522525",
-              "type": "string",
-              "visible": true
-            },
-            "color_picker_button": {
-              "value": null,
-              "type": "object",
-              "visible": true
-            },
-            "image_mode": {
-              "value": {
-                "on": false,
-                "value": 0
-              },
-              "type": "object",
-              "visible": true
-            },
-            "copy_from_image": {
-              "value": null,
-              "type": "object",
-              "visible": true
-            },
-            "dimension_megapixel": {
-              "value": {
-                "on": false,
-                "value": 1
-              },
-              "type": "object",
-              "visible": true
-            },
-            "dimension_width": {
-              "value": {
-                "on": false,
-                "value": 1024
-              },
-              "type": "object",
-              "visible": true
-            },
-            "dimension_height": {
-              "value": {
-                "on": false,
-                "value": 1024
-              },
-              "type": "object",
-              "visible": true
-            }
-          },
-          "imageOutputWidgetsState": {
-            "output_image_mode": {
-              "inArray": true,
-              "arrayIndex": 9,
-              "currentValue": "auto",
-              "savedValue": "auto"
-            },
-            "image_mode": {
-              "inArray": true,
-              "arrayIndex": 14,
-              "currentValue": {
-                "on": false,
-                "value": 0
-              },
-              "savedValue": {
-                "on": false,
-                "value": 0
-              }
-            },
-            "copy_from_image": {
-              "inArray": true,
-              "arrayIndex": 15,
-              "currentValue": null,
-              "savedValue": null
-            },
-            "color_picker_button": {
-              "inArray": true,
-              "arrayIndex": 13,
-              "currentValue": null,
-              "savedValue": null
-            }
-          }
         }
       }
     }
@@ -540,26 +492,42 @@
       "IMAGE"
     ],
     [
-      13,
+      16,
+      11,
+      7,
+      16,
+      0,
+      "STRING"
+    ],
+    [
+      17,
       11,
       6,
-      14,
+      17,
       0,
       "LATENT"
     ],
     [
-      14,
+      18,
       12,
       0,
-      14,
+      17,
       1,
       "VAE"
     ],
     [
-      15,
-      14,
+      19,
+      17,
       0,
       15,
+      0,
+      "IMAGE"
+    ],
+    [
+      21,
+      11,
+      4,
+      19,
       0,
       "IMAGE"
     ]
@@ -570,14 +538,14 @@
     "ds": {
       "scale": 0.8264462809917358,
       "offset": [
-        -161.29104614056308,
-        -64.80098574545059
+        -100.79104614056324,
+        -114.41098574545052
       ]
     },
     "workflowRendererVersion": "LG",
     "ue_links": [],
     "links_added_by_ue": [],
-    "frontendVersion": "1.41.20",
+    "frontendVersion": "1.42.8",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,

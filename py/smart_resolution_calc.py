@@ -572,8 +572,8 @@ class SmartResolutionCalc:
             Tuple: (megapixels, width, height, seed, preview, image, latent, info)
         """
         # ALWAYS log that function was called (critical diagnostic)
-        print(f"[SmartResCalc] calculate_dimensions() CALLED - aspect_ratio={aspect_ratio}, divisible_by={divisible_by}")
-        print(f"[SmartResCalc] PARAMS: blend_strength={blend_strength}, cutoff={cutoff}, feature_size={feature_size}, fill_type={fill_type}, image_purpose={image_purpose}")
+        logger.debug(f"calculate_dimensions() CALLED - aspect_ratio={aspect_ratio}, divisible_by={divisible_by}")
+        logger.debug(f"PARAMS: blend_strength={blend_strength}, cutoff={cutoff}, feature_size={feature_size}, fill_type={fill_type}, image_purpose={image_purpose}")
 
         # Debug logging for kwargs
         logger.debug(f"Function called with standard args: aspect_ratio={aspect_ratio}, divisible_by={divisible_by}, custom_ratio={custom_ratio}")

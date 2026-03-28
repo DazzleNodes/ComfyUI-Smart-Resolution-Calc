@@ -298,16 +298,16 @@ class SeedWidget extends DazzleToggleWidget {
             // Value editing (always allowed, matching DimensionWidget ALWAYS behavior)
             // Decrement
             if (this.isInBounds(pos, this.hitAreas.valueDec)) {
-                this.setRandomMode(false);
                 this.value.value = Math.round(this.value.value) - 1;
+                this.setRandomMode(this.value.value === SPECIAL_SEED_RANDOM);
                 node.setDirtyCanvas(true);
                 return true;
             }
 
             // Increment
             if (this.isInBounds(pos, this.hitAreas.valueInc)) {
-                this.setRandomMode(false);
                 this.value.value = Math.round(this.value.value) + 1;
+                this.setRandomMode(this.value.value === SPECIAL_SEED_RANDOM);
                 node.setDirtyCanvas(true);
                 return true;
             }
@@ -318,8 +318,9 @@ class SeedWidget extends DazzleToggleWidget {
                 this.services.prompt("Seed (-1=rnd, -2=inc, -3=dec)", String(currentValue), (newValue) => {
                     const parsed = parseInt(newValue);
                     if (!isNaN(parsed)) {
-                        this.setRandomMode(false);
                         this.value.value = parsed;
+                        // Activate random mode if user typed -1, clear otherwise
+                        this.setRandomMode(parsed === SPECIAL_SEED_RANDOM);
                         node.setDirtyCanvas(true);
                     }
                 }, event);

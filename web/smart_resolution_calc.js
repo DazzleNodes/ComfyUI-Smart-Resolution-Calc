@@ -621,9 +621,16 @@ app.registerExtension({
                         this.widgets.splice(addedIndex, 1);
                     }
 
-                    // Insert button right after fill_color widget
-                    const fillColorIndex = this.widgets.indexOf(fillColorWidget);
-                    this.widgets.splice(fillColorIndex + 1, 0, colorPickerButton);
+                    // Insert button right after fill_type widget (logical grouping)
+                    const fillTypeForColor = this.widgets.find(w => w.name === "fill_type");
+                    const fillTypeColorIdx = fillTypeForColor ? this.widgets.indexOf(fillTypeForColor) : -1;
+                    if (fillTypeColorIdx !== -1) {
+                        this.widgets.splice(fillTypeColorIdx + 1, 0, colorPickerButton);
+                    } else {
+                        // Fallback: after fill_color widget
+                        const fillColorIndex = this.widgets.indexOf(fillColorWidget);
+                        this.widgets.splice(fillColorIndex + 1, 0, colorPickerButton);
+                    }
 
                     // Add button to image output widgets list
                     this.imageOutputWidgets.color_picker_button = colorPickerButton;
@@ -659,11 +666,19 @@ app.registerExtension({
                     // Show/hide widgets based on connection status
                     if (hasConnection) {
                         // Show all image-related widgets
+                        const fillTypeWidget = this.widgets?.find(w => w.name === 'fill_type');
+                        const isCustomColor = fillTypeWidget?.value === 'custom_color';
                         Object.keys(this.imageOutputWidgets).forEach(key => {
                             const widget = this.imageOutputWidgets[key];
                             if (widget) {
-                                showWidget(widget);
-                                visibilityLogger.debug(`Showing widget: ${key}`);
+                                // Hide color picker when fill_type isn't custom_color
+                                if (key === 'color_picker_button' && !isCustomColor) {
+                                    hideWidget(widget);
+                                    visibilityLogger.debug(`Hiding widget: ${key} (fill_type != custom_color)`);
+                                } else {
+                                    showWidget(widget);
+                                    visibilityLogger.debug(`Showing widget: ${key}`);
+                                }
                             }
                         });
 
@@ -685,6 +700,17 @@ app.registerExtension({
                             }
                         });
 
+                        // Show color picker if fill_type is custom_color
+                        // (color picker is useful without image for dimensions-only workflows)
+                        const fillTypeWidget = this.widgets?.find(w => w.name === 'fill_type');
+                        if (fillTypeWidget?.value === 'custom_color') {
+                            const cpBtn = this.imageOutputWidgets.color_picker_button;
+                            if (cpBtn) {
+                                showWidget(cpBtn);
+                                visibilityLogger.debug('Showing color_picker_button (fill_type=custom_color)');
+                            }
+                        }
+
                         // Update Mode(AR) for disconnect
                         // NOTE: For RECONNECT, updateModeWidget() is called in refreshImageDimensions()
                         // after imageDimensionsCache is populated (timing fix).
@@ -699,6 +725,17 @@ app.registerExtension({
                     const newSize = this.computeSize();
                     this.setSize([currentSize[0], newSize[1]]);
                 };
+
+                // Listen for fill_type changes to toggle color picker visibility
+                const fillTypeWidget = this.widgets?.find(w => w.name === 'fill_type');
+                if (fillTypeWidget) {
+                    const origCallback = fillTypeWidget.callback;
+                    const nodeRef = this;
+                    fillTypeWidget.callback = function(value) {
+                        if (origCallback) origCallback.call(this, value);
+                        nodeRef.updateImageOutputVisibility();
+                    };
+                }
 
                 // Initially hide widgets - delay until outputs are ready
                 setTimeout(() => {

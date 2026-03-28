@@ -5,6 +5,21 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-03-28
+
+### Fixed
+- **Seed green mode on manual -1 entry** (#52) -- typing -1 in seed field or using +/- to
+  reach -1 now activates the green random mode indicator. All value-changing paths (manual
+  edit, increment, decrement) set randomizeMode based on whether the result equals -1.
+- **Custom color picker visibility** (#55) -- color picker now shows/hides based on
+  `fill_type = custom_color` instead of image connection state. Users can set custom fill
+  colors for dimensions-only workflows without an image input.
+- **Debug logging** -- moved per-execution `calculate_dimensions() CALLED` and `PARAMS` print
+  statements to `logger.debug`. RESULT line kept as print for user feedback.
+
+### Changed
+- Updated README screenshot and test workflow
+
 ## [0.11.0] - 2026-03-28
 
 ### Changed
