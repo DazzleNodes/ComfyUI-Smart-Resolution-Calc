@@ -888,9 +888,12 @@ class SmartResolutionCalc:
             return
 
         if seed_intent == 'random':
-            # No override needed — JS prompt hook already resolved to a random seed.
-            # Python uses whatever seed JS sent via fill_seed.value.
+            # No override needed — JS prompt hook handles random generation.
             logger.debug(f"Signal: seed_intent='random' -> using JS-resolved seed {ctx.actual_seed}")
+        elif seed_intent == 'transient':
+            # Transient lock — JS handles the one-run-then-random logic.
+            # Python just uses whatever seed JS sent.
+            logger.debug(f"Signal: seed_intent='transient' -> using JS-resolved seed {ctx.actual_seed}")
         elif seed_intent == 'lock':
             # Lock to last resolved seed (stored on the instance)
             if hasattr(self, '_last_resolved_seed') and self._last_resolved_seed is not None:
@@ -899,8 +902,8 @@ class SmartResolutionCalc:
             else:
                 logger.debug(f"Signal: seed_intent='lock' but no last seed available, keeping {ctx.actual_seed}")
         elif seed_intent == 'lock_current':
-            # Keep whatever the widget currently has — no override needed
-            logger.debug(f"Signal: seed_intent='lock_current' -> keeping widget value {ctx.actual_seed}")
+            # Keep whatever the widget currently has — JS handles this
+            logger.debug(f"Signal: seed_intent='lock_current' -> using JS-resolved seed {ctx.actual_seed}")
 
         state = (cmd_state or {}).get('state') or (signal or {}).get('state') or 'unknown'
         logger.debug(f"Signal: state={state}, seed_intent={seed_intent}, actual_seed={ctx.actual_seed}")
@@ -1380,5 +1383,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SmartResolutionCalc": "Smart Resolution Calculator",
+    "SmartResolutionCalc": "Smart Resolution Calculator (DazzleNodes)",
 }

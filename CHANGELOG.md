@@ -5,6 +5,27 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-03-28
+
+### Changed
+- **5-option seed control** -- DazzleCommand seed options expanded: "one run then random"
+  (default, transient lock), "new seed each run" (force random), "reuse last seed" (lock
+  previous), "keep widget value" (persistent), "SmartResCalc decides" (no interference).
+  Applied in both pause and play states via JS prompt hook.
+- **Transient seed with deferred reset** -- when "one run then random" uses a fixed widget
+  seed, the widget resets to random mode after prompt dispatch via deferred setTimeout.
+  Next run generates a fresh random seed automatically.
+- **DazzleCommand seed bar priority** -- seeds entered via DazzleCommand's seed bar take
+  priority over SmartResCalc widget values. Cleared after transient use.
+- **Prompt input stripping** -- `dazzle_signal` input removed from prompt data during
+  serialization to prevent ComfyUI cache cascade while preserving noodle for multi-node binding.
+
+### Companion versions
+- Requires [DazzleCommand v0.2.0-alpha](https://github.com/DazzleNodes/ComfyUI-DazzleCommand)
+  for play/pause orchestration, seed bar entry, API state management
+- Requires [PBE v0.4.0-alpha](https://github.com/DazzleNodes/ComfyUI-PreviewBridgeExtended)
+  for DAZZLE_SIGNAL gate control and IS_CHANGED dazzle state
+
 ## [0.10.8] - 2026-03-27
 
 ### Added

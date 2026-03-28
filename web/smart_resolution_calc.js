@@ -946,66 +946,131 @@ app.registerExtension({
                 const seedWidget = node.widgets?.find(w => w.name === 'fill_seed');
                 if (!seedWidget) continue;
 
-                // Only resolve if seed is ON and has a special value
+                // Only resolve if seed is ON
                 if (!seedWidget.value?.on) continue;
                 const seedValue = seedWidget.value?.value;
-                if (!SPECIAL_SEEDS.includes(seedValue)) {
-                    // Fixed seed — just track it as lastSeed
-                    seedWidget.lastSeed = seedValue;
-                    continue;
-                }
 
-                // Check if a DazzleCommand is locking the seed.
-                // First check noodle connection (for multi-node binding).
-                // Fallback: search all DazzleCommand nodes in the graph.
-                let signalLocked = false;
+                // Find connected DazzleCommand (noodle first, then graph scan)
+                // Must happen BEFORE the special-seed check because DazzleCommand
+                // may override fixed seeds (e.g., "one run then random" or "new seed each run")
                 let cmdNode = null;
-
-                // Try noodle-connected DazzleCommand first
                 const signalInput = node.inputs?.find(i => i.name === 'dazzle_signal');
                 if (signalInput?.link) {
                     const link = app.graph.links[signalInput.link];
                     if (link) {
                         const candidate = app.graph.getNodeById(link.origin_id);
-                        if (candidate?.comfyClass === 'DazzleCommand') {
-                            cmdNode = candidate;
-                        }
+                        if (candidate?.comfyClass === 'DazzleCommand') cmdNode = candidate;
                     }
                 }
-
-                // Fallback: find any DazzleCommand in the graph
                 if (!cmdNode) {
-                    const allNodes = app.graph._nodes || [];
-                    cmdNode = allNodes.find(n => n.comfyClass === 'DazzleCommand');
+                    cmdNode = (app.graph._nodes || []).find(n => n.comfyClass === 'DazzleCommand');
                 }
+
+                // If no DazzleCommand and seed is fixed, just track and skip
+                if (!cmdNode && !SPECIAL_SEEDS.includes(seedValue)) {
+                    seedWidget.lastSeed = seedValue;
+                    continue;
+                }
+
+                // Determine the active seed option from DazzleCommand
+                let resolvedSeed;
+                let seedHandled = false;
 
                 if (cmdNode) {
-                    const cmdState = cmdNode._dazzleCommandState;
-                    const playSeedWidget = cmdNode.widgets?.find(w => w.name === 'play_seed');
-                    if (cmdState === 'playing') {
-                        const playSeed = playSeedWidget?.value || 'lock last seed';
-                        if (playSeed === 'lock last seed' && seedWidget.lastSeed != null) {
-                            signalLocked = true;
-                        } else if (playSeed === 'lock current') {
-                            signalLocked = true;
+                    const cmdState = cmdNode._dazzleCommandState || 'paused';
+                    const activeSeedWidget = cmdState === 'playing'
+                        ? cmdNode.widgets?.find(w => w.name === 'play_seed')
+                        : cmdNode.widgets?.find(w => w.name === 'pause_seed');
+                    const activeSeedOption = activeSeedWidget?.value || 'one run then random';
+
+                    // Priority order: DazzleCommand user seed > seed option logic > SmartResCalc widget
+                    const dazzleUserSeed = cmdNode._dazzleUserSeed;
+
+                    if (activeSeedOption === 'new seed each run') {
+                        // Force random regardless of widget or DazzleCommand seed
+                        resolvedSeed = Math.floor(Math.random() * SEED_MAX);
+                        seedHandled = true;
+                        logger.debug(`[Seed Intercept] Node ${node.id}: FORCED RANDOM -> ${resolvedSeed}`);
+
+                    } else if (activeSeedOption === 'reuse last seed') {
+                        // Lock to last resolved seed
+                        if (seedWidget.lastSeed != null) {
+                            resolvedSeed = seedWidget.lastSeed;
+                            seedHandled = true;
+                            logger.debug(`[Seed Intercept] Node ${node.id}: REUSE LAST -> ${resolvedSeed}`);
                         }
+
+                    } else if (activeSeedOption === 'keep widget value') {
+                        // Priority: DazzleCommand user seed > SmartResCalc widget
+                        if (dazzleUserSeed != null) {
+                            resolvedSeed = dazzleUserSeed;
+                            seedHandled = true;
+                            logger.debug(`[Seed Intercept] Node ${node.id}: KEEP (DazzleCmd) -> ${resolvedSeed}`);
+                        } else if (SPECIAL_SEEDS.includes(seedValue)) {
+                            resolvedSeed = seedWidget.resolveActualSeed();
+                            seedHandled = true;
+                            logger.debug(`[Seed Intercept] Node ${node.id}: KEEP WIDGET (resolved) -> ${resolvedSeed}`);
+                        } else {
+                            resolvedSeed = seedValue;
+                            seedHandled = true;
+                            logger.debug(`[Seed Intercept] Node ${node.id}: KEEP WIDGET -> ${resolvedSeed}`);
+                        }
+
+                    } else if (activeSeedOption === 'one run then random') {
+                        // Priority: DazzleCommand user seed > SmartResCalc fixed value > random
+                        if (dazzleUserSeed != null) {
+                            resolvedSeed = dazzleUserSeed;
+                            seedHandled = true;
+                            logger.debug(`[Seed Intercept] Node ${node.id}: TRANSIENT (DazzleCmd ${resolvedSeed}) -> will clear after dispatch`);
+                            // Defer clear until after prompt dispatch
+                            const _cmd = cmdNode;
+                            setTimeout(() => {
+                                _cmd._dazzleUserSeed = null;
+                                _cmd.setDirtyCanvas(true);
+                            }, 100);
+                        } else if (!SPECIAL_SEEDS.includes(seedValue)) {
+                            // Widget has a fixed value (user typed it) — use once
+                            resolvedSeed = seedValue;
+                            seedHandled = true;
+                            logger.debug(`[Seed Intercept] Node ${node.id}: TRANSIENT (widget ${seedValue}) -> will reset to random after dispatch`);
+                            // Defer widget reset until after prompt is fully dispatched.
+                            // Changing it during queuePrompt doesn't work because
+                            // graphToPrompt may have already serialized the value.
+                            const _sw = seedWidget;
+                            const _node = node;
+                            setTimeout(() => {
+                                logger.debug(`[Seed Intercept] Deferred reset firing: widget value was ${_sw.value?.value}, setting to ${SPECIAL_SEED_RANDOM}`);
+                                _sw.value.value = SPECIAL_SEED_RANDOM;
+                                if (_sw.setRandomMode) _sw.setRandomMode(true);
+                                _node.setDirtyCanvas(true);
+                                logger.debug(`[Seed Intercept] Deferred reset done: widget value is now ${_sw.value?.value}`);
+                            }, 500);
+                        }
+                        // If neither — fall through to normal random
                     }
+                    // 'SmartResCalc decides' → seedHandled stays false, normal behavior
                 }
 
-                let resolvedSeed;
-                if (signalLocked && seedWidget.lastSeed != null) {
-                    // DazzleCommand says lock — reuse last seed for cache preservation
-                    resolvedSeed = seedWidget.lastSeed;
-                    logger.debug(`[Seed Intercept] Node ${node.id}: signal LOCKED, reusing lastSeed ${resolvedSeed}`);
-                } else {
+                if (!seedHandled) {
                     // Normal resolution (random, increment, decrement)
                     resolvedSeed = seedWidget.resolveActualSeed();
-                    logger.debug(`[Seed Intercept] Node ${node.id}: resolved ${seedValue} -> ${resolvedSeed}`);
+                    logger.debug(`[Seed Intercept] Node ${node.id}: NORMAL resolved ${seedValue} -> ${resolvedSeed}`);
                 }
                 seedWidget.lastSeed = resolvedSeed;
 
                 // Patch the prompt data (what gets sent to Python)
                 const nodePrompt = prompt?.output?.[String(node.id)];
+
+                // Strip dazzle_signal from prompt inputs to prevent cache cascade.
+                // The noodle is used for JS-side binding (finding the right
+                // DazzleCommand), but the actual data flows via sys side-channel.
+                // Removing it from prompt means ComfyUI's cache doesn't see it
+                // as an input — no ancestor dependency, no cascade.
+                if (nodePrompt?.inputs?.dazzle_signal) {
+                    delete nodePrompt.inputs.dazzle_signal;
+                    logger.debug(`[Seed Intercept] Node ${node.id}: stripped dazzle_signal from prompt inputs`);
+                }
+
                 if (nodePrompt?.inputs?.fill_seed) {
                     nodePrompt.inputs.fill_seed = { on: true, value: resolvedSeed };
                 }

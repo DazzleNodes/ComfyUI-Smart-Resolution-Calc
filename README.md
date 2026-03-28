@@ -53,6 +53,7 @@ Smart Resolution Calculator replaces the tedious dimension math in ComfyUI workf
 - **Spectral blending** — inject pattern spatial structure into latent noise while maintaining prompt adherence. Per-bin normalization (spectral whitening) for resolution-independent composition transfer ([details](docs/spectral-blending.md))
 - **Dazzle Options** — advanced configuration node for spectral normalization mode, cutoff curves, and more ([details](docs/spectral-blending.md#dazzleoptions-advanced-configuration))
 - **Seed widget** — reproducible noise with randomize/fix/recall controls
+- **Dazzle Command** — optional workflow orchestration for play/pause seed control with cache-transparent operation ([details](docs/dazzle-command.md))
 - **Custom fill input** — connect any image source as fill via `fill_image`
 
 ### Widget UX
