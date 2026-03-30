@@ -594,7 +594,8 @@ class SmartResolutionCalc:
         self._apply_scale_and_divisibility(ctx)
         self._resolve_seed(ctx)
         self._apply_signal(ctx, dazzle_signal,
-                           dazzle_connected=kwargs.get('_dazzle_connected', False))
+                           dazzle_connected=kwargs.get('_dazzle_connected', False),
+                           dazzle_dc_id=kwargs.get('_dazzle_dc_id'))
 
         # Store resolved seed for future "lock" signal intent
         if ctx.seed_active and ctx.actual_seed >= 0:
@@ -865,24 +866,28 @@ class SmartResolutionCalc:
             ctx.actual_seed = 0
             logger.debug("No fill_seed data, using default (unseeded)")
 
-    def _apply_signal(self, ctx, signal, dazzle_connected=False):
+    def _apply_signal(self, ctx, signal, dazzle_connected=False, dazzle_dc_id=None):
         """Stage 4b: Apply DAZZLE_SIGNAL overrides to seed behavior.
 
         Only applies if a dazzle_signal noodle was connected (indicated by
         _dazzle_connected marker set by JS before stripping the noodle).
         Standalone SmartResCalc nodes are not affected (#56).
+        Uses per-node DazzleCommand state when dc_id is available (#5).
         """
-        if not dazzle_connected and not (signal and isinstance(signal, dict)):
-            return  # Standalone mode — no orchestration
+        if not dazzle_connected:
+            return  # Standalone mode — no orchestration (#56)
 
-        # Read seed intent from sys side-channel or noodle signal
-        cmd_state = getattr(sys, '_dazzle_command_state', None)
-        if cmd_state and isinstance(cmd_state, dict):
-            seed_intent = cmd_state.get('seed_intent')
-        elif signal and isinstance(signal, dict):
-            seed_intent = signal.get('seed_intent')
-        else:
+        # Read seed intent from per-node DazzleCommand state (#5)
+        if not dazzle_dc_id:
+            logger.debug("Signal: no _dazzle_dc_id marker — cannot look up per-node state")
             return
+        dc_states = getattr(sys, '_dazzle_command_states', {})
+        dc_state = dc_states.get(str(dazzle_dc_id))
+        if not dc_state:
+            logger.debug(f"Signal: no per-node state found for DC {dazzle_dc_id}")
+            return
+        seed_intent = dc_state.seed_intent
+        logger.debug(f"Signal: DC {dazzle_dc_id} seed_intent={seed_intent}")
         if seed_intent is None:
             return  # "no override" — leave seed as-is
 
@@ -900,10 +905,7 @@ class SmartResolutionCalc:
         elif seed_intent == 'lock':
             # "Reuse last seed" — JS prompt hook already resolves this by
             # reading lastSeed from the status event and sending it as the
-            # widget value.  Python must NOT override with _last_resolved_seed
-            # because (a) JS is the source of truth for seed values and (b) in
-            # multi-node workflows sys._dazzle_command_state is a global that
-            # may reflect the WRONG DazzleCommand's intent.
+            # widget value. Python trusts the JS-resolved seed.
             logger.debug(f"Signal: seed_intent='lock' -> using JS-resolved seed {ctx.actual_seed}")
         elif seed_intent == 'lock_current':
             # Keep whatever the widget currently has — JS handles this

@@ -1104,10 +1104,11 @@ app.registerExtension({
                 // as an input — no ancestor dependency, no cascade.
                 if (nodePrompt?.inputs?.dazzle_signal) {
                     // Mark that this node HAD a dazzle_signal connection
-                    // so Python _apply_signal knows to read sys state
+                    // so Python _apply_signal knows to read per-node state (#5)
                     nodePrompt.inputs._dazzle_connected = true;
+                    if (cmdNode) nodePrompt.inputs._dazzle_dc_id = String(cmdNode.id);
                     delete nodePrompt.inputs.dazzle_signal;
-                    logger.debug(`[Seed Intercept] Node ${node.id}: stripped dazzle_signal, set _dazzle_connected marker`);
+                    logger.debug(`[Seed Intercept] Node ${node.id}: stripped dazzle_signal, set _dazzle_connected + dc_id=${cmdNode?.id}`);
                 }
 
                 if (nodePrompt?.inputs?.fill_seed) {
@@ -1136,6 +1137,12 @@ app.registerExtension({
                 // Redraw to show updated state
                 node.setDirtyCanvas(true);
             }
+
+            // NOTE: dazzle_signal is NOT stripped from PBE nodes. PBE needs
+            // the noodle for execution ordering (DazzleCommand must execute
+            // before PBE). Cache cascade is controlled by per-node IS_CHANGED:
+            // DC only re-executes when ITS state changes, not when other DCs
+            // change. So PBE-1 only cascades when DC-1 toggles.
 
             // Call the original queuePrompt
             return originalQueuePrompt(index, prompt, ...args);

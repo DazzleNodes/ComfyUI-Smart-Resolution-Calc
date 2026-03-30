@@ -5,6 +5,20 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - 2026-03-30
+
+### Fixed
+- **Per-node DazzleCommand state lookup** (DazzleCommand#5) -- `_apply_signal` reads seed
+  intent from per-node `sys._dazzle_command_states` registry via `_dazzle_dc_id` marker
+  injected by JS. Each SmartResCalc reads only its connected DazzleCommand's state.
+  Removed legacy global `sys._dazzle_command_state` fallback.
+
+### Companion versions
+- Requires [DazzleCommand v0.2.3-alpha](https://github.com/DazzleNodes/ComfyUI-DazzleCommand)
+  for per-node state registry
+- Requires [PBE v0.4.2-alpha](https://github.com/DazzleNodes/ComfyUI-PreviewBridgeExtended)
+  for deterministic preview filenames (cache-compatible)
+
 ## [0.11.2] - 2026-03-29
 
 ### Fixed
