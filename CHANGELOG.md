@@ -5,6 +5,28 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-03-29
+
+### Fixed
+- **Standalone SmartResCalc not affected by unconnected DazzleCommand** (#56) -- JS seed
+  intercept now finds DazzleCommand via noodle only (no graph scan fallback). Standalone
+  SmartResCalc nodes in the same workflow are no longer influenced by DazzleCommand nodes
+  they aren't connected to.
+- **Python `_apply_signal` respects noodle connection** (#56) -- `_apply_signal` now checks
+  `_dazzle_connected` marker before reading `sys._dazzle_command_state`. Standalone nodes
+  without a connected DazzleCommand noodle skip orchestration entirely.
+- **Python seed override with stale value** -- `_apply_signal` with `seed_intent='lock'`
+  ("reuse last seed") no longer overrides the JS-resolved seed with a potentially stale
+  `_last_resolved_seed`. JS is the source of truth for seed values since it performs the
+  noodle lookup and knows which DazzleCommand controls which SmartResCalc.
+
+### Added
+- **`_dazzle_connected` marker** -- JS sets `_dazzle_connected=true` in prompt inputs before
+  stripping the `dazzle_signal` noodle. Python `_apply_signal` checks this marker to decide
+  whether to read `sys._dazzle_command_state`. Standalone nodes (no marker) skip orchestration.
+- **Diagnostic seed intercept log** -- JS logs `cmdNode`, `cmdState`, `activeSeedWidget`, and
+  `seedValue` for each SmartResCalc node during prompt dispatch (requires DEBUG_SMART_RES_CALC).
+
 ## [0.11.1] - 2026-03-28
 
 ### Fixed

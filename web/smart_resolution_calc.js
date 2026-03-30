@@ -987,9 +987,9 @@ app.registerExtension({
                 if (!seedWidget.value?.on) continue;
                 const seedValue = seedWidget.value?.value;
 
-                // Find connected DazzleCommand (noodle first, then graph scan)
-                // Must happen BEFORE the special-seed check because DazzleCommand
-                // may override fixed seeds (e.g., "one run then random" or "new seed each run")
+                // Find connected DazzleCommand via noodle ONLY.
+                // No graph scan fallback — standalone SmartResCalc nodes must not be
+                // affected by unconnected DazzleCommand nodes in the workflow (#56).
                 let cmdNode = null;
                 const signalInput = node.inputs?.find(i => i.name === 'dazzle_signal');
                 if (signalInput?.link) {
@@ -998,9 +998,6 @@ app.registerExtension({
                         const candidate = app.graph.getNodeById(link.origin_id);
                         if (candidate?.comfyClass === 'DazzleCommand') cmdNode = candidate;
                     }
-                }
-                if (!cmdNode) {
-                    cmdNode = (app.graph._nodes || []).find(n => n.comfyClass === 'DazzleCommand');
                 }
 
                 // If no DazzleCommand and seed is fixed, just track and skip
@@ -1019,6 +1016,8 @@ app.registerExtension({
                         ? cmdNode.widgets?.find(w => w.name === 'play_seed')
                         : cmdNode.widgets?.find(w => w.name === 'pause_seed');
                     const activeSeedOption = activeSeedWidget?.value || 'one run then random';
+
+                    logger.debug(`[Seed Intercept] Node ${node.id}: cmdNode=${cmdNode.id}, cmdState=${cmdState}, activeSeedWidget=${activeSeedWidget?.name}=${activeSeedWidget?.value}, activeSeedOption=${activeSeedOption}, seedValue=${seedValue}`);
 
                     // Priority order: DazzleCommand user seed > seed option logic > SmartResCalc widget
                     const dazzleUserSeed = cmdNode._dazzleUserSeed;
@@ -1104,8 +1103,11 @@ app.registerExtension({
                 // Removing it from prompt means ComfyUI's cache doesn't see it
                 // as an input — no ancestor dependency, no cascade.
                 if (nodePrompt?.inputs?.dazzle_signal) {
+                    // Mark that this node HAD a dazzle_signal connection
+                    // so Python _apply_signal knows to read sys state
+                    nodePrompt.inputs._dazzle_connected = true;
                     delete nodePrompt.inputs.dazzle_signal;
-                    logger.debug(`[Seed Intercept] Node ${node.id}: stripped dazzle_signal from prompt inputs`);
+                    logger.debug(`[Seed Intercept] Node ${node.id}: stripped dazzle_signal, set _dazzle_connected marker`);
                 }
 
                 if (nodePrompt?.inputs?.fill_seed) {
