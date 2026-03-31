@@ -5,6 +5,12 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.4] - 2026-03-30
+
+### Changed
+- **Updated dazzle-command.md** -- noodle-required connection (no graph scan fallback),
+  multi-DC support, per-node state, companion versions v0.2.3-alpha / v0.4.2-alpha
+
 ## [0.11.3] - 2026-03-30
 
 ### Fixed

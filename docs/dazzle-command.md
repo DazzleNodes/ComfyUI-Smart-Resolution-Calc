@@ -39,11 +39,13 @@ The integration is designed to avoid expensive re-execution when toggling play/p
 
 ## Connection
 
-Connect Dazzle Command's `signal` output to SmartResCalc's `dazzle_signal` input. The noodle provides multi-node binding (each SmartResCalc finds its connected DazzleCommand). Without a noodle, SmartResCalc finds any DazzleCommand in the graph via scan.
+Connect Dazzle Command's `signal` output to SmartResCalc's `dazzle_signal` input. **The noodle is required** — SmartResCalc only responds to its directly connected DazzleCommand (#56). Standalone SmartResCalc nodes (no noodle) are completely unaffected by DazzleCommand nodes elsewhere in the workflow.
+
+Multiple DazzleCommand + SmartResCalc pairs operate independently in the same workflow. Each SmartResCalc reads seed intent from its connected DC's per-node state registry.
 
 ## Companion Versions
 
 | Node | Min Version |
 |------|------------|
-| [Dazzle Command](https://github.com/DazzleNodes/ComfyUI-DazzleCommand) | v0.2.0-alpha |
-| [Preview Bridge Extended](https://github.com/DazzleNodes/ComfyUI-PreviewBridgeExtended) | v0.4.0-alpha |
+| [Dazzle Command](https://github.com/DazzleNodes/ComfyUI-DazzleCommand) | v0.2.3-alpha |
+| [Preview Bridge Extended](https://github.com/DazzleNodes/ComfyUI-PreviewBridgeExtended) | v0.4.2-alpha |
