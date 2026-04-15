@@ -55,6 +55,7 @@ Smart Resolution Calculator replaces the tedious dimension math in ComfyUI workf
 - **Seed widget** — reproducible noise with randomize/fix/recall controls
 - **Dazzle Command** — optional workflow orchestration for play/pause seed control with cache-transparent operation ([details](docs/dazzle-command.md))
 - **Custom fill input** — connect any image source as fill via `fill_image`
+- **Mask input** — optional `MASK` socket cuts regions out of the input image and fills them with `fill_image`/`fill_type`, auto-fit to the calculated output dimensions across all transform modes ([details](docs/mask-input.md))
 
 ### Widget UX
 - **Compact custom widgets** — rgthree-style inline toggles, 24px height
@@ -158,6 +159,10 @@ No toggles active uses 1.0 MP with selected aspect ratio:
 
 Connect an IMAGE output to automatically extract dimensions or aspect ratio. See the [Image Input Guide](docs/image-input.md) for detailed documentation.
 
+### Mask Input (v0.12.0+)
+
+Connect a `MASK` (e.g., from `LoadImage`'s MASK output or MaskEditor) to cut regions out of the input image. The cut region is replaced by the connected `fill_image` (if present) or the configured `fill_type` pattern. The mask is auto-fit to the calculated output resolution — works across all `output_image_mode` transforms. See the [Mask Input Guide](docs/mask-input.md).
+
 **Quick Start**:
 - Connect image → Extraction modes automatically available
 - **AR Only** (default): Extracts aspect ratio, uses with megapixel setting
@@ -257,6 +262,7 @@ localStorage.removeItem('VERBOSE_SMART_RES_CALC');
 - **[Image Purpose Guide](docs/image-purpose.md)** - Control how connected input images affect IMAGE and LATENT outputs
 - **[Image Input Guide](docs/image-input.md)** - Detailed documentation for image dimension extraction feature
 - **[Extended Fill Types](docs/extended-fill-types.md)** - DazNoise fill patterns and custom fill_image input
+- **[Mask Input Guide](docs/mask-input.md)** - Cut regions out of the input image and composite onto fill_image/fill_type (v0.12.0+)
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup and contribution guidelines
 
 ## Contributing

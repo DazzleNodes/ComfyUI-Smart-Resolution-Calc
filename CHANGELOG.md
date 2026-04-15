@@ -5,6 +5,43 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-04-15
+
+### Added
+- **Mask input** — new optional `MASK` socket on `SmartResolutionCalc`, positioned
+  above `dazzle_options` / `dazzle_signal`. When connected, cuts regions out of the
+  input image and replaces them with the connected `fill_image` (if present) or the
+  configured `fill_type` pattern. Blend: `out = mask*fg + (1-mask)*bg`. Mask is
+  auto-fit (nearest-exact) to the calculated output dimensions, so it works
+  uniformly across all five `output_image_mode` transforms (distort, crop/pad,
+  scale/crop, scale/pad, empty). Absent mask = bitwise-identical to v0.11.x.
+- **`fit_mask_to_target` / `composite_with_mask`** helpers in `py/image_utils.py`
+  — vendored from `FitMaskToImage` and `ImageCompositeMasked` references; no
+  cross-repo import (smart-res-calc remains standalone-installable).
+- **Mask-aware spectral pattern in `img2noise`** — when `image_purpose = img2noise`,
+  the spectral pattern source is composited with the mask before VAE-encoding, so
+  the noise shape reflects the cut region rather than the full input image. Also
+  applies to `img2img + img2noise` (inherits via `vae.encode(output_image)`).
+- **`IS_CHANGED` mask fingerprint** — shape + sum + mean so editing the mask in
+  ComfyUI's MaskEditor and re-queuing triggers re-execution (no more stale cached
+  output when only the mask changes).
+- **Device + dtype alignment** in `composite_with_mask` so GPU-bound fills (e.g.,
+  `DazNoise:pink/plasma/brown/greyscale/gaussian`) compose correctly with
+  CPU-bound masks from `LoadImage`.
+- **Info string** — appends `| Mask: cut` when the composite was applied.
+- **New documentation**: `docs/mask-input.md` — full guide with examples and
+  interaction matrices for `output_image_mode` and `image_purpose`.
+- **New workflow fixture**: `docs/workflow/SmartResCalc-Mask-Test-Workflow.json`
+  for drag-and-drop reproducibility of the mask-composite behavior.
+- **Human test checklist**: `tests/checklists/v0.12.0__Feature__mask-input-composite.md`.
+
+### Changed
+- `CalculationContext` and `calculate_dimensions` gained a `mask` parameter.
+- `_generate_output_image` and `_generate_latent` gained `mask=` kwargs.
+- `cache_key` in `_prepare_output_mode` now includes mask identity.
+- README: added "Mask input" feature bullet, "Mask Input (v0.12.0+)" usage
+  subsection, and a link to the new guide under Documentation.
+
 ## [0.11.4] - 2026-03-30
 
 ### Changed

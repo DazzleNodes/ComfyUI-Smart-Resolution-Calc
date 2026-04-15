@@ -54,6 +54,8 @@ from .image_utils import (
     create_preview_image as _create_preview_image,
     create_latent as _create_latent,
     get_image_dimensions_from_path,
+    fit_mask_to_target as _fit_mask_to_target,
+    composite_with_mask as _composite_with_mask,
 )
 
 
@@ -118,7 +120,7 @@ class CalculationContext:
     def __init__(self, aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
                  batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
                  fill_color, blend_strength, cutoff, feature_size, fill_image,
-                 dazzle_options, fill_seed, kwargs):
+                 mask, dazzle_options, fill_seed, kwargs):
         # ===== Inputs (from ComfyUI) =====
         self.aspect_ratio: str = aspect_ratio
         self.divisible_by: str = divisible_by
@@ -138,6 +140,7 @@ class CalculationContext:
         self.feature_size: int = feature_size  # Pixel feature size override (-1 = disabled)
         self.dazzle_options: dict = dazzle_options or {}  # Advanced config from DazzleOptionsNode
         self.fill_image = fill_image          # Optional[torch.Tensor]
+        self.mask = mask                      # Optional[torch.Tensor] — [B,H,W] or [H,W] or [B,H,W,1]
         self.fill_seed = fill_seed            # Optional[dict] — {on: bool, value: int}
         self.kwargs: dict = kwargs
 
@@ -310,6 +313,9 @@ class SmartResolutionCalc:
                 "fill_image": ("IMAGE", {
                     "tooltip": "Optional custom fill image. When connected, overrides fill_type for padding/empty areas.\nConnect any noise generator (e.g., DazNoise OmniNoise) for custom fill patterns.\nThe image will be scaled to match target dimensions."
                 }),
+                "mask": ("MASK", {
+                    "tooltip": "Optional mask to cut out parts of the input image.\nMask=1 keeps the image; mask=0 is replaced by fill_image (if connected) or the fill_type pattern.\nMask is auto-fit to the final output dimensions (nearest-exact) so it works with any output_image_mode.\nIgnored when no input image is present or when image_purpose is 'dimensions only'/'img2noise' (those modes do not emit the input image)."
+                }),
                 "dazzle_options": ("DAZZLE_OPTIONS", {
                     "tooltip": "Advanced configuration from DazzleOptions node. Controls spectral normalization algorithm, cutoff curve shape, and other advanced features. Optional — defaults apply without connection."
                 }),
@@ -358,7 +364,22 @@ class SmartResolutionCalc:
                     # if JS hook is working, but safety net)
                     logger.debug(f"IS_CHANGED: unresolved special seed {seed_value}, returning NaN")
                     return float("NaN")
-        return ""  # Fixed/resolved seed or seed off — let ComfyUI cache
+
+        # Mask invalidation: ComfyUI caches node outputs unless IS_CHANGED returns
+        # a different value. A new/edited mask must trigger re-execution.
+        mask = kwargs.get('mask')
+        if mask is not None:
+            try:
+                # Cheap fingerprint: shape + sum + mean. Enough to catch most edits
+                # without hashing the full tensor.
+                shape = tuple(mask.shape)
+                s = float(mask.sum().item())
+                m = float(mask.mean().item())
+                return f"mask:{shape}:{s:.6f}:{m:.6f}"
+            except Exception:
+                # If we can't fingerprint (unexpected type), force re-run
+                return float("NaN")
+        return ""  # Fixed/resolved seed or seed off, no mask — let ComfyUI cache
     # get_image_dimensions_from_path extracted to image_utils.py
 
     def calculate_dimensions_api(widgets, runtime_context=None):
@@ -517,7 +538,7 @@ class SmartResolutionCalc:
                             image=None, vae=None, image_purpose="img2img",
                             output_image_mode="auto", fill_type="black",
                             fill_color="#808080", blend_strength=0.0, cutoff=0.2,
-                            feature_size=-1, fill_image=None,
+                            feature_size=-1, fill_image=None, mask=None,
                             dazzle_options=None, dazzle_signal=None,
                             fill_seed=None, **kwargs):
         """
@@ -585,7 +606,7 @@ class SmartResolutionCalc:
             aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
             batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
             fill_color, blend_strength, cutoff, feature_size, fill_image,
-            dazzle_options, fill_seed, kwargs
+            mask, dazzle_options, fill_seed, kwargs
         )
 
         # Pipeline stages
@@ -637,7 +658,8 @@ class SmartResolutionCalc:
         self._resolve_image_purpose(ctx)
         ctx.output_image = self._generate_output_image(
             ctx.actual_mode, ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color,
-            ctx.batch_size, ctx.fill_image, ctx.cache_key, ctx.seed_active, ctx.actual_seed
+            ctx.batch_size, ctx.fill_image, ctx.cache_key, ctx.seed_active, ctx.actual_seed,
+            mask=ctx.mask, use_image_for_output=ctx.use_image_for_output
         )
 
         # Preview (generated after output_image so we can show the transform result)
@@ -672,7 +694,7 @@ class SmartResolutionCalc:
             ctx.cutoff, ctx.seed_active, ctx.actual_seed, ctx.cache_key,
             ctx.use_image_for_latent_encode, ctx.use_image_for_noise_shape,
             getattr(ctx, 'noise_shape_transform', None), ctx.fill_color,
-            ctx.dazzle_options
+            ctx.dazzle_options, mask=ctx.mask
         )
 
         # Info string assembly
@@ -927,7 +949,8 @@ class SmartResolutionCalc:
             ctx.actual_mode = "empty"
 
         ctx.cache_key = (ctx.fill_type, ctx.actual_seed if ctx.seed_active else None,
-                         ctx.w, ctx.h, ctx.batch_size, ctx.fill_image is not None)
+                         ctx.w, ctx.h, ctx.batch_size, ctx.fill_image is not None,
+                         id(ctx.mask) if ctx.mask is not None else None)
 
     def _resolve_image_purpose(self, ctx):
         """Resolve image_purpose into routing flags for output generation.
@@ -1018,12 +1041,16 @@ class SmartResolutionCalc:
         if seed_info:
             ctx.info = f"{ctx.info} | {seed_info}"
 
+        if ctx.mask is not None and ctx.use_image_for_output and ctx.actual_mode != "empty" and ctx.image is not None:
+            ctx.info = f"{ctx.info} | Mask: cut"
+
         # Override warning for exact dims mode
         if ctx.exact_dims and ctx.override_warning:
             ctx.info = f"[Manual W/H Ignored] | {ctx.info}"
 
     def _generate_output_image(self, actual_mode, image, w, h, fill_type, fill_color,
-                               batch_size, fill_image, cache_key, seed_active, actual_seed):
+                               batch_size, fill_image, cache_key, seed_active, actual_seed,
+                               mask=None, use_image_for_output=True):
         """
         Generate the output image based on the selected mode.
 
@@ -1101,6 +1128,33 @@ class SmartResolutionCalc:
             logger.warning(f"Invalid output_image_mode '{actual_mode}', using empty image")
             output_image = _create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
 
+        # Mask composite: cut out parts of the input image, replace with fill_image/fill_type.
+        # Only active when: mask connected, input image emitted (img2img-family), and a real
+        # transform happened (actual_mode != "empty"). For actual_mode=="empty", output_image
+        # is already the fill pattern — nothing to cut.
+        print(f"[SmartResCalc] Mask gate: mask={'yes' if mask is not None else 'no'}, "
+              f"use_image_for_output={use_image_for_output}, actual_mode={actual_mode!r}, "
+              f"image={'yes' if image is not None else 'no'}")
+        if mask is not None and use_image_for_output and actual_mode != "empty" and image is not None:
+            try:
+                fg = output_image  # transformed input image at (h, w)
+                bg = _create_empty_image(w, h, fill_type, fill_color, fg.shape[0], fill_image)
+                fitted_mask = _fit_mask_to_target(mask, h, w)
+                logger.debug(
+                    f"Mask composite: fg={tuple(fg.shape)}, bg={tuple(bg.shape)}, "
+                    f"mask={tuple(fitted_mask.shape)}, mean={float(fitted_mask.mean()):.3f}"
+                )
+                output_image = _composite_with_mask(fg, bg, fitted_mask)
+                print(f"[SmartResCalc] Mask composite APPLIED (mean mask={float(fitted_mask.mean()):.3f})")
+            except Exception as e:
+                logger.error(f"Mask composite failed: {e}")
+                print(f"[SmartResCalc] WARNING: Mask composite failed ({e}), using uncomposited image")
+        elif mask is not None:
+            logger.debug(
+                f"Mask provided but skipped (use_image_for_output={use_image_for_output}, "
+                f"actual_mode={actual_mode}, image={'yes' if image is not None else 'no'})"
+            )
+
         return output_image
 
     def _generate_latent(self, vae, image, output_image, actual_mode, w, h, batch_size,
@@ -1108,7 +1162,7 @@ class SmartResolutionCalc:
                          seed_active, actual_seed,
                          cache_key, use_image_for_latent_encode=True,
                          use_image_for_noise_shape=False, noise_shape_transform=None,
-                         fill_color="#808080", dazzle_options=None):
+                         fill_color="#808080", dazzle_options=None, mask=None):
         """
         Generate latent output based on VAE presence, fill type, and image_purpose flags.
 
@@ -1279,6 +1333,18 @@ class SmartResolutionCalc:
                         else:
                             transformed = _transform_image(image, w, h)
                         logger.debug(f"img2noise: transformed input image via '{transform_mode}' to {w}x{h}")
+
+                        # Apply mask cutout to the spectral pattern source so img2noise
+                        # noise is shaped from the cut image, not the full original.
+                        if mask is not None:
+                            try:
+                                bg_pat = _create_empty_image(w, h, fill_type, fill_color, transformed.shape[0], fill_image)
+                                fitted_mask_pat = _fit_mask_to_target(mask, h, w)
+                                transformed = _composite_with_mask(transformed, bg_pat, fitted_mask_pat)
+                                logger.debug(f"img2noise: mask composite applied to pattern source (mean={float(fitted_mask_pat.mean()):.3f})")
+                                print(f"[SmartResCalc] img2noise pattern: mask composite APPLIED")
+                            except Exception as e:
+                                logger.error(f"img2noise mask composite failed: {e}")
 
                         if vae is not None:
                             # VAE-encode to get proper latent-space pattern

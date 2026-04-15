@@ -123,6 +123,77 @@ def create_empty_image(
 
     return image
 
+def fit_mask_to_target(mask: torch.Tensor, target_height: int, target_width: int) -> torch.Tensor:
+    """
+    Resize a mask to (target_height, target_width) with nearest-exact interpolation.
+
+    Accepts mask shapes [H,W], [B,H,W], or [B,H,W,1]. Returns [B,H,W] float tensor in [0,1].
+    """
+    import torch.nn.functional as F
+
+    if mask.ndim == 2:
+        mask = mask.unsqueeze(0)
+    elif mask.ndim == 4:
+        mask = mask.squeeze(-1)
+    elif mask.ndim != 3:
+        raise ValueError(f"Unexpected mask shape: {tuple(mask.shape)}")
+
+    b, h, w = mask.shape
+    if h == target_height and w == target_width:
+        return torch.clamp(mask, 0.0, 1.0)
+
+    mask_4d = mask.unsqueeze(1)  # [B,1,H,W]
+    scaled = F.interpolate(mask_4d, size=(target_height, target_width), mode="nearest-exact")
+    return torch.clamp(scaled.squeeze(1), 0.0, 1.0)
+
+
+def composite_with_mask(fg: torch.Tensor, bg: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """
+    Alpha-blend foreground over background using a mask.
+
+    fg, bg: [B, H, W, C] tensors (same H,W; C must match or bg broadcasts).
+    mask: [B, H, W] in [0,1]. Mask=1 keeps fg, mask=0 keeps bg.
+
+    Batch broadcasting: if one of fg/bg/mask has batch=1, it is expanded to the max batch.
+    Device: bg and mask are moved to fg's device and dtype before blending.
+    """
+    # Align device + dtype to fg (DazNoise fills may be on GPU; masks from LoadImage are CPU)
+    if bg.device != fg.device or bg.dtype != fg.dtype:
+        bg = bg.to(device=fg.device, dtype=fg.dtype)
+    if mask.device != fg.device or mask.dtype != fg.dtype:
+        mask = mask.to(device=fg.device, dtype=fg.dtype)
+
+    # Align spatial dims
+    if fg.shape[1:3] != bg.shape[1:3]:
+        raise ValueError(f"fg {tuple(fg.shape)} and bg {tuple(bg.shape)} spatial dims differ")
+    if mask.shape[1:3] != fg.shape[1:3]:
+        raise ValueError(f"mask {tuple(mask.shape)} spatial dims don't match fg {tuple(fg.shape[1:3])}")
+
+    # Batch broadcast
+    target_b = max(fg.shape[0], bg.shape[0], mask.shape[0])
+    def _expand_batch(t, nd):
+        if t.shape[0] == target_b:
+            return t
+        if t.shape[0] == 1:
+            return t.expand(target_b, *t.shape[1:])
+        raise ValueError(f"Batch mismatch: got {t.shape[0]}, expected {target_b} or 1")
+    fg = _expand_batch(fg, 4)
+    bg = _expand_batch(bg, 4)
+    mask = _expand_batch(mask, 3)
+
+    # Channel-align bg to fg
+    if bg.shape[3] != fg.shape[3]:
+        if bg.shape[3] == 1:
+            bg = bg.expand(-1, -1, -1, fg.shape[3])
+        elif bg.shape[3] > fg.shape[3]:
+            bg = bg[..., : fg.shape[3]]
+        else:
+            raise ValueError(f"bg channels {bg.shape[3]} cannot match fg channels {fg.shape[3]}")
+
+    mask4 = mask.unsqueeze(-1)  # [B,H,W,1]
+    return torch.clamp(mask4 * fg + (1.0 - mask4) * bg, 0.0, 1.0)
+
+
 def transform_image(image: torch.Tensor, target_width: int, target_height: int) -> torch.Tensor:
     """
     Transform input image to target dimensions using bilinear interpolation (distort mode).
