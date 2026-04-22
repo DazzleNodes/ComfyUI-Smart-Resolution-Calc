@@ -141,6 +141,45 @@ This is why the usable blend range expanded dramatically — the noise maintains
 
 **Tip**: When using images as pattern sources, consider desaturating the input first. The spectral blend transfers both spatial structure AND color information from the VAE-encoded pattern. At moderate blend values, the image's colors can seep through as stylistic tinting. Desaturating the input keeps the composition influence while preventing unwanted color bias. This pairs well with DazNoise: Greyscale as the fill_type.
 
+## Hybrid fill_type + image via Recursive Blend (v0.12.1+)
+
+Before v0.12.1, `img2noise` and `img2img + img2noise` used EITHER the image OR fill_type as the spectral pattern — one or the other, never both. Users who wanted composition transfer (from the image) AND a specific noise texture (from fill_type) had no way to combine them.
+
+v0.12.1 introduces `fill_blend_strength`, a secondary weight that enables a two-stage recursive spectral blend:
+
+```
+Stage 1 (when fill_blend_strength > 0):
+    flavored_noise = spectral_blend(
+        pattern = fill_type,           # e.g., DazNoise:Plasma
+        noise   = Gaussian,            # white noise baseline
+        alpha   = fill_blend_strength, # secondary strength
+        cutoff  = cutoff               # shared with stage 2
+    )
+
+Stage 2 (always runs in img2noise modes):
+    final_noise = spectral_blend(
+        pattern = image_pattern,       # VAE-encoded input image
+        noise   = flavored_noise,      # now has fill_type character
+        alpha   = blend_strength,      # primary strength
+        cutoff  = cutoff               # same
+    )
+```
+
+**Order matters**: fill_type goes first because it's a *texture layered onto noise*; image goes second because it's the *dominant structural element*. Reversing the order would let fill_type's low-frequency structure dominate below the cutoff and lose the image's composition.
+
+**Short-circuit at 0**: `fill_blend_strength=0.0` is the default and short-circuits stage 1 entirely. The pipeline is bit-identical to pre-v0.12.1 behavior (modulo cache key containing the new field, which doesn't change computed values).
+
+**UI**: The SpectralBlend2D widget header shows two blend values in applicable modes — `blend: 0.88 0.14 | cutoff: 0.20`. First number = primary pattern (image in img2noise), second number = secondary fill_type texture. The 2D pad controls the primary only; the secondary is click-to-edit. In modes where fill_type is already primary (`dimensions only`, `image + noise`) or absent (`img2img`), the second value is hidden — only one pattern source is active.
+
+**Typical values**:
+- `0.10 - 0.20` — subtle texture flavor (DazNoise:Plasma as secondary with a photo primary)
+- `0.30 - 0.50` — moderate texture contribution
+- `> 0.5` — strong fill_type character; may compete with image structure
+
+**Plasma caveat**: DazNoise:Plasma has strong low-frequency blobs. Keep `fill_blend_strength` modest for Plasma (e.g., 0.10-0.20); higher values can overwhelm image composition. DazNoise:Brown / Greyscale / Pink tolerate higher secondary strengths.
+
+**Semantic framing**: `blend_strength` is always "primary pattern dominance over the base noise." The primary pattern depends on the mode (fill_type in dimensions-only; image in img2noise). `fill_blend_strength` is always "fill_type participation as a secondary texture layer" — only meaningful when fill_type isn't already primary.
+
 ## Technical Details
 
 ### The Two Controls

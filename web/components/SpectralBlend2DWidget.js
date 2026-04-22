@@ -35,6 +35,8 @@ class SpectralBlend2DWidget extends DazzleWidget {
         super(name, { blend: 0.0, cutoff: 0.2 }, config);
         this.blendWidget = blendWidget;   // Reference to native blend_strength widget
         this.cutoffWidget = cutoffWidget; // Reference to native cutoff widget
+        this.fillBlendWidget = config.fillBlendWidget || null;  // fill_blend_strength (secondary)
+        this.imagePurposeWidget = config.imagePurposeWidget || null;  // for visibility check
         this.featureSizeWidget = config.featureSizeWidget || null; // Reference to native feature_size widget
         this.expanded = false;            // Collapsed by default — click to expand
         this._height = 23;               // Collapsed height (extra px for spacing below)
@@ -116,6 +118,36 @@ class SpectralBlend2DWidget extends DazzleWidget {
         const cutoff = Number(this.cutoffWidget ? (this.cutoffWidget.value ?? 0.2) : this.value.cutoff) || 0.2;
         const featureSize = this.featureSizeWidget ? (Number(this.featureSizeWidget.value) || -1) : -1;
         return { blend, cutoff, featureSize };
+    }
+
+    /**
+     * Read fill_blend_strength (secondary blend value, only used in img2noise modes)
+     */
+    _readFillBlend() {
+        return Number(this.fillBlendWidget ? (this.fillBlendWidget.value ?? 0.0) : 0.0) || 0.0;
+    }
+
+    /**
+     * Write fill_blend_strength to native widget
+     */
+    _writeFillBlend(value) {
+        value = Math.round(value * 1000) / 1000;
+        value = Math.max(0.0, Math.min(1.0, value));
+        if (this.fillBlendWidget) {
+            this.fillBlendWidget.value = value;
+            if (this.fillBlendWidget.callback) this.fillBlendWidget.callback(value);
+        }
+    }
+
+    /**
+     * Check if the secondary (fill_blend_strength) value is applicable for the
+     * current image_purpose. Only img2noise and img2img+img2noise use fill_type
+     * as a secondary pattern layer.
+     */
+    _isFillApplicable() {
+        if (!this.fillBlendWidget) return false;
+        const purpose = this.imagePurposeWidget?.value;
+        return purpose === "img2noise" || purpose === "img2img + img2noise";
     }
 
     /**
@@ -207,9 +239,30 @@ class SpectralBlend2DWidget extends DazzleWidget {
         this.hitAreas.blendValue = { x: blendX, y: y + 2, width: blendTextWidth, height: 18,
                                      numX: blendNumX, numW: blendNumW };
 
+        // Secondary fill_blend_strength value (only in img2noise modes) — clickable
+        // Rendered with a single-space separator; position encodes role (secondary)
+        let afterBlendX = blendX + blendTextWidth;
+        const fillApplicable = this._isFillApplicable();
+        if (fillApplicable) {
+            const fillBlend = this._readFillBlend();
+            const fillText = fillBlend.toFixed(3);
+            const singleSpaceWidth = ctx.measureText(" ").width;
+            const fillX = afterBlendX + singleSpaceWidth;
+            ctx.fillStyle = "#ddd";
+            ctx.fillText(fillText, fillX, y + 16);
+            const fillTextWidth = ctx.measureText(fillText).width;
+            this.hitAreas.fillBlendValue = {
+                x: fillX, y: y + 2, width: fillTextWidth, height: 18,
+                numX: fillX, numW: fillTextWidth,
+            };
+            afterBlendX = fillX + fillTextWidth;
+        } else {
+            this.hitAreas.fillBlendValue = null;
+        }
+
         // Separator
         ctx.fillStyle = "#666";
-        ctx.fillText("|", blendX + blendTextWidth + 6, y + 16);
+        ctx.fillText("|", afterBlendX + 6, y + 16);
 
         // Cutoff value (clickable) — show "px" suffix when in pixel mode (>1.0)
         const isPixelMode = cutoff > 1.0;
@@ -218,7 +271,7 @@ class SpectralBlend2DWidget extends DazzleWidget {
             : `cutoff: ${cutoff.toFixed(3)}`;
         const cutoffLabelWidth = ctx.measureText("cutoff: ").width;
         ctx.fillStyle = "#ddd";
-        const cutoffX = blendX + blendTextWidth + 18;
+        const cutoffX = afterBlendX + 18;
         ctx.fillText(cutoffText, cutoffX, y + 16);
         const cutoffTextWidth = ctx.measureText(cutoffText).width;
         const cutoffNumX = cutoffX + cutoffLabelWidth;
@@ -533,6 +586,16 @@ class SpectralBlend2DWidget extends DazzleWidget {
                 this._showInlineEdit(node, this.hitAreas.blendValue, blend.toFixed(3), "0.0-1.0", (val) => {
                     const parsed = parseFloat(val);
                     if (!isNaN(parsed)) { this._writeValues(parsed, cutoff); node.setDirtyCanvas(true); }
+                });
+                return true;
+            }
+
+            // Check if click is on fill_blend_strength value (secondary, img2noise modes only)
+            if (this.hitAreas.fillBlendValue && this.isInBounds(pos, this.hitAreas.fillBlendValue)) {
+                const fillBlend = this._readFillBlend();
+                this._showInlineEdit(node, this.hitAreas.fillBlendValue, fillBlend.toFixed(3), "0.0-1.0", (val) => {
+                    const parsed = parseFloat(val);
+                    if (!isNaN(parsed)) { this._writeFillBlend(parsed); node.setDirtyCanvas(true); }
                 });
                 return true;
             }

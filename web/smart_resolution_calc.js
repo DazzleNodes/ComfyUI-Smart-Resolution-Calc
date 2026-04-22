@@ -197,11 +197,15 @@ app.registerExtension({
                 const blendWidget = this.widgets.find(w => w.name === "blend_strength");
                 const cutoffNativeWidget = this.widgets.find(w => w.name === "cutoff");
                 const featureSizeWidget = this.widgets.find(w => w.name === "feature_size");
+                const fillBlendWidget = this.widgets.find(w => w.name === "fill_blend_strength");
+                // Reuse imagePurposeRef from the earlier reposition block (line ~183)
                 if (blendWidget && cutoffNativeWidget) {
                     const blend2DWidget = new SpectralBlend2DWidget(
                         "spectral_blend_2d", blendWidget, cutoffNativeWidget, {
                             tooltipContent: TOOLTIP_CONTENT.spectral_blend,
-                            featureSizeWidget: featureSizeWidget
+                            featureSizeWidget: featureSizeWidget,
+                            fillBlendWidget: fillBlendWidget,
+                            imagePurposeWidget: imagePurposeRef,
                         }
                     );
                     this.addCustomWidget(blend2DWidget);
@@ -214,19 +218,31 @@ app.registerExtension({
                     const cutoffIdx = this.widgets.indexOf(cutoffNativeWidget);
                     this.widgets.splice(cutoffIdx + 1, 0, blend2DWidget);
 
-                    // Make native blend_strength and cutoff sliders zero-height but still functional
-                    // Using hideWidget() would suppress serialization/dirty detection
-                    // Instead, override only draw and computeSize to make them invisible
-                    // while keeping the widget fully functional for ComfyUI's value tracking
-                    for (const w of [blendWidget, cutoffNativeWidget, featureSizeWidget].filter(Boolean)) {
+                    // Make native blend_strength, cutoff, feature_size, fill_blend_strength
+                    // sliders zero-height but still functional. Values flow through our
+                    // custom widget's header (clickable fields) rather than the native sliders.
+                    // Using hideWidget() would suppress serialization/dirty detection —
+                    // instead we override only draw and computeSize.
+                    for (const w of [blendWidget, cutoffNativeWidget, featureSizeWidget, fillBlendWidget].filter(Boolean)) {
                         if (w) {
                             w._origDraw = w.draw;
                             w.draw = function() {};
                             w._origComputeSize = w.computeSize;
                             w.computeSize = function() { return [0, -4]; };
-                            // Native tooltips kept — they show on the hidden widgets' area
-                            // Our custom tooltip on "SPECTRAL" provides richer context
                         }
+                    }
+
+                    // Re-render on image_purpose change so the secondary blend value
+                    // shows/hides correctly when user switches modes
+                    // NOTE: the image_purpose callback is wrapped again later at line ~598 for
+                    // output_image_mode visibility. Both wrappers chain via origCallback.
+                    if (imagePurposeRef) {
+                        const origPurposeCallback = imagePurposeRef.callback;
+                        const nodeRef = this;
+                        imagePurposeRef.callback = function(value) {
+                            if (origPurposeCallback) origPurposeCallback.call(this, value);
+                            nodeRef.setDirtyCanvas(true, true);
+                        };
                     }
 
                     logger.debug('Added SpectralBlend2DWidget after cutoff');

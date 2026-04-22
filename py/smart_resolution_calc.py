@@ -120,7 +120,7 @@ class CalculationContext:
     def __init__(self, aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
                  batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
                  fill_color, blend_strength, cutoff, feature_size, fill_image,
-                 mask, dazzle_options, fill_seed, kwargs):
+                 mask, dazzle_options, fill_seed, kwargs, fill_blend_strength=0.0):
         # ===== Inputs (from ComfyUI) =====
         self.aspect_ratio: str = aspect_ratio
         self.divisible_by: str = divisible_by
@@ -135,6 +135,7 @@ class CalculationContext:
         self.fill_type: str = fill_type
         self.fill_color: str = fill_color
         self.blend_strength: float = blend_strength
+        self.fill_blend_strength: float = fill_blend_strength  # Secondary fill_type layer (0 = current behavior)
         self.cutoff_raw: float = cutoff  # Raw value from widget (may be Nyquist or pixels)
         self.cutoff: float = cutoff     # Effective Nyquist-relative (resolved before latent gen)
         self.feature_size: int = feature_size  # Pixel feature size override (-1 = disabled)
@@ -281,6 +282,13 @@ class SmartResolutionCalc:
                     "max": 1.0,
                     "step": 0.001,
                     "tooltip": "Spectral blend strength for noise-to-latent pipeline. Controls how much the fill_type noise pattern's spatial structure influences the latent output.\n\n0.0 = Pure Gaussian (no influence)\n0.1-0.3 = Subtle structural influence\n0.3-0.5 = Moderate (recommended)\n0.5-0.7 = Strong (less prompt adherence)\n0.7-1.0 = Very strong (pattern dominates)\n\nOnly active when fill_type is a noise pattern (noise, random, DazNoise). No effect with black/white/custom_color."
+                }),
+                "fill_blend_strength": ("FLOAT", {
+                    "default": 0.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.001,
+                    "tooltip": "Secondary texture layer: fill_type's contribution to noise character.\n\nOnly active in image_purpose=img2noise and img2img+img2noise modes, where the image is the primary structural pattern. This knob controls how much fill_type (Plasma, Brown, etc.) participates as a secondary texture in the noise pipeline.\n\n0.0 = fill_type ignored in noise (current img2noise behavior)\n0.1-0.2 = Subtle texture flavor\n0.3-0.5 = Moderate texture contribution\n0.5+ = Strong fill_type character (may compete with image structure)\n\nStage 1: blend(fill_type, Gaussian, fill_blend_strength, cutoff) -> flavored noise\nStage 2: blend(image, flavored_noise, blend_strength, cutoff) -> final latent"
                 }),
                 "cutoff": ("FLOAT", {
                     "default": 0.2,
@@ -540,7 +548,7 @@ class SmartResolutionCalc:
                             fill_color="#808080", blend_strength=0.0, cutoff=0.2,
                             feature_size=-1, fill_image=None, mask=None,
                             dazzle_options=None, dazzle_signal=None,
-                            fill_seed=None, **kwargs):
+                            fill_seed=None, fill_blend_strength=0.0, **kwargs):
         """
         Calculate dimensions based on active toggle inputs from custom widgets.
 
@@ -594,7 +602,7 @@ class SmartResolutionCalc:
         """
         # ALWAYS log that function was called (critical diagnostic)
         logger.debug(f"calculate_dimensions() CALLED - aspect_ratio={aspect_ratio}, divisible_by={divisible_by}")
-        logger.debug(f"PARAMS: blend_strength={blend_strength}, cutoff={cutoff}, feature_size={feature_size}, fill_type={fill_type}, image_purpose={image_purpose}")
+        logger.debug(f"PARAMS: blend_strength={blend_strength}, fill_blend_strength={fill_blend_strength}, cutoff={cutoff}, feature_size={feature_size}, fill_type={fill_type}, image_purpose={image_purpose}")
 
         # Debug logging for kwargs
         logger.debug(f"Function called with standard args: aspect_ratio={aspect_ratio}, divisible_by={divisible_by}, custom_ratio={custom_ratio}")
@@ -606,7 +614,8 @@ class SmartResolutionCalc:
             aspect_ratio, divisible_by, custom_ratio, custom_aspect_ratio,
             batch_size, scale, image, vae, image_purpose, output_image_mode, fill_type,
             fill_color, blend_strength, cutoff, feature_size, fill_image,
-            mask, dazzle_options, fill_seed, kwargs
+            mask, dazzle_options, fill_seed, kwargs,
+            fill_blend_strength=fill_blend_strength,
         )
 
         # Pipeline stages
@@ -694,7 +703,8 @@ class SmartResolutionCalc:
             ctx.cutoff, ctx.seed_active, ctx.actual_seed, ctx.cache_key,
             ctx.use_image_for_latent_encode, ctx.use_image_for_noise_shape,
             getattr(ctx, 'noise_shape_transform', None), ctx.fill_color,
-            ctx.dazzle_options, mask=ctx.mask
+            ctx.dazzle_options, mask=ctx.mask,
+            fill_blend_strength=ctx.fill_blend_strength,
         )
 
         # Info string assembly
@@ -1162,7 +1172,8 @@ class SmartResolutionCalc:
                          seed_active, actual_seed,
                          cache_key, use_image_for_latent_encode=True,
                          use_image_for_noise_shape=False, noise_shape_transform=None,
-                         fill_color="#808080", dazzle_options=None, mask=None):
+                         fill_color="#808080", dazzle_options=None, mask=None,
+                         fill_blend_strength=0.0):
         """
         Generate latent output based on VAE presence, fill type, and image_purpose flags.
 
@@ -1223,6 +1234,29 @@ class SmartResolutionCalc:
                 # img2img + img2noise: also generate image-shaped noise alongside VAE-encoded latent
                 # Uses the same VAE-encoded image as pattern source (already in latent space)
                 if use_image_for_noise_shape and image is not None:
+                    # Stage 1 (optional): build fill_type pattern in latent space FIRST,
+                    # while seed state is predictable (before gaussian consumes RNG).
+                    # Triggered by fill_blend_strength > 0 + non-trivial fill_type.
+                    do_stage_1 = fill_blend_strength > 0.0 and has_nontrivial_fill
+                    fill_pattern_latent = None
+                    if do_stage_1:
+                        if seed_active and actual_seed >= 0:
+                            torch.manual_seed(actual_seed)
+                        fill_pattern_pixels = _create_empty_image(
+                            w, h, fill_type, fill_color, batch_size, fill_image
+                        )
+                        fill_pixels = fill_pattern_pixels
+                        if fill_pixels.shape[3] > 3:
+                            fill_pixels = fill_pixels[:, :, :, :3]
+                        if not fill_pixels.is_contiguous():
+                            fill_pixels = fill_pixels.contiguous()
+                        fill_pattern_latent = vae.encode(fill_pixels)
+                        fill_pattern_latent = fill_pattern_latent - fill_pattern_latent.mean()
+                        fill_pattern_latent = fill_pattern_latent / (fill_pattern_latent.std() + 1e-8)
+                        logger.debug(f"Stage 1 (img2img+img2noise hybrid): VAE-encoded {fill_type} "
+                                     f"pattern, shape={fill_pattern_latent.shape}")
+
+                    # Re-seed so gaussian_noise is deterministic regardless of stage 1 RNG usage
                     if seed_active and actual_seed >= 0:
                         torch.manual_seed(actual_seed)
                     gaussian_noise = torch.randn_like(latent["samples"])
@@ -1252,14 +1286,27 @@ class SmartResolutionCalc:
                     norm_mode = opts.get('norm_mode', 'auto')
                     use_per_bin = norm_mode != 'global_rms'  # per-bin unless explicitly global_rms
 
+                    # Stage 1 recursive blend: fill_type -> flavored_noise (replaces gaussian_noise input for stage 2)
+                    if do_stage_1 and fill_pattern_latent is not None:
+                        flavored_noise = spectral_noise_blend(
+                            fill_pattern_latent, gaussian_noise,
+                            alpha=fill_blend_strength, cutoff=cutoff,
+                            per_bin_normalize=False,
+                        )
+                        stage_2_noise = flavored_noise
+                        logger.debug(f"Stage 1 complete: alpha={fill_blend_strength}, cutoff={cutoff}")
+                    else:
+                        stage_2_noise = gaussian_noise
+
                     shaped_noise = spectral_noise_blend(
-                        pattern_resized, gaussian_noise,
+                        pattern_resized, stage_2_noise,
                         alpha=effective_blend, cutoff=cutoff,
                         per_bin_normalize=use_per_bin
                     )
                     latent["noise"] = shaped_noise
                     latent["use_as_noise"] = True
-                    latent_source = f"VAE Encoded + Image-Shaped Noise (blend={effective_blend})"
+                    fill_label = f"+fill={fill_blend_strength}" if do_stage_1 else ""
+                    latent_source = f"VAE Encoded + Image-Shaped Noise (blend={effective_blend}{fill_label})"
                     logger.debug(f"Layered img2img+img2noise: noise shape={shaped_noise.shape}")
 
             except Exception as e:
@@ -1285,8 +1332,9 @@ class SmartResolutionCalc:
             image_shape_key = tuple(image.shape) if (use_image_for_noise_shape and image is not None) else None
             opts = dazzle_options or {}
             opts_cache_key = (opts.get('norm_mode', 'auto'),)
-            noise_cache_key = (cache_key, blend_strength, cutoff, use_image_for_noise_shape,
-                               noise_shape_transform, image_shape_key, opts_cache_key)
+            noise_cache_key = (cache_key, blend_strength, fill_blend_strength, cutoff,
+                               use_image_for_noise_shape, noise_shape_transform,
+                               image_shape_key, opts_cache_key)
 
             # Check cache first
             if (self._noise_cache_key == noise_cache_key and self._noise_cache_latent is not None):
@@ -1408,12 +1456,53 @@ class SmartResolutionCalc:
                     else:  # global_rms
                         use_per_bin = False
 
+                    # Stage 1 (optional): hybrid fill_type + image in img2noise modes.
+                    # When fill_blend_strength > 0, pre-blend fill_type pattern into Gaussian
+                    # to produce "flavored noise" with fill_type character, then use that as
+                    # the noise source for the main (image-pattern) blend below.
+                    # Requires image as primary pattern AND non-trivial fill_type.
+                    # See private/claude/2026-04-22__01-12-26__dev-workflow-img2noise-fill-type-hybrid.md
+                    do_stage_1 = (
+                        use_image_for_noise_shape and image is not None
+                        and fill_blend_strength > 0.0
+                        and has_nontrivial_fill
+                    )
+                    if do_stage_1:
+                        # Build fill_pattern from output_image (which IS the fill_type
+                        # rendering in img2noise mode — actual_mode="empty")
+                        fill_pattern_pixel = output_image.permute(0, 3, 1, 2)  # [B, 3, H, W]
+                        fill_pattern_resized = torch.nn.functional.interpolate(
+                            fill_pattern_pixel, size=(latent_h, latent_w),
+                            mode='bilinear', align_corners=False,
+                        )
+                        if fill_pattern_resized.shape[1] < latent_channels:
+                            repeats = (latent_channels + fill_pattern_resized.shape[1] - 1) // fill_pattern_resized.shape[1]
+                            fill_pattern_resized = fill_pattern_resized.repeat(1, repeats, 1, 1)[:, :latent_channels]
+                        if gaussian_noise.ndim == 5:
+                            fill_pattern_resized = fill_pattern_resized.unsqueeze(2)
+                        fill_pattern_resized = fill_pattern_resized - fill_pattern_resized.mean()
+
+                        # Stage 1: fill_type low-freq + Gaussian high-freq -> flavored noise
+                        # Use global_rms (per_bin_normalize=False) to match dimensions-only behavior
+                        flavored_noise = spectral_noise_blend(
+                            fill_pattern_resized, gaussian_noise,
+                            alpha=fill_blend_strength, cutoff=cutoff,
+                            per_bin_normalize=False,
+                        )
+                        stage_2_noise = flavored_noise
+                        logger.debug(f"Stage 1 (img2noise hybrid): blended {fill_type} into Gaussian, "
+                                     f"fill_alpha={fill_blend_strength}, cutoff={cutoff}")
+                    else:
+                        stage_2_noise = gaussian_noise
+
                     latent["samples"] = spectral_noise_blend(
-                        pattern_resized, gaussian_noise,
+                        pattern_resized, stage_2_noise,
                         alpha=effective_blend, cutoff=cutoff,
                         per_bin_normalize=use_per_bin
                     )
                     blend_label = f" blend={effective_blend}"
+                    if do_stage_1:
+                        blend_label += f"+fill={fill_blend_strength}"
                     if use_image_for_noise_shape and image is not None:
                         latent_source = f"Image-Shaped Noise ({pattern_label}{blend_label})"
                     else:

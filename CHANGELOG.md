@@ -5,6 +5,40 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-04-22
+
+### Added
+- **`fill_blend_strength`** — new FLOAT input (default 0.0, range [0.0, 1.0]) that enables
+  hybrid noise generation in `image_purpose=img2noise` and `image_purpose=img2img + img2noise`
+  modes. Previously, `fill_type` was silently ignored in the LATENT pipeline for img2noise
+  modes (image replaced fill_type as the spectral pattern source — original design, but
+  surprising UX). With `fill_blend_strength > 0`, a two-stage recursive spectral blend
+  runs: stage 1 blends `fill_type` pattern into Gaussian (producing flavored noise), stage 2
+  blends `image` pattern into that flavored noise (producing final latent). Users get the
+  benefit of image structure AND fill_type texture at independent strengths.
+- **SpectralBlend2D header extension** — in applicable modes, the header now shows two
+  blend values: `blend: 0.88 0.14 | cutoff: 0.20` (primary = image, secondary = fill_type).
+  Second value is click-to-edit; 2D pad still controls only the primary. Hidden in modes
+  where fill_type is already primary (`dimensions only`, `image + noise`) or absent
+  (`img2img`).
+
+### Fixed
+- **img2noise fill_type semantic gap (#57)** — `fill_type` now participates in noise
+  generation when opted in via `fill_blend_strength`. Previously, changing fill_type with
+  a fixed seed produced identical noise in img2noise mode, confusing users who expected
+  DazNoise:Plasma vs DazNoise:Brown vs random to produce different noise. Default
+  `fill_blend_strength=0.0` preserves existing behavior exactly.
+
+### Changed
+- `_generate_latent` now conditionally runs a stage 1 spectral blend before the existing
+  image-pattern spectral blend when `fill_blend_strength > 0` and a non-trivial fill_type
+  is selected. Short-circuit guarantees bit-identical output when disabled.
+- `noise_cache_key` now includes `fill_blend_strength` so changing only this value
+  correctly invalidates cache.
+- In the `img2img + img2noise` path, `torch.manual_seed` is re-seeded before Gaussian
+  noise generation (after stage 1 fill_pattern RNG usage) to preserve seed determinism
+  regardless of whether stage 1 runs.
+
 ## [0.12.0] - 2026-04-15
 
 ### Added

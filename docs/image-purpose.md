@@ -73,6 +73,8 @@ When you connect an image to Smart Resolution Calculator, the `image_purpose` dr
 
 **Tip: Desaturate your input image.** When using img2noise, you typically want the image's spatial *structure* (composition, layout, silhouette) to influence the noise, not its *color*. Color information in the VAE-encoded pattern can seep through as stylistic coloring at moderate blend values, producing psychedelic tinting that's usually undesirable. Run the input image through a desaturate or grayscale node before connecting it to SmartResCalc. This pairs especially well with DazNoise: Greyscale as the fill_type, keeping the entire pipeline in luminance space.
 
+**Hybrid with fill_type (v0.12.1+).** By default, `fill_type` only affects the IMAGE output in img2noise — the LATENT pattern source is entirely the image. Set `fill_blend_strength > 0` (secondary value in the SpectralBlend2D header) to add fill_type as a texture layer underneath the image structure. Pipeline becomes two-stage: stage 1 mixes fill_type into Gaussian (producing flavored noise), stage 2 mixes the image into that flavored noise (final latent). Image still dominates low-freq composition; fill_type character shows up in mid/high-freq texture. Typical values: `0.10-0.20` for subtle texture, higher for stronger fill character. Default `0.0` preserves pre-v0.12.1 behavior.
+
 ### image + noise
 
 **What it does**: Independent output paths. The IMAGE output gets the transformed input image (per `output_image_mode`), but the LATENT output gets seeded noise — NOT a VAE-encoded version of the image.
@@ -113,8 +115,9 @@ When set to `dimensions only` or `img2noise`, `output_image_mode` is hidden beca
 |-----------|-------------------------------|
 | **USE IMAGE DIMS** | Always works — dimension extraction is independent of image_purpose |
 | **output_image_mode** | Only visible/relevant when image_purpose uses transforms |
-| **fill_type** | Controls IMAGE output pattern when image_purpose doesn't use image for output |
-| **blend_strength** | Controls spectral blend for noise latent. For img2noise, defaults to 0.15 if 0.0 |
+| **fill_type** | Controls IMAGE output pattern when image_purpose doesn't use image for output. Also becomes a secondary noise texture in `img2noise` / `img2img + img2noise` when `fill_blend_strength > 0` (v0.12.1+) |
+| **blend_strength** | Controls spectral blend for noise latent — strength of the *primary* pattern source (fill_type in dimensions-only / image+noise, image in img2noise / img2img+img2noise). For img2noise, defaults to 0.15 if 0.0 |
+| **fill_blend_strength** (v0.12.1+) | Secondary texture layer for img2noise modes. 0 = fill_type ignored in latent (pre-v0.12.1 behavior). >0 = fill_type participates at this strength. Displayed as second value in SpectralBlend2D header |
 | **fill_seed** | Controls noise RNG. Same seed = same noise pattern regardless of image_purpose |
 
 ## Examples
