@@ -22,17 +22,6 @@ if not logger.handlers:
     ))
     logger.addHandler(handler)
 
-# [INVEST] diagnostic logging -- gated behind a separate flag so it can
-# be enabled independently of general DEBUG-level logs. The blocks
-# below wrap data-gathering as well as printing, so when disabled there
-# is zero overhead (no tensor .sum().item() syncs, etc.).
-INVEST_ENABLED = os.getenv('COMFY_INVEST_SMART_RES_CALC', 'false').lower() == 'true'
-
-def _invest(msg: str) -> None:
-    """Emit an [INVEST] diagnostic line when COMFY_INVEST_SMART_RES_CALC=true."""
-    if INVEST_ENABLED:
-        print(f"[INVEST] {msg}")
-
 # Always log when module is loaded
 print("[SmartResCalc] Module loaded, DEBUG_ENABLED =", DEBUG_ENABLED)
 
@@ -374,27 +363,6 @@ class SmartResolutionCalc:
         #
         # The only case where we'd return NaN is if a special seed somehow
         # reaches Python unresolved (vestigial safety net).
-        if INVEST_ENABLED:
-            # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-            _img = kwargs.get('image')
-            _img_present = _img is not None
-            _img_shape = None
-            _img_fp = None
-            if _img_present:
-                try:
-                    _img_shape = tuple(_img.shape)
-                    _img_fp = float(_img.sum().item())
-                except Exception:
-                    pass
-            _fs = kwargs.get('fill_seed')
-            _fs_repr = _fs if isinstance(_fs, dict) else repr(_fs)
-            _ip = kwargs.get('image_purpose')
-            _bs = kwargs.get('blend_strength')
-            _ft = kwargs.get('fill_type')
-            print(f"[INVEST] IS_CHANGED ENTRY: image_present={_img_present} image_shape={_img_shape} image_fp={_img_fp} "
-                  f"image_purpose={_ip} fill_type={_ft} blend_strength={_bs} fill_seed={_fs_repr}")
-            # <<< [INVEST]
-
         fill_seed = kwargs.get('fill_seed')
         if fill_seed is not None and isinstance(fill_seed, dict):
             if fill_seed.get('on', False):
@@ -403,7 +371,6 @@ class SmartResolutionCalc:
                     # Special seed reached Python unresolved (shouldn't happen
                     # if JS hook is working, but safety net)
                     logger.debug(f"IS_CHANGED: unresolved special seed {seed_value}, returning NaN")
-                    _invest(f"IS_CHANGED RETURN: NaN (unresolved special seed {seed_value})")
                     return float("NaN")
 
         # Mask invalidation: ComfyUI caches node outputs unless IS_CHANGED returns
@@ -416,14 +383,10 @@ class SmartResolutionCalc:
                 shape = tuple(mask.shape)
                 s = float(mask.sum().item())
                 m = float(mask.mean().item())
-                _ret = f"mask:{shape}:{s:.6f}:{m:.6f}"
-                _invest(f"IS_CHANGED RETURN: {_ret!r}")
-                return _ret
+                return f"mask:{shape}:{s:.6f}:{m:.6f}"
             except Exception:
                 # If we can't fingerprint (unexpected type), force re-run
-                _invest(f"IS_CHANGED RETURN: NaN (mask fingerprint failed)")
                 return float("NaN")
-        _invest(f"IS_CHANGED RETURN: '' (stable -- ComfyUI may cache if all node inputs match)")
         return ""  # Fixed/resolved seed or seed off, no mask — let ComfyUI cache
     # get_image_dimensions_from_path extracted to image_utils.py
 
@@ -641,27 +604,6 @@ class SmartResolutionCalc:
         logger.debug(f"calculate_dimensions() CALLED - aspect_ratio={aspect_ratio}, divisible_by={divisible_by}")
         logger.debug(f"PARAMS: blend_strength={blend_strength}, fill_blend_strength={fill_blend_strength}, cutoff={cutoff}, feature_size={feature_size}, fill_type={fill_type}, image_purpose={image_purpose}")
 
-        if INVEST_ENABLED:
-            # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-            # Per-instance run counter to correlate logs across queue submissions
-            if not hasattr(self, '_invest_run_counter'):
-                self._invest_run_counter = 0
-            self._invest_run_counter += 1
-            _invest_run = self._invest_run_counter
-            _img_present = image is not None
-            _img_shape = tuple(image.shape) if _img_present else None
-            _img_fp = float(image.sum().item()) if _img_present else None
-            _vae_present = vae is not None
-            _mask_present = mask is not None
-            _fill_image_present = fill_image is not None
-            print(f"[INVEST] === RUN #{_invest_run} ENTRY (instance id={id(self)}) ===")
-            print(f"[INVEST] R{_invest_run} inputs: image_present={_img_present} image_shape={_img_shape} image_fp={_img_fp}")
-            print(f"[INVEST] R{_invest_run}         vae_present={_vae_present} mask_present={_mask_present} fill_image_present={_fill_image_present}")
-            print(f"[INVEST] R{_invest_run}         image_purpose={image_purpose!r} output_image_mode={output_image_mode!r} fill_type={fill_type!r}")
-            print(f"[INVEST] R{_invest_run}         blend_strength={blend_strength} fill_blend_strength={fill_blend_strength} cutoff={cutoff} feature_size={feature_size} batch_size={batch_size}")
-            print(f"[INVEST] R{_invest_run}         fill_seed={fill_seed!r} dazzle_signal={dazzle_signal!r}")
-            # <<< [INVEST]
-
         # Debug logging for kwargs
         logger.debug(f"Function called with standard args: aspect_ratio={aspect_ratio}, divisible_by={divisible_by}, custom_ratio={custom_ratio}")
         logger.debug(f"kwargs keys received: {list(kwargs.keys())}")
@@ -720,37 +662,14 @@ class SmartResolutionCalc:
             # Standard Nyquist mode
             ctx.cutoff = max(0.01, min(0.5, ctx.cutoff_raw))
 
-        if INVEST_ENABLED:
-            # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-            print(f"[INVEST] R{_invest_run} post-seed-resolve: seed_active={ctx.seed_active} actual_seed={ctx.actual_seed} w={ctx.w} h={ctx.h} cutoff={ctx.cutoff}")
-            # <<< [INVEST]
-
         # Image + latent generation
         self._prepare_output_mode(ctx)
-        if INVEST_ENABLED:
-            # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-            print(f"[INVEST] R{_invest_run} post-prepare-output-mode: actual_mode={ctx.actual_mode!r} cache_key={ctx.cache_key!r}")
-            # <<< [INVEST]
         self._resolve_image_purpose(ctx)
-        if INVEST_ENABLED:
-            # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-            print(f"[INVEST] R{_invest_run} post-resolve-image-purpose: image_purpose={ctx.image_purpose!r} actual_mode={ctx.actual_mode!r}")
-            print(f"[INVEST] R{_invest_run}         use_image_for_output={ctx.use_image_for_output} use_image_for_latent_encode={ctx.use_image_for_latent_encode} use_image_for_noise_shape={ctx.use_image_for_noise_shape}")
-            # <<< [INVEST]
         ctx.output_image = self._generate_output_image(
             ctx.actual_mode, ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color,
             ctx.batch_size, ctx.fill_image, ctx.cache_key, ctx.seed_active, ctx.actual_seed,
             mask=ctx.mask, use_image_for_output=ctx.use_image_for_output
         )
-        if INVEST_ENABLED:
-            # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-            try:
-                _oi = ctx.output_image
-                _oi_fp = float(_oi.sum().item())
-                print(f"[INVEST] R{_invest_run} output_image: shape={tuple(_oi.shape)} mean={_oi.mean().item():.6f} std={_oi.std().item():.6f} fp={_oi_fp:.6f}")
-            except Exception as _e:
-                print(f"[INVEST] R{_invest_run} output_image fingerprint FAILED: {_e}")
-            # <<< [INVEST]
 
         # Preview (generated after output_image so we can show the transform result)
         ctx.resolution = f"{ctx.w} x {ctx.h}"
@@ -786,19 +705,7 @@ class SmartResolutionCalc:
             getattr(ctx, 'noise_shape_transform', None), ctx.fill_color,
             ctx.dazzle_options, mask=ctx.mask,
             fill_blend_strength=ctx.fill_blend_strength,
-            invest_run=_invest_run,
         )
-        if INVEST_ENABLED:
-            # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-            try:
-                _lat = ctx.latent.get("samples")
-                if _lat is not None:
-                    _lat_fp = float(_lat.sum().item())
-                    print(f"[INVEST] R{_invest_run} FINAL latent: shape={tuple(_lat.shape)} mean={_lat.mean().item():.6f} std={_lat.std().item():.6f} fp={_lat_fp:.6f} source={ctx.latent_source!r}")
-            except Exception as _e:
-                print(f"[INVEST] R{_invest_run} FINAL latent fingerprint FAILED: {_e}")
-            print(f"[INVEST] === RUN #{_invest_run} EXIT ===")
-            # <<< [INVEST]
 
         # Info string assembly
         self._build_info_string(ctx)
@@ -1171,48 +1078,20 @@ class SmartResolutionCalc:
             logger.debug(f"Seeded torch and py_random with {actual_seed} (right before image generation)")
 
         if actual_mode == "empty":
-            if INVEST_ENABLED:
-                # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                print(f"[INVEST] _generate_output_image empty branch: cache_key={cache_key!r}")
-                print(f"[INVEST]   stored _image_cache_key={self._image_cache_key!r} cached_image_present={self._noise_cache_image is not None}")
-                print(f"[INVEST]   image_cache MATCH={self._image_cache_key == cache_key and self._noise_cache_image is not None}")
-                # <<< [INVEST]
             if self._image_cache_key == cache_key and self._noise_cache_image is not None:
                 output_image = self._noise_cache_image
                 logger.debug(f"Using cached noise image ({fill_type}, seed={actual_seed}, {w}x{h})")
                 print(f"[SmartResCalc] Using cached noise image (skipping {fill_type} generation)")
-                if INVEST_ENABLED:
-                    # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                    try:
-                        print(f"[INVEST]   IMAGE-CACHE-HIT: reusing output_image fp={float(output_image.sum().item()):.6f}")
-                    except Exception:
-                        pass
-                    # <<< [INVEST]
             else:
                 # Generate image with specified fill pattern at calculated dimensions
                 logger.debug(f"Calling create_empty_image({w}, {h}, '{fill_type}', ...)")
-                if INVEST_ENABLED:
-                    # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                    print(f"[INVEST]   IMAGE-CACHE-MISS: generating fresh _create_empty_image({w}, {h}, {fill_type!r}, ...)")
-                    # <<< [INVEST]
                 output_image = _create_empty_image(w, h, fill_type, fill_color, batch_size, fill_image)
                 logger.debug(f"output_image: shape={output_image.shape}, min={output_image.min():.4f}, max={output_image.max():.4f}, mean={output_image.mean():.4f}")
-                if INVEST_ENABLED:
-                    # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                    try:
-                        print(f"[INVEST]   freshly generated output_image fp={float(output_image.sum().item()):.6f}")
-                    except Exception:
-                        pass
-                    # <<< [INVEST]
                 # Cache the result
                 self._image_cache_key = cache_key
                 self._noise_cache_image = output_image
                 self._noise_cache_latent = None  # Invalidate latent cache (will be rebuilt)
                 logger.debug(f"Cached noise image ({fill_type}, seed={actual_seed}, {w}x{h})")
-                if INVEST_ENABLED:
-                    # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                    print(f"[INVEST]   image_cache STORED, latent_cache INVALIDATED (will regenerate)")
-                    # <<< [INVEST]
 
         elif actual_mode == "transform (distort)":
             if image is not None:
@@ -1294,7 +1173,7 @@ class SmartResolutionCalc:
                          cache_key, use_image_for_latent_encode=True,
                          use_image_for_noise_shape=False, noise_shape_transform=None,
                          fill_color="#808080", dazzle_options=None, mask=None,
-                         fill_blend_strength=0.0, invest_run=None):
+                         fill_blend_strength=0.0):
         """
         Generate latent output based on VAE presence, fill type, and image_purpose flags.
 
@@ -1309,21 +1188,6 @@ class SmartResolutionCalc:
             tuple: (latent_dict, latent_source_label)
         """
         latent_source = "Empty"  # Default for info output
-
-        if INVEST_ENABLED:
-            # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-            _R = f"R{invest_run}" if invest_run is not None else "R?"
-            _img_present = image is not None
-            print(f"[INVEST] {_R} _generate_latent ENTRY: vae_present={vae is not None} image_present={_img_present} actual_mode={actual_mode!r} fill_type={fill_type!r}")
-            print(f"[INVEST] {_R}   blend_strength={blend_strength} fill_blend_strength={fill_blend_strength} cutoff={cutoff}")
-            print(f"[INVEST] {_R}   seed_active={seed_active} actual_seed={actual_seed} cache_key={cache_key!r}")
-            print(f"[INVEST] {_R}   use_image_for_latent_encode={use_image_for_latent_encode} use_image_for_noise_shape={use_image_for_noise_shape}")
-            try:
-                _oi_fp_in = float(output_image.sum().item())
-                print(f"[INVEST] {_R}   output_image-in: shape={tuple(output_image.shape)} mean={output_image.mean().item():.6f} std={output_image.std().item():.6f} fp={_oi_fp_in:.6f}")
-            except Exception as _e:
-                print(f"[INVEST] {_R}   output_image-in fingerprint FAILED: {_e}")
-            # <<< [INVEST]
 
         # Determine if fill content is worth VAE-encoding
         # Trivial fills (black/white/custom_color) produce uniform images that don't benefit
@@ -1472,13 +1336,6 @@ class SmartResolutionCalc:
                                use_image_for_noise_shape, noise_shape_transform,
                                image_shape_key, opts_cache_key)
 
-            if INVEST_ENABLED:
-                # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                print(f"[INVEST] {_R} raw_noise path: noise_cache_key={noise_cache_key!r}")
-                print(f"[INVEST] {_R}   stored noise_cache_key={self._noise_cache_key!r}")
-                print(f"[INVEST] {_R}   noise_cache MATCH={self._noise_cache_key == noise_cache_key} cached_latent_present={self._noise_cache_latent is not None}")
-                # <<< [INVEST]
-
             # Check cache first
             if (self._noise_cache_key == noise_cache_key and self._noise_cache_latent is not None):
                 latent = self._noise_cache_latent
@@ -1486,43 +1343,15 @@ class SmartResolutionCalc:
                 latent_source = f"Raw Noise ({fill_type}{blend_label}) [cached]"
                 logger.debug(f"Using cached raw noise latent")
                 print(f"[SmartResCalc] Using cached noise latent (skipping regeneration)")
-                if INVEST_ENABLED:
-                    # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                    try:
-                        _ls = latent["samples"]
-                        print(f"[INVEST] {_R}   CACHE-HIT latent: shape={tuple(_ls.shape)} mean={_ls.mean().item():.6f} std={_ls.std().item():.6f} fp={float(_ls.sum().item()):.6f}")
-                    except Exception as _e:
-                        print(f"[INVEST] {_R}   CACHE-HIT latent fingerprint FAILED: {_e}")
-                    # <<< [INVEST]
             else:
                 logger.debug(f"Noise cache miss: stored={self._noise_cache_key}, current={noise_cache_key}")
-                if INVEST_ENABLED:
-                    # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                    print(f"[INVEST] {_R}   CACHE-MISS: regenerating latent")
-                    # <<< [INVEST]
                 # Create the latent shape (handles 5D for video VAEs)
                 latent = _create_latent(w, h, batch_size, vae=vae, device=self.device)
 
                 # Seed and fill with Gaussian noise instead of zeros
                 if seed_active and actual_seed >= 0:
                     torch.manual_seed(actual_seed)
-                    if INVEST_ENABLED:
-                        # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                        print(f"[INVEST] {_R}   torch.manual_seed({actual_seed}) called before randn_like")
-                        # <<< [INVEST]
-                else:
-                    if INVEST_ENABLED:
-                        # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                        print(f"[INVEST] {_R}   NO RE-SEED before randn_like (seed_active={seed_active} actual_seed={actual_seed})")
-                        # <<< [INVEST]
                 gaussian_noise = torch.randn_like(latent["samples"])
-                if INVEST_ENABLED:
-                    # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                    try:
-                        print(f"[INVEST] {_R}   gaussian_noise: shape={tuple(gaussian_noise.shape)} mean={gaussian_noise.mean().item():.6f} std={gaussian_noise.std().item():.6f} fp={float(gaussian_noise.sum().item()):.6f}")
-                    except Exception as _e:
-                        print(f"[INVEST] {_R}   gaussian_noise fingerprint FAILED: {_e}")
-                    # <<< [INVEST]
 
                 # Determine if spectral blending should run:
                 # - blend_strength > 0 with fill_type noise (current behavior)
@@ -1531,10 +1360,6 @@ class SmartResolutionCalc:
                     blend_strength > 0.0
                     or (use_image_for_noise_shape and image is not None)
                 )
-                if INVEST_ENABLED:
-                    # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                    print(f"[INVEST] {_R}   should_spectral_blend={should_spectral_blend} (blend_strength={blend_strength}>0.0={blend_strength>0.0}, use_image_for_noise_shape={use_image_for_noise_shape}, image_present={image is not None})")
-                    # <<< [INVEST]
 
                 if should_spectral_blend:
                     # Spectral blending: inject spatial structure into noise
@@ -1542,14 +1367,6 @@ class SmartResolutionCalc:
                     latent_channels = latent["samples"].shape[1]
 
                     # Choose pattern source: input image (img2noise) or fill_type output
-                    if INVEST_ENABLED:
-                        # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                        print(f"[INVEST] {_R}   spectral_blend pattern-source branch: use_image_for_noise_shape={use_image_for_noise_shape} image_present={image is not None}")
-                        if use_image_for_noise_shape and image is not None:
-                            print(f"[INVEST] {_R}     -> IMG2NOISE BRANCH (pattern = transformed input image)")
-                        else:
-                            print(f"[INVEST] {_R}     -> FILL_TYPE BRANCH (pattern = output_image, the {fill_type} render)")
-                        # <<< [INVEST]
                     if use_image_for_noise_shape and image is not None:
                         # img2noise: transform INPUT IMAGE, then use as pattern source
                         transform_mode = noise_shape_transform or "transform (distort)"
@@ -1625,23 +1442,8 @@ class SmartResolutionCalc:
                         if gaussian_noise.ndim == 5:
                             pattern_resized = pattern_resized.unsqueeze(2)  # [B, C, 1, h, w]
 
-                    if INVEST_ENABLED:
-                        # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                        try:
-                            print(f"[INVEST] {_R}   pattern_resized (pre-zero-mean): shape={tuple(pattern_resized.shape)} mean={pattern_resized.mean().item():.6f} std={pattern_resized.std().item():.6f} fp={float(pattern_resized.sum().item()):.6f} label={pattern_label!r}")
-                        except Exception as _e:
-                            print(f"[INVEST] {_R}   pattern_resized fingerprint FAILED: {_e}")
-                        # <<< [INVEST]
-
                     # Normalize pattern to zero-mean before blending
                     pattern_resized = pattern_resized - pattern_resized.mean()
-                    if INVEST_ENABLED:
-                        # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                        try:
-                            print(f"[INVEST] {_R}   pattern_resized (post-zero-mean): mean={pattern_resized.mean().item():.6f} std={pattern_resized.std().item():.6f} fp={float(pattern_resized.sum().item()):.6f}")
-                        except Exception as _e:
-                            print(f"[INVEST] {_R}   pattern_resized post-zero-mean fingerprint FAILED: {_e}")
-                        # <<< [INVEST]
 
                     # Apply spectral blending
                     # Determine normalization mode from DazzleOptions or auto-detect
@@ -1693,28 +1495,11 @@ class SmartResolutionCalc:
                     else:
                         stage_2_noise = gaussian_noise
 
-                    if INVEST_ENABLED:
-                        # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                        try:
-                            print(f"[INVEST] {_R}   spectral_noise_blend INPUT: alpha={effective_blend} cutoff={cutoff} per_bin_normalize={use_per_bin}")
-                            print(f"[INVEST] {_R}     pattern_resized fp={float(pattern_resized.sum().item()):.6f}")
-                            print(f"[INVEST] {_R}     stage_2_noise fp={float(stage_2_noise.sum().item()):.6f} mean={stage_2_noise.mean().item():.6f} std={stage_2_noise.std().item():.6f}")
-                        except Exception as _e:
-                            print(f"[INVEST] {_R}   pre-blend fingerprint FAILED: {_e}")
-                        # <<< [INVEST]
                     latent["samples"] = spectral_noise_blend(
                         pattern_resized, stage_2_noise,
                         alpha=effective_blend, cutoff=cutoff,
                         per_bin_normalize=use_per_bin
                     )
-                    if INVEST_ENABLED:
-                        # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                        try:
-                            _ls = latent["samples"]
-                            print(f"[INVEST] {_R}   POST-BLEND latent: shape={tuple(_ls.shape)} mean={_ls.mean().item():.6f} std={_ls.std().item():.6f} fp={float(_ls.sum().item()):.6f}")
-                        except Exception as _e:
-                            print(f"[INVEST] {_R}   post-blend fingerprint FAILED: {_e}")
-                        # <<< [INVEST]
                     blend_label = f" blend={effective_blend}"
                     if do_stage_1:
                         blend_label += f"+fill={fill_blend_strength}"
@@ -1731,20 +1516,12 @@ class SmartResolutionCalc:
                     latent_source = f"Raw Noise ({fill_type})"
                     logger.debug(f"Generated raw latent noise: shape={latent['samples'].shape}, "
                                  f"mean={latent['samples'].mean():.4f}, std={latent['samples'].std():.4f}")
-                    if INVEST_ENABLED:
-                        # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                        print(f"[INVEST] {_R}   PURE-GAUSSIAN path (no spectral blend) -- latent = gaussian_noise directly")
-                        # <<< [INVEST]
 
                 latent["use_as_noise"] = True
 
                 # Cache for reuse
                 self._noise_cache_key = noise_cache_key
                 self._noise_cache_latent = latent
-                if INVEST_ENABLED:
-                    # >>> [INVEST] dimensions-only image-leak diagnostic 2026-04-28
-                    print(f"[INVEST] {_R}   noise_cache STORED with key={noise_cache_key!r}")
-                    # <<< [INVEST]
         else:
             # Generate empty latent for txt2img workflows (backward compatible)
             # Reasons: VAE not connected, or fill is trivial (black/white/custom_color)

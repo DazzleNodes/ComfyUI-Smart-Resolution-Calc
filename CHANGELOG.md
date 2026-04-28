@@ -5,27 +5,6 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.12.2] - 2026-04-28
-
-### Added
-- **Gated `[INVEST]` diagnostic logging** -- new `COMFY_INVEST_SMART_RES_CALC`
-  environment variable enables the per-run dump of latent fingerprints,
-  dispatch state, gaussian noise stats, and protocol traversal that was
-  used to confirm the upstream side of the v0.1.1-alpha
-  [DazzleKSampler dual-role bug fix](https://github.com/DazzleNodes/ComfyUI-DazzleKSampler/releases/tag/v0.1.1-alpha).
-  Disabled by default; zero overhead when off (data-gathering and prints
-  are both gated).
-  - 27 instrumentation blocks plus 4 standalone return-tracing prints in
-    `py/smart_resolution_calc.py` covering: `IS_CHANGED` entry/return,
-    per-run input snapshot, post-seed-resolve / post-prepare-output-mode /
-    post-resolve-image-purpose checkpoints, raw-noise generation path,
-    empty-output branch, and `calculate_dimensions` exit.
-  - New `_invest(msg)` helper for diagnostic prints; the `# >>> [INVEST]`
-    block markers are preserved inside `if INVEST_ENABLED:` for grep-ability.
-  - Enable with: `set COMFY_INVEST_SMART_RES_CALC=true` (cmd) /
-    `$env:COMFY_INVEST_SMART_RES_CALC = "true"` (PowerShell) /
-    `export COMFY_INVEST_SMART_RES_CALC=true` (bash) before launching ComfyUI.
-
 ## [0.12.1] - 2026-04-22
 
 ### Added
