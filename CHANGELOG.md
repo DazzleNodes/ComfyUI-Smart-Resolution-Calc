@@ -5,6 +5,31 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-07-02
+
+### Fixed
+- **Cross-tab seed amnesia** -- 'reuse last seed' lost its seed whenever a second
+  workflow tab was opened or tabs were switched (loadGraphData recreates node objects),
+  silently falling back to a fresh random seed and recomputing the whole downstream
+  chain. lastSeed now persists in `node.properties` (per workflow-tab draft) and
+  rehydrates at queue time.
+- **Seed lock ignored explicit widget interaction** -- clicking any seed control
+  (randomize, new fixed random, recall, +/-, typed value) now overrides 'reuse last
+  seed' for the next queue, then re-locks on the newly resolved seed. Programmatic
+  writes (transient one-run reset) do not count as user intent; the recall buffer
+  is untouched.
+- **Rerouted dazzle_signal noodles not recognized** -- the DazzleCommand lookup now
+  follows the link through Reroute nodes instead of silently treating the node as
+  standalone.
+- **Removed dead Python signal path** -- `_apply_signal` never executed (ComfyUI
+  filters undeclared prompt inputs before they reach node functions), along with the
+  `_dazzle_connected`/`_dazzle_dc_id` markers, `_last_resolved_seed`, and the
+  `sys._dazzle_seed_registry` side-channel. No behavior change (provably dead).
+
+### Companion versions
+- Requires [DazzleCommand v0.2.7-alpha](https://github.com/DazzleNodes/ComfyUI-DazzleCommand)
+  (per-tab state; prompt-carried dazzle_state)
+
 ## [0.12.1] - 2026-04-22
 
 ### Added

@@ -1,6 +1,5 @@
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-import sys
 import torch
 import comfy.model_management
 import comfy.utils
@@ -281,7 +280,7 @@ class SmartResolutionCalc:
                     "min": 0.0,
                     "max": 1.0,
                     "step": 0.001,
-                    "tooltip": "Spectral blend strength for noise-to-latent pipeline. Controls how much the fill_type noise pattern's spatial structure influences the latent output.\n\n0.0 = Pure Gaussian (no influence)\n0.1-0.3 = Subtle structural influence\n0.3-0.5 = Moderate (recommended)\n0.5-0.7 = Strong (less prompt adherence)\n0.7-1.0 = Very strong (pattern dominates)\n\nOnly active when fill_type is a noise pattern (noise, random, DazNoise). No effect with black/white/custom_color."
+                    "tooltip": "Spectral blend strength: how much the primary pattern shapes the noise. The primary pattern depends on image_purpose:\n  • dimensions only / image+noise -> fill_type pattern\n  • img2noise / img2img+img2noise -> input image\n\nNOT the img2img amount -- that's controlled by 'denoise' on the KSampler. blend_strength shapes the NOISE; denoise controls how much of the input image survives.\n\n0.0 = Pure Gaussian (no shaping)\n0.1-0.3 = Subtle structural influence\n0.3-0.5 = Moderate (recommended)\n0.5-0.7 = Strong (less prompt adherence)\n0.7-1.0 = Pattern dominates\n\nNo effect with fill_type in {black, white, custom_color} when image_purpose is dimensions-only (no pattern to blend)."
                 }),
                 "fill_blend_strength": ("FLOAT", {
                     "default": 0.0,
@@ -463,8 +462,6 @@ class SmartResolutionCalc:
         self._noise_cache_key = None
         self._noise_cache_image = None
         self._noise_cache_latent = None
-        # Last resolved seed for DAZZLE_SIGNAL "lock" intent
-        self._last_resolved_seed = None
 
     def format_aspect_ratio(self, width, height):
         """
@@ -623,24 +620,15 @@ class SmartResolutionCalc:
         self._resolve_dimensions(ctx)
         self._apply_scale_and_divisibility(ctx)
         self._resolve_seed(ctx)
-        self._apply_signal(ctx, dazzle_signal,
-                           dazzle_connected=kwargs.get('_dazzle_connected', False),
-                           dazzle_dc_id=kwargs.get('_dazzle_dc_id'))
-
-        # Store resolved seed for future "lock" signal intent
-        if ctx.seed_active and ctx.actual_seed >= 0:
-            self._last_resolved_seed = ctx.actual_seed
-            # Report to shared seed registry for Dazzle Command display
-            # and IS_CHANGED cache optimization
-            if not hasattr(sys, '_dazzle_seed_registry'):
-                sys._dazzle_seed_registry = {}
-            sys._dazzle_seed_registry['last'] = ctx.actual_seed
-            # Signal whether the seed is locked (deterministic) for IS_CHANGED
-            sys._dazzle_seed_registry['locked'] = (
-                dazzle_signal is not None and
-                isinstance(dazzle_signal, dict) and
-                dazzle_signal.get('seed_intent') in ('lock', 'lock_current')
-            )
+        # NOTE: There is intentionally no Python-side signal handling. Seed
+        # resolution is JS-owned (queuePrompt hook resolves and sends the final
+        # value); PBE reads gate state from the signal noodle. The former
+        # _apply_signal path was dead code — ComfyUI filters undeclared prompt
+        # inputs (execution.py get_input_data), so its JS markers never arrived.
+        # The former sys._dazzle_seed_registry side-channel is gone for the
+        # same reason all sys-level stores went: it was shared across every
+        # workflow tab (and every node), and its only reader fed an unused
+        # ui.text — the visible seed display is driven by JS status events.
 
         # Resolve cutoff: feature_size override takes priority, then pixel mode, then Nyquist
         spatial_divisor = 8
@@ -897,54 +885,6 @@ class SmartResolutionCalc:
             # No seed data (backward compat with pre-v0.8.0 workflows)
             ctx.actual_seed = 0
             logger.debug("No fill_seed data, using default (unseeded)")
-
-    def _apply_signal(self, ctx, signal, dazzle_connected=False, dazzle_dc_id=None):
-        """Stage 4b: Apply DAZZLE_SIGNAL overrides to seed behavior.
-
-        Only applies if a dazzle_signal noodle was connected (indicated by
-        _dazzle_connected marker set by JS before stripping the noodle).
-        Standalone SmartResCalc nodes are not affected (#56).
-        Uses per-node DazzleCommand state when dc_id is available (#5).
-        """
-        if not dazzle_connected:
-            return  # Standalone mode — no orchestration (#56)
-
-        # Read seed intent from per-node DazzleCommand state (#5)
-        if not dazzle_dc_id:
-            logger.debug("Signal: no _dazzle_dc_id marker — cannot look up per-node state")
-            return
-        dc_states = getattr(sys, '_dazzle_command_states', {})
-        dc_state = dc_states.get(str(dazzle_dc_id))
-        if not dc_state:
-            logger.debug(f"Signal: no per-node state found for DC {dazzle_dc_id}")
-            return
-        seed_intent = dc_state.seed_intent
-        logger.debug(f"Signal: DC {dazzle_dc_id} seed_intent={seed_intent}")
-        if seed_intent is None:
-            return  # "no override" — leave seed as-is
-
-        if not ctx.seed_active:
-            logger.debug(f"Signal seed_intent='{seed_intent}' ignored — seed toggle is OFF")
-            return
-
-        if seed_intent == 'random':
-            # No override needed — JS prompt hook handles random generation.
-            logger.debug(f"Signal: seed_intent='random' -> using JS-resolved seed {ctx.actual_seed}")
-        elif seed_intent == 'transient':
-            # Transient lock — JS handles the one-run-then-random logic.
-            # Python just uses whatever seed JS sent.
-            logger.debug(f"Signal: seed_intent='transient' -> using JS-resolved seed {ctx.actual_seed}")
-        elif seed_intent == 'lock':
-            # "Reuse last seed" — JS prompt hook already resolves this by
-            # reading lastSeed from the status event and sending it as the
-            # widget value. Python trusts the JS-resolved seed.
-            logger.debug(f"Signal: seed_intent='lock' -> using JS-resolved seed {ctx.actual_seed}")
-        elif seed_intent == 'lock_current':
-            # Keep whatever the widget currently has — JS handles this
-            logger.debug(f"Signal: seed_intent='lock_current' -> using JS-resolved seed {ctx.actual_seed}")
-
-        state = (cmd_state or {}).get('state') or (signal or {}).get('state') or 'unknown'
-        logger.debug(f"Signal: state={state}, seed_intent={seed_intent}, actual_seed={ctx.actual_seed}")
 
     def _prepare_output_mode(self, ctx):
         """Resolve 'auto' mode and set cache key before image/latent generation."""

@@ -999,6 +999,24 @@ app.registerExtension({
                 const seedWidget = node.widgets?.find(w => w.name === 'fill_seed');
                 if (!seedWidget) continue;
 
+                // Hydrate lastSeed from the per-tab persisted property.
+                // loadGraphData (opening/switching workflow tabs) recreates all
+                // node objects, wiping runtime props like lastSeed — without
+                // this, 'reuse last seed' silently falls back to a fresh random
+                // seed and busts the cache. node.properties serialize into each
+                // tab's workflow draft, so every tab keeps its own last seed.
+                if (seedWidget.lastSeed == null &&
+                    typeof node.properties?.dazzle_last_seed === 'number') {
+                    seedWidget.lastSeed = node.properties.dazzle_last_seed;
+                    logger.debug(`[Seed Intercept] Node ${node.id}: hydrated lastSeed=${seedWidget.lastSeed} from properties`);
+                }
+                // Hydrate pending user intent the same way (set by SeedWidget
+                // interaction, possibly in a previous page/tab lifetime)
+                if (!seedWidget.userSeedIntent && node.properties?.dazzle_seed_intent_pending) {
+                    seedWidget.userSeedIntent = true;
+                    logger.debug(`[Seed Intercept] Node ${node.id}: hydrated pending user seed intent from properties`);
+                }
+
                 // Only resolve if seed is ON
                 if (!seedWidget.value?.on) continue;
                 const seedValue = seedWidget.value?.value;
@@ -1009,16 +1027,33 @@ app.registerExtension({
                 let cmdNode = null;
                 const signalInput = node.inputs?.find(i => i.name === 'dazzle_signal');
                 if (signalInput?.link) {
-                    const link = app.graph.links[signalInput.link];
-                    if (link) {
+                    // Follow the link through Reroute nodes to the real origin —
+                    // a rerouted noodle otherwise makes cmdNode silently null and
+                    // the node behaves as if no DazzleCommand were connected.
+                    let link = app.graph.links[signalInput.link];
+                    for (let hops = 0; link && hops < 10; hops++) {
                         const candidate = app.graph.getNodeById(link.origin_id);
-                        if (candidate?.comfyClass === 'DazzleCommand') cmdNode = candidate;
+                        if (!candidate) break;
+                        if (candidate.comfyClass === 'DazzleCommand') {
+                            cmdNode = candidate;
+                            break;
+                        }
+                        const t = candidate.type || candidate.comfyClass || '';
+                        if (!/reroute/i.test(t)) break;  // foreign node — stop
+                        const upstream = candidate.inputs?.[0]?.link;
+                        link = (upstream != null) ? app.graph.links[upstream] : null;
+                    }
+                    if (!cmdNode) {
+                        logger.debug(`[Seed Intercept] Node ${node.id}: dazzle_signal link present but no DazzleCommand origin found (broken/foreign chain?)`);
                     }
                 }
 
                 // If no DazzleCommand and seed is fixed, just track and skip
                 if (!cmdNode && !SPECIAL_SEEDS.includes(seedValue)) {
                     seedWidget.lastSeed = seedValue;
+                    node.properties.dazzle_last_seed = seedValue;
+                    seedWidget.userSeedIntent = false;
+                    delete node.properties.dazzle_seed_intent_pending;
                     continue;
                 }
 
@@ -1045,8 +1080,14 @@ app.registerExtension({
                         logger.debug(`[Seed Intercept] Node ${node.id}: FORCED RANDOM -> ${resolvedSeed}`);
 
                     } else if (activeSeedOption === 'reuse last seed') {
-                        // Lock to last resolved seed
-                        if (seedWidget.lastSeed != null) {
+                        // Lock to last resolved seed — unless the user has
+                        // explicitly touched the seed widget since the last
+                        // run. Their preference is honored once (falls through
+                        // to normal widget resolution below), then the newly
+                        // resolved seed becomes the locked seed.
+                        if (seedWidget.userSeedIntent) {
+                            logger.debug(`[Seed Intercept] Node ${node.id}: REUSE LAST overridden by user seed intent — resolving from widget`);
+                        } else if (seedWidget.lastSeed != null) {
                             resolvedSeed = seedWidget.lastSeed;
                             seedHandled = true;
                             logger.debug(`[Seed Intercept] Node ${node.id}: REUSE LAST -> ${resolvedSeed}`);
@@ -1109,22 +1150,31 @@ app.registerExtension({
                     logger.debug(`[Seed Intercept] Node ${node.id}: NORMAL resolved ${seedValue} -> ${resolvedSeed}`);
                 }
                 seedWidget.lastSeed = resolvedSeed;
+                // Persist per-tab so 'reuse last seed' survives tab switches
+                // and page reloads (properties ride the workflow draft).
+                node.properties.dazzle_last_seed = resolvedSeed;
+                // User intent (if any) has been honored by this resolution —
+                // clear it so lock resumes on the new seed next queue.
+                if (seedWidget.userSeedIntent) {
+                    seedWidget.userSeedIntent = false;
+                    delete node.properties.dazzle_seed_intent_pending;
+                    logger.debug(`[Seed Intercept] Node ${node.id}: user seed intent consumed, re-locking on ${resolvedSeed}`);
+                }
 
                 // Patch the prompt data (what gets sent to Python)
                 const nodePrompt = prompt?.output?.[String(node.id)];
 
                 // Strip dazzle_signal from prompt inputs to prevent cache cascade.
-                // The noodle is used for JS-side binding (finding the right
-                // DazzleCommand), but the actual data flows via sys side-channel.
-                // Removing it from prompt means ComfyUI's cache doesn't see it
-                // as an input — no ancestor dependency, no cascade.
+                // The noodle is JS-side binding only (finding the right
+                // DazzleCommand); the resolved seed is already baked into
+                // fill_seed below. Removing the link means ComfyUI's cache
+                // doesn't see DazzleCommand as an ancestor — no cascade.
+                // (No markers are injected: ComfyUI filters undeclared prompt
+                // inputs before they reach Python, so markers never arrived —
+                // and Python needs nothing from the signal anyway.)
                 if (nodePrompt?.inputs?.dazzle_signal) {
-                    // Mark that this node HAD a dazzle_signal connection
-                    // so Python _apply_signal knows to read per-node state (#5)
-                    nodePrompt.inputs._dazzle_connected = true;
-                    if (cmdNode) nodePrompt.inputs._dazzle_dc_id = String(cmdNode.id);
                     delete nodePrompt.inputs.dazzle_signal;
-                    logger.debug(`[Seed Intercept] Node ${node.id}: stripped dazzle_signal, set _dazzle_connected + dc_id=${cmdNode?.id}`);
+                    logger.debug(`[Seed Intercept] Node ${node.id}: stripped dazzle_signal`);
                 }
 
                 if (nodePrompt?.inputs?.fill_seed) {

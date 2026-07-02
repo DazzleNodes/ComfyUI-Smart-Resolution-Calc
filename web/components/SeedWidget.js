@@ -242,6 +242,19 @@ class SeedWidget extends DazzleToggleWidget {
     /**
      * Handle mouse events
      */
+    /**
+     * Mark that the USER explicitly touched the seed controls. DazzleCommand's
+     * "reuse last seed" honors this once (next queue resolves from the widget
+     * instead of lastSeed, then re-locks on the new seed). Programmatic value
+     * writes (e.g. the transient one-run reset) must NOT call this.
+     * Mirrored to node.properties so intent survives a tab switch pre-queue.
+     */
+    _markUserSeedIntent(node) {
+        this.userSeedIntent = true;
+        if (node?.properties) node.properties.dazzle_seed_intent_pending = true;
+        logger.debug(`SeedWidget: user seed intent marked (overrides 'reuse last seed' for next queue)`);
+    }
+
     mouse(event, pos, node) {
         // Check info icon first (tooltip on label)
         if (this.handleTooltipMouse(event, pos, node)) return true;
@@ -262,6 +275,7 @@ class SeedWidget extends DazzleToggleWidget {
             if (this.isInBounds(pos, this.hitAreas.btnRandomize)) {
                 this.setRandomMode(true);
                 this.value.value = SPECIAL_SEED_RANDOM;
+                this._markUserSeedIntent(node);
                 logger.debug(`SeedWidget: Randomize Each Time (randomizeMode=true)`);
                 node.setDirtyCanvas(true);
                 return true;
@@ -276,6 +290,7 @@ class SeedWidget extends DazzleToggleWidget {
                 }
                 this.setRandomMode(false);
                 this.value.value = this.generateRandomSeed();
+                this._markUserSeedIntent(node);
                 logger.debug(`SeedWidget: New Fixed Random (value = ${this.value.value}, lastSeed = ${this.lastSeed})`);
                 node.setDirtyCanvas(true);
                 return true;
@@ -287,6 +302,7 @@ class SeedWidget extends DazzleToggleWidget {
                 if (this.lastSeed != null) {
                     this.setRandomMode(false);
                     this.value.value = this.lastSeed;
+                    this._markUserSeedIntent(node);
                     logger.debug(`SeedWidget: Recall Last Seed (value = ${this.lastSeed})`);
                     node.setDirtyCanvas(true);
                 } else {
@@ -300,6 +316,7 @@ class SeedWidget extends DazzleToggleWidget {
             if (this.isInBounds(pos, this.hitAreas.valueDec)) {
                 this.value.value = Math.round(this.value.value) - 1;
                 this.setRandomMode(this.value.value === SPECIAL_SEED_RANDOM);
+                this._markUserSeedIntent(node);
                 node.setDirtyCanvas(true);
                 return true;
             }
@@ -308,6 +325,7 @@ class SeedWidget extends DazzleToggleWidget {
             if (this.isInBounds(pos, this.hitAreas.valueInc)) {
                 this.value.value = Math.round(this.value.value) + 1;
                 this.setRandomMode(this.value.value === SPECIAL_SEED_RANDOM);
+                this._markUserSeedIntent(node);
                 node.setDirtyCanvas(true);
                 return true;
             }
@@ -321,6 +339,7 @@ class SeedWidget extends DazzleToggleWidget {
                         this.value.value = parsed;
                         // Activate random mode if user typed -1, clear otherwise
                         this.setRandomMode(parsed === SPECIAL_SEED_RANDOM);
+                        this._markUserSeedIntent(node);
                         node.setDirtyCanvas(true);
                     }
                 }, event);
