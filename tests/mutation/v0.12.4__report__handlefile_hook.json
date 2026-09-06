@@ -1,0 +1,100 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.1.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "cmd",
+      "/c",
+      "npx",
+      "playwright",
+      "test",
+      "tests/e2e/seed-dragin.spec.js",
+      "--reporter=list"
+    ],
+    "timestamp": "2026-09-06T13:40:54-04:00"
+  },
+  "results": [
+    {
+      "id": "W1",
+      "file": "web/smart_resolution_calc.js",
+      "note": "WebP branch matches the wrong extension.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "W2",
+      "file": "web/smart_resolution_calc.js",
+      "note": "Dropped the capitalised-key fallback (WAS webp EXIF).",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "W3",
+      "file": "web/smart_resolution_calc.js",
+      "note": "Idempotency mark check inverted: first install refused.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "W4",
+      "file": "web/smart_resolution_calc.js",
+      "note": "Re-entrancy guard inverted: outermost call skips seed reading.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "W5",
+      "file": "web/smart_resolution_calc.js",
+      "note": "Empty seed map published as a pending entry.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "W6",
+      "file": "web/smart_resolution_calc.js",
+      "note": "Expiry timer clears the entry regardless of identity.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "W7",
+      "file": "web/smart_resolution_calc.js",
+      "note": "Stale pending entry never cleared at the start of handleFile.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "W8",
+      "file": "web/smart_resolution_calc.js",
+      "note": "TTL comparison flipped: fresh entries ignored.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "W9",
+      "file": "web/smart_resolution_calc.js",
+      "note": "Delegation with hardcoded this and dropped extra args.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    }
+  ],
+  "summary": {
+    "survived": 6,
+    "killed": 3
+  },
+  "anomalies": []
+}

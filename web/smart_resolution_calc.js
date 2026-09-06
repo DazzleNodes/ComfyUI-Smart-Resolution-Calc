@@ -58,6 +58,96 @@ import { ScaleWidget } from './components/ScaleWidget.js';
 import { ImageDimensionUtils } from './utils/ImageDimensionUtils.js';
 import { applyDazzleSerialization } from './utils/serialization.js';
 import { SpectralBlend2DWidget } from './components/SpectralBlend2DWidget.js';
+import { seedsFromPromptText, applyImageSeed, pickMetadataReader, promptTextFromMeta } from './utils/prompt_seed.js';
+
+// ===== IMAGE DRAG-IN: SEEDS FROM THE PROMPT BLOCK (#58) =====
+// When a workflow is loaded FROM AN IMAGE (drag-drop or File > Open, both via
+// app.handleFile), the image's API prompt block records the fill_seed Python
+// actually received, while the workflow block's dazzle_last_seed on images
+// made with v0.12.2 is the PREVIOUS run's seed. The handleFile wrapper (in
+// setup()) reads the prompt block BEFORE delegating and parks the seeds here;
+// each node's configure hook then applies its own entry, which is the exact
+// moment the node exists and comes after the property hydration, so the
+// prompt wins by ordering rather than by polling (loadGraphData's promise
+// settles before the recreated nodes appear).
+const PENDING_IMAGE_SEEDS_TTL_MS = 10000;
+let pendingImageSeeds = null;   // { seeds: Map<string, number>, at: number, name: string } | null
+
+/**
+ * Read the SmartResCalc seeds from an image file's embedded prompt block,
+ * using the frontend's own metadata readers (window.comfyAPI.pnginfo).
+ * Returns an empty map for non-images, missing readers, or unreadable
+ * metadata; never throws.
+ *
+ * @param {File} file
+ * @returns {Promise<Map<string, number>>}
+ */
+async function readImagePromptSeeds(file) {
+    const pnginfo = globalThis.window?.comfyAPI?.pnginfo;
+    const name = String(file?.name || '');
+    const reader = pickMetadataReader(file, pnginfo);
+    if (!reader) {
+        logger.debug(`[Image Seeds] no metadata reader for ${name || file?.type || 'file'}`);
+        return new Map();
+    }
+    try {
+        const meta = await reader(file);
+        const promptText = promptTextFromMeta(meta);
+        const seeds = seedsFromPromptText(promptText);
+        logger.debug(`[Image Seeds] ${name}: metadata keys=${Object.keys(meta || {}).join(',')} promptChars=${typeof promptText === 'string' ? promptText.length : 'none'} seeds=${seeds.size}`);
+        return seeds;
+    } catch (e) {
+        logger.debug(`[Image Seeds] ${name}: metadata read failed: ${e}`);
+        return new Map();
+    }
+}
+
+// Other custom nodes also wrap app.handleFile, and one in the wild captures
+// the original at module load and assigns its wrapper AFTER extension setup,
+// which silently replaced a plain assignment made from setup() (and, since
+// it calls its captured original directly, a prototype patch would be
+// bypassed too). So the hook is installed as the OUTERMOST wrapper of
+// whatever is current, marked so it is never stacked on itself, and
+// re-checked a few times during the first seconds so a later wrapper is
+// wrapped in turn. Calls made while a hook run is already in progress just
+// delegate (a wrapper chain can otherwise re-enter us).
+const HANDLE_FILE_HOOK_MARK = '__srcImageSeedHook';
+let handleFileHookDepth = 0;
+
+function installHandleFileHook(app, attempt = 0) {
+    const current = app?.handleFile;
+    if (typeof current !== 'function') {
+        if (attempt === 0) logger.debug('[Image Seeds] app.handleFile not available; image drag-in seed hook not installed');
+        return false;
+    }
+    if (current[HANDLE_FILE_HOOK_MARK]) return false;   // already outermost
+    const inner = current;
+    const hook = async function srcImageSeedHandleFile(file, ...args) {
+        if (handleFileHookDepth > 0) return inner.apply(this, [file, ...args]);
+        handleFileHookDepth++;
+        try {
+            pendingImageSeeds = null;
+            logger.debug(`[Image Seeds] handleFile(${file?.name || '?'}, type=${file?.type || '?'})`);
+            const seeds = await readImagePromptSeeds(file);
+            if (seeds.size > 0) {
+                const entry = { seeds, at: Date.now(), name: file?.name || '' };
+                pendingImageSeeds = entry;
+                logger.debug(`[Image Seeds] ${entry.name}: ${seeds.size} SmartResCalc seed(s) in the prompt block`);
+                // The recreated nodes configure shortly after loadGraphData
+                // resolves; drop the entry once they have had time to do so,
+                // so a later load within the TTL cannot pick it up.
+                setTimeout(() => { if (pendingImageSeeds === entry) pendingImageSeeds = null; }, 5000);
+            }
+        } finally {
+            handleFileHookDepth--;
+        }
+        return inner.apply(this, [file, ...args]);
+    };
+    hook[HANDLE_FILE_HOOK_MARK] = true;
+    app.handleFile = hook;
+    logger.debug(`[Image Seeds] Installed image drag-in seed hook on app.handleFile (attempt ${attempt}, wrapping ${inner.name || 'anonymous'})`);
+    return true;
+}
 
 // Dynamic import helper for standalone vs DazzleNodes compatibility (Option A: Inline)
 async function importComfyCore() {
@@ -856,6 +946,16 @@ app.registerExtension({
                         logger.debug(`[configure] Node ${node.id}: hydrated lastSeed=${seedWidget.lastSeed} from properties`);
                     }
 
+                    // If this load came from an image, its prompt block outranks
+                    // the property just hydrated (#58). Entries older than the TTL
+                    // belong to an earlier file and are ignored.
+                    if (pendingImageSeeds && (Date.now() - pendingImageSeeds.at) <= PENDING_IMAGE_SEEDS_TTL_MS) {
+                        const before = node.properties?.dazzle_last_seed;
+                        if (applyImageSeed(node, pendingImageSeeds.seeds)) {
+                            logger.debug(`[configure] Node ${node.id}: seed from image prompt ${before} -> ${node.properties.dazzle_last_seed} (${pendingImageSeeds.name})`);
+                        }
+                    }
+
                     // Sync output_image_mode visibility with restored image_purpose value
                     const ipWidget = node.widgets?.find(w => w.name === "image_purpose");
                     if (ipWidget?.callback) {
@@ -1228,6 +1328,17 @@ app.registerExtension({
             return originalQueuePrompt(index, prompt, ...args);
         };
         logger.verbose('Installed seed prompt interception hook on app.api.queuePrompt');
+
+        // ===== IMAGE DRAG-IN HOOK (#58) =====
+        // Read the prompt block before the frontend loads the workflow, so the
+        // configure hook can apply each node's real seed (see the module-level
+        // note by readImagePromptSeeds / installHandleFileHook). Installed now
+        // and re-checked during the first seconds, because other extensions
+        // wrap app.handleFile after setup and would otherwise hide this hook.
+        installHandleFileHook(app, 0);
+        for (const ms of [250, 1000, 3000, 8000]) {
+            setTimeout(() => installHandleFileHook(app, ms), ms);
+        }
 
         logger.verbose('setup() - hooking app.canvas.onDrawForeground');
 

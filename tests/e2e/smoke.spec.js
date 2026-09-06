@@ -56,7 +56,11 @@ test('ComfyUI loads without SmartResCalc errors', async ({ page }) => {
 
 test('SmartResCalc node can be loaded via API', async ({ page }) => {
     await page.goto('/');
-    await page.waitForTimeout(3000);
+    // A fixed 3 s wait raced the frontend's own initialisation and failed
+    // roughly one run in three ("ComfyApp graph accessed before
+    // initialization"); wait for the app and graph to exist instead.
+    await page.waitForFunction(() => !!(window.app && window.app.graph && window.LiteGraph), null, { timeout: 60000 });
+    await page.waitForTimeout(1000);
 
     // Load the test workflow via ComfyUI API
     const workflowPath = path.join(__dirname, '..', '..', 'docs', 'workflow', 'SmartResCalc-Test-Script.json');

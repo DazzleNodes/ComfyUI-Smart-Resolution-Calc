@@ -5,6 +5,29 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.4] - 2026-09-06
+
+### Fixed
+- **Dragged-in images recover their own seed, whatever version made them** (#58) -- when
+  a workflow is loaded from an image (drag-drop or File > Open), each SmartResCalc node's
+  last seed is taken from the image's prompt block, the `fill_seed` Python actually
+  received, and the workflow property is only a fallback. Images generated with 0.12.2,
+  whose workflow block carries the previous run's seed, now show and recycle the right
+  seed. Loading a workflow JSON is unchanged.
+
+### Changed
+- The image drag-in hook installs itself as the outermost wrapper of `app.handleFile` and
+  re-checks during the first seconds after setup: other custom nodes also wrap that method
+  after extension setup and would otherwise hide it.
+- `tests/e2e/smoke.spec.js` waits for the frontend to initialise instead of a fixed
+  3 seconds, which failed about one run in three on a busy machine.
+
+### Added
+- `web/utils/prompt_seed.js` (pure helpers, 24 unit tests) and `tests/e2e/seed-dragin.spec.js`
+  (4 live tests: drag-in of a pre-0.12.3 image, no stale seed leaks into the next image,
+  forwarded arguments, JSON reload unchanged). Mutation sweeps and survivor memory under
+  `tests/mutation/`.
+
 ## [0.12.3] - 2026-09-06
 
 ### Fixed

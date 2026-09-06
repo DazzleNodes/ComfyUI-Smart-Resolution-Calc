@@ -1,0 +1,13 @@
+{
+  "test_command": ["cmd", "/c", "npx", "vitest", "run", "tests/unit/PromptSeed.test.js"],
+  "mutations": [
+    {"id": "W1b", "file": "web/utils/prompt_seed.js",
+     "original": "    else if (type === 'image/webp' || name.endsWith('.webp')) reader = pnginfo.getWebpMetadata;",
+     "mutated": "    else if (type === 'image/webp' || name.endsWith('.png')) reader = pnginfo.getWebpMetadata;",
+     "note": "W1 relocated: webp branch matches the wrong extension."},
+    {"id": "W2b", "file": "web/utils/prompt_seed.js",
+     "original": "    const text = meta?.prompt ?? meta?.Prompt;",
+     "mutated": "    const text = meta?.prompt;",
+     "note": "W2 relocated: dropped the capitalised-key fallback."}
+  ]
+}

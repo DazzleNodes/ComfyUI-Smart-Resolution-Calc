@@ -1,0 +1,42 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.1.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "cmd",
+      "/c",
+      "npx",
+      "vitest",
+      "run",
+      "tests/unit/PromptSeed.test.js"
+    ],
+    "timestamp": "2026-09-06T13:44:36-04:00"
+  },
+  "results": [
+    {
+      "id": "W1b",
+      "file": "web/utils/prompt_seed.js",
+      "note": "W1 relocated: webp branch matches the wrong extension.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "W2b",
+      "file": "web/utils/prompt_seed.js",
+      "note": "W2 relocated: dropped the capitalised-key fallback.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    }
+  ],
+  "summary": {
+    "killed": 2
+  },
+  "anomalies": []
+}

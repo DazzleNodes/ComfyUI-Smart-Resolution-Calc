@@ -67,9 +67,10 @@ seed is known, the value box shows that seed in a dimmed green-grey instead of
 `Rnd: -1`. The stored value is still -1 (the green tint and lit dice mean "re-rolls
 on the next queue"); the readout is the seed that made the current image, or the seed
 carried by the workflow or image you just loaded. Click to edit still shows the stored
--1. Images generated before v0.12.3 carry the seed of the run *before* them in this
-field, so for those the readout and recycle give the previous image's seed; the seed
-actually used is still in the image's prompt metadata.
+-1. When the workflow comes from an image (drag-drop or File > Open), the seed is read
+from the image's prompt metadata, the value Python actually received, so images made with
+any version, including 0.12.2 whose workflow block carries the previous run's seed, show
+and recycle their own seed (v0.12.4+). Loading a workflow JSON uses the saved property.
 
 Note: When `fill_type` is `black`, `white`, or `custom_color`, the seed widget has no effect (these fills are deterministic regardless). When `fill_image` is connected, the seed is also irrelevant.
 

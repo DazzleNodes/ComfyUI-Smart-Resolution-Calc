@@ -1,0 +1,123 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.1.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "cmd",
+      "/c",
+      "npx",
+      "vitest",
+      "run",
+      "tests/unit/PromptSeed.test.js"
+    ],
+    "timestamp": "2026-09-06T13:19:22-04:00"
+  },
+  "results": [
+    {
+      "id": "M1",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Off-by-one in the special-seed set: -3 leaks through as a concrete seed.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M2",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Swapped ternary branches: wrapper object returned, bare number dereferenced.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M3",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Dropped the special-seed guard: -1/-2/-3 returned as concrete seeds.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M4",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Boolean flip on finiteness: finite seeds rejected, NaN/Infinity pass.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M5",
+      "file": "web/utils/prompt_seed.js",
+      "note": "and/or swap in the skip guard: foreign node classes no longer filtered.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M6",
+      "file": "web/utils/prompt_seed.js",
+      "note": "null-vs-truthiness: a legitimate seed of 0 is dropped.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M7",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Swapped arguments: map keyed by seed with the id as value.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M8",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Removed the empty-string early return; '' now reaches JSON.parse and the catch.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M9",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Malformed metadata throws instead of yielding an empty map.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M10",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Dropped String() normalization: numeric node.id misses the string-keyed map.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M11",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Flipped widget guard: succeeds only when the seed widget is absent.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M12",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Early return skips mirroring the seed into properties when the node has none.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    }
+  ],
+  "summary": {
+    "killed": 11,
+    "survived": 1
+  },
+  "anomalies": []
+}

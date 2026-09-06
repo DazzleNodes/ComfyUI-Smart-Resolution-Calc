@@ -1,0 +1,107 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.1.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "cmd",
+      "/c",
+      "npx",
+      "vitest",
+      "run",
+      "tests/unit/PromptSeed.test.js"
+    ],
+    "timestamp": "2026-09-06T13:20:08-04:00"
+  },
+  "results": [
+    {
+      "id": "R1",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Widget name constant off by a character: applyImageSeed never finds the widget.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "R2",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Default node class misspelled: seedsFromPrompt matches nothing by default.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "R3",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Object.entries/keys confusion: destructuring a string key yields undefined entries.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "R4",
+      "file": "web/utils/prompt_seed.js",
+      "note": "continue -> break: one non-matching node aborts the scan, later seeds dropped.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "R5",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Optional chaining removed: a missing inputs object throws instead of skipping.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "R6",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Default parameter dropped: the one-argument call matches no class_type.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "R7",
+      "file": "web/utils/prompt_seed.js",
+      "note": "typeof compared to the wrong string: inverts which values are accepted.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "R8",
+      "file": "web/utils/prompt_seed.js",
+      "note": "`in` -> hasOwnProperty: a value on a prototype falls through to the raw object.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "R9",
+      "file": "web/utils/prompt_seed.js",
+      "note": "has() on the un-stringified id instead of the string key used when storing.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "R10",
+      "file": "web/utils/prompt_seed.js",
+      "note": "Map size assigned instead of the looked-up seed.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": ""
+    }
+  ],
+  "summary": {
+    "killed": 9,
+    "survived": 1
+  },
+  "anomalies": []
+}
