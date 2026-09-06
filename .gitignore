@@ -166,5 +166,8 @@ private/notes/
 # Performance tests (copied temporarily for testing, not distributed)
 web/tests/
 
+# Scratch output of one-off probes (e.g. tests/e2e/seed-metadata.spec.js writes seed_probe.png here)
+tests/one-offs/tmp/
+
 # Numbered backup variants of README screenshots (base file without number is tracked)
 docs/images/Smart-Res-Calculator-node_outputs_and-ClownSharKSampler[0-9]*.jpg

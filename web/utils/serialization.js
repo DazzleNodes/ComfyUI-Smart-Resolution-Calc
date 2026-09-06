@@ -37,13 +37,15 @@ export function applyDazzleSerialization(nodeType, options = {}) {
         if (this.widgets) {
             this.widgets.forEach((widget, index) => {
                 // Save widget.value directly — NOT serializeValue().
-                // serializeValue() has side effects (SeedWidget resolves -1 to a
-                // random seed and updates lastSeed). ComfyUI already calls
-                // serializeValue() separately for the prompt data sent to Python.
-                // Our workflow JSON saves the display state (e.g., -1 for randomize)
-                // so the widget mode is correctly restored on reload.
-                // The actual resolved seed is saved by ComfyUI in widgets_values
-                // (the index-based array) via its own serializeValue call.
+                // Since v0.9.10 SeedWidget.serializeValue() is a pure passthrough
+                // (resolution happens in the queuePrompt intercept, never during
+                // auto-save/serialize cycles), so both this block and ComfyUI's
+                // index-based widgets_values carry the DISPLAY state (-1 in
+                // randomize mode) and the widget mode restores correctly.
+                // The actual resolved seed lives in node.properties.dazzle_last_seed
+                // (mirrored by the intercept) and is hydrated into the widget's
+                // lastSeed by the node's configure hook and, as a fallback, at
+                // queue time. It is NOT in widgets_values.
                 if (widget.value !== undefined) {
                     widgetsByName[widget.name] = widget.value;
                 }

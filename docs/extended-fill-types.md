@@ -58,7 +58,18 @@ The **SEED widget** controls reproducibility of noise fills. When the seed toggl
 **Buttons** (always functional in both ON/OFF modes):
 - **Dice** -- Set value to -1 (randomize each time when ON)
 - **Lock** -- Generate a new random seed value
-- **Recycle** -- Recall the last seed actually used (grayed when none)
+- **Recycle** -- Recall the last seed actually used (grayed when none). The last seed
+  survives a workflow reload and an image drag-in (v0.12.3+): the recycle button is
+  lit right after loading, and one click locks the widget to that seed.
+
+**Random-mode readout** (v0.12.3+): while the widget is in randomize mode and a last
+seed is known, the value box shows that seed in a dimmed green-grey instead of
+`Rnd: -1`. The stored value is still -1 (the green tint and lit dice mean "re-rolls
+on the next queue"); the readout is the seed that made the current image, or the seed
+carried by the workflow or image you just loaded. Click to edit still shows the stored
+-1. Images generated before v0.12.3 carry the seed of the run *before* them in this
+field, so for those the readout and recycle give the previous image's seed; the seed
+actually used is still in the image's prompt metadata.
 
 Note: When `fill_type` is `black`, `white`, or `custom_color`, the seed widget has no effect (these fills are deterministic regardless). When `fill_image` is connected, the seed is also irrelevant.
 

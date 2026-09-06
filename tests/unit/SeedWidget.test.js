@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SeedWidget, SPECIAL_SEED_RANDOM, SPECIAL_SEED_INCREMENT, SPECIAL_SEED_DECREMENT, SEED_MAX } from '../../web/components/SeedWidget.js';
+import { applyDazzleSerialization } from '../../web/utils/serialization.js';
 
 describe('SeedWidget', () => {
     const mockServices = { prompt: vi.fn() };
@@ -189,6 +190,144 @@ describe('SeedWidget', () => {
             // Click recycle — recovers 42
             widget.mouse({ type: 'pointerdown' }, [45, 12], mockNode);
             expect(widget.value.value).toBe(42);
+        });
+    });
+
+    describe('hydrateLastSeedFromNode', () => {
+        it('copies node.properties.dazzle_last_seed into lastSeed and reports true', () => {
+            const widget = createWidget(-1);
+            const node = { properties: { dazzle_last_seed: 582123831103465 } };
+            expect(widget.hydrateLastSeedFromNode(node)).toBe(true);
+            expect(widget.lastSeed).toBe(582123831103465);
+        });
+
+        it('is a no-op (false) when the property is missing, non-numeric, or a special value', () => {
+            for (const props of [{}, { dazzle_last_seed: '42' }, { dazzle_last_seed: null }, { dazzle_last_seed: -1 }, { dazzle_last_seed: -2 }]) {
+                const widget = createWidget(-1);
+                expect(widget.hydrateLastSeedFromNode({ properties: props })).toBe(false);
+                expect(widget.lastSeed).toBeNull();
+            }
+            expect(createWidget(-1).hydrateLastSeedFromNode(undefined)).toBe(false);
+            expect(createWidget(-1).hydrateLastSeedFromNode({})).toBe(false);
+        });
+
+        it('never overwrites a live lastSeed (undo/paste/queue-time fallback safety)', () => {
+            const widget = createWidget(-1);
+            widget.lastSeed = 7;
+            expect(widget.hydrateLastSeedFromNode({ properties: { dazzle_last_seed: 99 } })).toBe(false);
+            expect(widget.lastSeed).toBe(7);
+        });
+    });
+
+    /**
+     * Reload path: node 237 of the 2026-09-06 mushroom workflow, verbatim.
+     * Goes through applyDazzleSerialization's configure wrapper with a minimal
+     * LiteGraph-like node type whose configure() copies `properties`, as
+     * LGraphNode.configure does. The onConfigure hook here is the same one
+     * smart_resolution_calc.js installs (find fill_seed, hydrate).
+     */
+    describe('configure-time hydration (workflow reload / image drag-in)', () => {
+        const SAVED_SEED = 582123831103465;
+        const savedInfo = (seedWidgetValue = -1, props = { dazzle_last_seed: SAVED_SEED }) => ({
+            properties: { 'Node name for S&R': 'SmartResolutionCalc', ...props },
+            widgets_values_by_name: { fill_seed: { on: true, value: seedWidgetValue } },
+        });
+        function makeNodeType() {
+            class FakeNode {
+                constructor() {
+                    this.properties = {};
+                    this.widgets = [createWidget(-1)];
+                }
+                configure(info) { if (info.properties) Object.assign(this.properties, info.properties); }
+                setDirtyCanvas() {}
+            }
+            applyDazzleSerialization(FakeNode, {
+                onConfigure: (info, node) => {
+                    node.widgets.find(w => w.name === 'fill_seed')?.hydrateLastSeedFromNode?.(node);
+                },
+            });
+            return FakeNode;
+        }
+        function load(info) {
+            const T = makeNodeType();
+            const node = new T();
+            node.configure(structuredClone(info));   // by-reference restore would otherwise share the fixture
+            return { node, widget: node.widgets[0] };
+        }
+
+        it('random-mode save: recycle is enabled right after load and recovers the saved seed', () => {
+            const { node, widget } = load(savedInfo(-1));
+            expect(widget.value.value).toBe(-1);
+            expect(widget.randomizeMode).toBe(true);           // random mode itself is preserved
+            expect(widget.lastSeed).toBe(SAVED_SEED);          // was null before this fix
+            widget.hitAreas.btnRecallLast = { x: 10, y: 0, width: 18, height: 24 };
+            widget.mouse({ type: 'pointerdown' }, [15, 12], node);
+            expect(widget.value.value).toBe(SAVED_SEED);
+            expect(widget.randomizeMode).toBe(false);          // recycle locks
+        });
+
+        it('increment mode (-2) after load continues from the saved seed instead of a fresh random', () => {
+            const { widget } = load(savedInfo(SPECIAL_SEED_INCREMENT));
+            expect(widget.resolveActualSeed()).toBe(SAVED_SEED + 1);
+        });
+
+        it('pre-v0.12.2 file (no property): recycle stays disabled and the click is inert', () => {
+            const { node, widget } = load(savedInfo(-1, {}));
+            expect(widget.lastSeed).toBeNull();
+            widget.hitAreas.btnRecallLast = { x: 10, y: 0, width: 18, height: 24 };
+            widget.mouse({ type: 'pointerdown' }, [15, 12], node);
+            expect(widget.value.value).toBe(-1);
+        });
+
+        it('fixed-mode save is unaffected: value shows the seed, random mode cleared, lastSeed hydrated', () => {
+            const { widget } = load(savedInfo(626775212942014, { dazzle_last_seed: 626775212942014 }));
+            expect(widget.value.value).toBe(626775212942014);
+            expect(widget.randomizeMode).toBe(false);
+            expect(widget.lastSeed).toBe(626775212942014);
+        });
+    });
+
+    describe('getDisplayState (value box readout)', () => {
+        it('random mode with a known last seed shows the seed dimmed, informational', () => {
+            const widget = createWidget(-1);
+            widget.lastSeed = 582123831103465;
+            const d = widget.getDisplayState();
+            expect(d.text).toBe('582123831103465');
+            expect(d.informational).toBe(true);
+            expect(typeof d.color).toBe('string');
+            expect(widget.value.value).toBe(-1);               // stored value untouched
+        });
+
+        it('random mode with no last seed shows the literal Rnd: -1', () => {
+            expect(createWidget(-1).getDisplayState()).toEqual({ text: 'Rnd: -1', color: undefined, informational: false });
+        });
+
+        it('fixed seed shows the digits in the normal colour', () => {
+            const widget = createWidget(42);
+            widget.lastSeed = 99;
+            expect(widget.getDisplayState()).toEqual({ text: '42', color: undefined, informational: false });
+        });
+
+        it('-2 / -3 keep their labels even when a last seed exists', () => {
+            for (const [v, label] of [[SPECIAL_SEED_INCREMENT, 'Inc: -2'], [SPECIAL_SEED_DECREMENT, 'Dec: -3']]) {
+                const widget = createWidget(-1);
+                widget.value.value = v;
+                widget.lastSeed = 5;
+                expect(widget.getDisplayState().text).toBe(label);
+            }
+        });
+
+        it('toggle OFF shows the stored literal, never the last seed', () => {
+            const widget = createWidget(-1);
+            widget.value.on = false;
+            widget.lastSeed = 5;
+            expect(widget.getDisplayState().text).toBe('Rnd: -1');
+        });
+
+        it('a 16-digit seed (max range) renders as 16 characters, the value-box budget', () => {
+            const widget = createWidget(-1);
+            widget.lastSeed = SEED_MAX - 1;
+            expect(widget.getDisplayState().text.length).toBeLessThanOrEqual(16);
         });
     });
 });

@@ -847,6 +847,15 @@ app.registerExtension({
                         }
                     }
 
+                    // Hydrate the seed recall buffer from the persisted property so
+                    // recycle (and -2/-3) work right after a workflow reload or an
+                    // image drag-in, not only after the first queue. This completes
+                    // the v0.12.2 plan; the queue-time hydration below is the fallback.
+                    const seedWidget = node.widgets?.find(w => w.name === "fill_seed");
+                    if (seedWidget?.hydrateLastSeedFromNode?.(node)) {
+                        logger.debug(`[configure] Node ${node.id}: hydrated lastSeed=${seedWidget.lastSeed} from properties`);
+                    }
+
                     // Sync output_image_mode visibility with restored image_purpose value
                     const ipWidget = node.widgets?.find(w => w.name === "image_purpose");
                     if (ipWidget?.callback) {
@@ -999,16 +1008,15 @@ app.registerExtension({
                 const seedWidget = node.widgets?.find(w => w.name === 'fill_seed');
                 if (!seedWidget) continue;
 
-                // Hydrate lastSeed from the per-tab persisted property.
+                // Fallback hydration of lastSeed from the per-tab persisted
+                // property (primary hydration happens in the configure hook).
                 // loadGraphData (opening/switching workflow tabs) recreates all
                 // node objects, wiping runtime props like lastSeed — without
                 // this, 'reuse last seed' silently falls back to a fresh random
                 // seed and busts the cache. node.properties serialize into each
                 // tab's workflow draft, so every tab keeps its own last seed.
-                if (seedWidget.lastSeed == null &&
-                    typeof node.properties?.dazzle_last_seed === 'number') {
-                    seedWidget.lastSeed = node.properties.dazzle_last_seed;
-                    logger.debug(`[Seed Intercept] Node ${node.id}: hydrated lastSeed=${seedWidget.lastSeed} from properties`);
+                if (seedWidget.hydrateLastSeedFromNode?.(node)) {
+                    logger.debug(`[Seed Intercept] Node ${node.id}: hydrated lastSeed=${seedWidget.lastSeed} from properties (fallback)`);
                 }
                 // Hydrate pending user intent the same way (set by SeedWidget
                 // interaction, possibly in a previous page/tab lifetime)
@@ -1181,23 +1189,29 @@ app.registerExtension({
                     nodePrompt.inputs.fill_seed = { on: true, value: resolvedSeed };
                 }
 
-                // Patch the workflow data (what gets saved in image metadata)
-                const workflowNode = prompt?.workflow?.nodes?.find(n => n.id === node.id);
+                // Patch the workflow snapshot (what gets embedded in image
+                // metadata). The snapshot was serialized BEFORE this hook ran,
+                // so its copy of node.properties still holds the PREVIOUS run's
+                // seed; writing this run's seed here is what makes an image
+                // dragged back in recover its own seed.
+                //
+                // Match ids loosely: in current frontends the live node.id is a
+                // string while the serialized snapshot carries numbers, so the
+                // former strict === never matched and nothing here ever reached
+                // an image (measured 9/9 on 2026-09-06; see the seed-recall design doc).
+                //
+                // Only the property mirror is patched. widgets_values keeps the
+                // display state (-1 in random mode) so a dragged-in image
+                // restores the same mode as a saved JSON, with the seed readable
+                // in the value box and one recycle click away.
+                const workflowNode = prompt?.workflow?.nodes?.find(n => String(n.id) === String(node.id));
                 if (workflowNode) {
-                    // Patch index-based widgets_values
-                    if (workflowNode.widgets_values) {
-                        for (let i = 0; i < workflowNode.widgets_values.length; i++) {
-                            const wv = workflowNode.widgets_values[i];
-                            if (wv && typeof wv === 'object' && 'on' in wv && wv.value === seedValue) {
-                                workflowNode.widgets_values[i] = { on: true, value: resolvedSeed };
-                                break;
-                            }
-                        }
-                    }
-                    // Patch name-based widgets_values_by_name (used by our configure restore)
-                    if (workflowNode.widgets_values_by_name && workflowNode.widgets_values_by_name.fill_seed) {
-                        workflowNode.widgets_values_by_name.fill_seed = { on: true, value: resolvedSeed };
-                    }
+                    if (!workflowNode.properties) workflowNode.properties = {};
+                    const stale = workflowNode.properties.dazzle_last_seed;
+                    workflowNode.properties.dazzle_last_seed = resolvedSeed;
+                    logger.debug(`[Seed Intercept] Node ${node.id}: workflow snapshot dazzle_last_seed ${stale} -> ${resolvedSeed}`);
+                } else {
+                    logger.debug(`[Seed Intercept] Node ${node.id}: workflow snapshot node not found; image metadata will carry the previous run's seed`);
                 }
 
                 // Redraw to show updated state

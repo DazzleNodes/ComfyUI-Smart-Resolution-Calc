@@ -200,7 +200,8 @@ class DazzleToggleWidget extends DazzleWidget {
         const valueWidth = width - (buttonWidth + 4) * 2;
         this.hitAreas.valueEdit = { x: valueX, y: y, width: valueWidth, height: height };
 
-        ctx.fillStyle = "#ffffff";
+        // Optional text colour override (e.g. SeedWidget's dimmed last-seed readout)
+        ctx.fillStyle = options.textColor || "#ffffff";
         ctx.textAlign = "center";
         ctx.font = "12px monospace";
         const displayValue = options.displayValue ?? String(this.value);

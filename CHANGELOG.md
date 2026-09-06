@@ -5,6 +5,43 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] - 2026-09-06
+
+### Fixed
+- **Seed lost on workflow reload** -- a SmartResCalc node saved in random mode came back
+  showing `Rnd: -1` with the recycle button greyed out, and the first queue discarded the
+  saved seed. The last seed now survives a reload and an image drag-in: recycle is lit as
+  soon as the workflow loads, one click locks the widget to that seed, and `-2`/`-3`
+  continue from it. Completes the per-tab persistence added in 0.12.2, which only restored
+  the seed at queue time.
+- **Image metadata carried the previous image's seed** -- the workflow embedded in every
+  generated image held the seed of the run *before* it (measured on 7 of 7 consecutive
+  images), because the live node id is a string while the serialized snapshot uses
+  numbers, so the metadata patch never matched its node. Images generated from 0.12.3 on
+  carry their own seed. Images generated with 0.12.2 still carry the previous run's seed
+  in this field; the seed actually used is in their prompt metadata, and #58 will read it
+  from there on drag-in.
+
+### Added
+- **Random-mode seed readout** -- while the seed widget is in randomize mode and a last
+  seed is known, the value box shows that seed in dimmed green-grey instead of `Rnd: -1`.
+  The stored value stays -1 (the green tint and lit dice mean it re-rolls on the next
+  queue) and click-to-edit still shows -1. It is the seed that made the current image, or
+  the one carried by the workflow or image you just loaded.
+- **Live seed tests** -- `tests/e2e/seed-metadata.spec.js` generates a two-node graph on
+  a running ComfyUI and checks that the seed embedded in the image equals the seed Python
+  received; `tests/e2e/seed-reload.spec.js` reloads an in-page graph and checks recall,
+  `-2` continuity, and the hydration guards; `tests/one-offs/measure_seed_metadata.py`
+  runs the metadata check on any PNG, WAS webp, or workflow JSON.
+
+### Changed
+- The seed intercept no longer rewrites `widgets_values` in image metadata. Images keep
+  the widget's display state (-1 in random mode), so a dragged-in image restores the same
+  mode as a saved JSON, with the seed readable in the value box and one recycle click
+  away.
+- Corrected the comment in `web/utils/serialization.js` that claimed the resolved seed was
+  stored in `widgets_values`.
+
 ## [0.12.2] - 2026-07-02
 
 ### Fixed

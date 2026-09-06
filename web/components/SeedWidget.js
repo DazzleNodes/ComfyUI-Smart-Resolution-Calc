@@ -28,6 +28,9 @@ const SPECIAL_SEED_INCREMENT = -2;
 const SPECIAL_SEED_DECREMENT = -3;
 const SPECIAL_SEEDS = [SPECIAL_SEED_RANDOM, SPECIAL_SEED_INCREMENT, SPECIAL_SEED_DECREMENT];
 const SEED_MAX = 1125899906842624;  // Match rgthree's max
+// Text colour for the informational last-seed readout shown in random mode
+// (dimmed green-grey on the random-mode tint, so it reads as "for information").
+const SEED_DISPLAY_DIM_COLOR = "#9bb59b";
 
 class SeedWidget extends DazzleToggleWidget {
     constructor(name, defaultValue = -1, config = {}) {
@@ -76,6 +79,27 @@ class SeedWidget extends DazzleToggleWidget {
      */
     setRandomMode(active) {
         this.randomizeMode = active;
+    }
+
+    /**
+     * Hydrate lastSeed from the node's persisted mirror property.
+     *
+     * Runtime widget props are wiped by every graph load (loadGraphData
+     * recreates node objects), while node.properties ride the workflow JSON
+     * and the image metadata. Called from the configure hook so the recycle
+     * button (and -2/-3 increment/decrement) work immediately after a
+     * workflow reload or an image drag-in, and from the queue-time intercept
+     * as a fallback. Never overwrites a live lastSeed.
+     *
+     * @param {object} node - LiteGraph node owning this widget
+     * @returns {boolean} true if lastSeed was populated from the property
+     */
+    hydrateLastSeedFromNode(node) {
+        if (this.lastSeed != null) return false;
+        const saved = node?.properties?.dazzle_last_seed;
+        if (typeof saved !== "number" || SPECIAL_SEEDS.includes(saved)) return false;
+        this.lastSeed = saved;
+        return true;
     }
 
     /**
@@ -170,10 +194,11 @@ class SeedWidget extends DazzleToggleWidget {
         if (isActive) {
             // Green tint when randomizeMode active — visual cue that seed changes each queue
             const backgroundColor = (this.randomizeMode && isActive) ? "#1a2a1a" : undefined;
-            const displayValue = this._formatSeedValue(this.value.value);
+            const { text: displayValue, color: textColor } = this.getDisplayState();
             this.drawNumberWidget(ctx, numberX, y, numberWidth, height, true, {
                 displayValue,
-                backgroundColor
+                backgroundColor,
+                textColor
             });
         } else {
             // Grayed out value (still clickable)
@@ -234,6 +259,26 @@ class SeedWidget extends DazzleToggleWidget {
         if (v === SPECIAL_SEED_INCREMENT) return "Inc: -2";
         if (v === SPECIAL_SEED_DECREMENT) return "Dec: -3";
         return String(v);
+    }
+
+    /**
+     * What the value box shows.
+     *
+     * In random mode with a known last seed, show that seed dimmed: the
+     * stored value is still -1 (it re-rolls on the next queue; the green
+     * tint and lit dice say so), but the user can read the seed that made
+     * the current image, or the one carried by a reloaded workflow / dragged-
+     * in image, without pressing recycle. Everywhere else the box shows the
+     * stored value via _formatSeedValue (label + literal for -1/-2/-3).
+     *
+     * @returns {{text: string, color: (string|undefined), informational: boolean}}
+     */
+    getDisplayState() {
+        const stored = Math.round(this.value.value);
+        if (this.value.on && this.randomizeMode && stored === SPECIAL_SEED_RANDOM && this.lastSeed != null) {
+            return { text: String(this.lastSeed), color: SEED_DISPLAY_DIM_COLOR, informational: true };
+        }
+        return { text: this._formatSeedValue(this.value.value), color: undefined, informational: false };
     }
 
     // drawToggle() — inherited from DazzleWidget (same as DimensionWidget)
