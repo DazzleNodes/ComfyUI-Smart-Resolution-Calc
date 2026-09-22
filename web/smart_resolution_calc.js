@@ -918,7 +918,7 @@ app.registerExtension({
             applyDazzleSerialization(nodeType, {
                 onSerialize: (data, node) => {
                     // Store scale widget step configuration
-                    const scaleWidget = node.widgets ? node.widgets.find(w => w instanceof ScaleWidget) : null;
+                    const scaleWidget = node.scaleWidgetInstance;
                     if (scaleWidget) {
                         if (!data.widgets_config) data.widgets_config = {};
                         data.widgets_config.scale = {
@@ -930,7 +930,7 @@ app.registerExtension({
                 onConfigure: (info, node) => {
                     // Restore scale widget step configuration
                     if (info.widgets_config && info.widgets_config.scale) {
-                        const scaleWidget = node.widgets.find(w => w instanceof ScaleWidget);
+                        const scaleWidget = node.scaleWidgetInstance;
                         if (scaleWidget) {
                             scaleWidget.leftStep = info.widgets_config.scale.leftStep || 0.05;
                             scaleWidget.rightStep = info.widgets_config.scale.rightStep || 0.1;
@@ -979,10 +979,9 @@ app.registerExtension({
                     if (input.name === "image") {
                         // dimensionLogger.debug('[CONNECTION] Image connection change event, connected:', connected);
 
-                        // Find the ImageModeWidget and ScaleWidget
+                        // Find the ImageModeWidget and use the retained ScaleWidget reference
                         const imageModeWidget = this.widgets?.find(w => w.name === "image_mode");
-                        // IMPORTANT: Find the custom ScaleWidget instance, not the hidden default widget
-                        const scaleWidget = this.widgets?.find(w => w instanceof ScaleWidget);
+                        const scaleWidget = this.scaleWidgetInstance;
 
                         // dimensionLogger.verbose('[CONNECTION] imageModeWidget found:', imageModeWidget);
                         // dimensionLogger.verbose('[CONNECTION] scaleWidget found:', scaleWidget);
