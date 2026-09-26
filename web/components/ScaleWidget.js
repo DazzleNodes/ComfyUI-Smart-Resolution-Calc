@@ -349,6 +349,15 @@ class ScaleWidget extends DazzleWidget {
     /**
      * Draw the scale widget
      */
+    /**
+     * True when the node's `scale` input has a link: the linked node supplies the
+     * value, so the slider shows that state instead of a draggable number.
+     */
+    isLinked(node) {
+        const input = node?.inputs?.find(i => i.name === "scale");
+        return input?.link !== null && input?.link !== undefined;
+    }
+
     draw(ctx, node, width, y, height) {
         const margin = 15;
         const innerMargin = 3;
@@ -361,6 +370,16 @@ class ScaleWidget extends DazzleWidget {
         ctx.beginPath();
         ctx.roundRect(margin, y + 1, width - margin * 2, height - 2, 4);
         ctx.fill();
+
+        if (this.isLinked(node)) {
+            ctx.fillStyle = "#666666";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.font = "13px sans-serif";
+            ctx.fillText("SCALE  (linked)", margin + innerMargin, midY);
+            ctx.restore();
+            return;
+        }
 
         let posX = margin + innerMargin;
 
@@ -936,6 +955,9 @@ class ScaleWidget extends DazzleWidget {
         // Check info icon first (tooltip on label)
         if (this.handleTooltipMouse(event, pos, node)) return true;
 
+        // A linked `scale` input owns the value; the slider does not edit it
+        if (this.isLinked(node)) return false;
+
         if (event.type === "pointerdown") {
             this.mouseDowned = [...pos];
 
@@ -1012,7 +1034,6 @@ class ScaleWidget extends DazzleWidget {
                     const parsed = parseFloat(newValue);
                     if (!isNaN(parsed) && parsed >= 0.0) {
                         this.value = Math.max(0.0, parsed);
-                        this.onValueChanged?.(this.value);
                         node.setDirtyCanvas(true);
                     }
                 }, event);
@@ -1028,7 +1049,6 @@ class ScaleWidget extends DazzleWidget {
                 if (timeSinceLastClick < this.doubleClickThreshold) {
                     // Double-click detected - reset to 1.0x
                     this.value = 1.0;
-                    this.onValueChanged?.(this.value);
                     this.lastClickTime = 0; // Reset to prevent triple-click
                     node.setDirtyCanvas(true);
                     logger.info(`[ScaleWidget] Double-click detected - reset to 1.0x`);
@@ -1125,9 +1145,6 @@ class ScaleWidget extends DazzleWidget {
 
         // Clamp to range
         this.value = Math.max(this.min, Math.min(this.max, newValue));
-        // Mirror into the hidden default "scale" widget that the frontend serializes
-        // (set by the node in onNodeCreated; see smart_resolution_calc.js)
-        this.onValueChanged?.(this.value);
     }
 
     // isInBounds() — inherited from DazzleWidget

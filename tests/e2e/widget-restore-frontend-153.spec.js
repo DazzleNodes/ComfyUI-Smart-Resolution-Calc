@@ -129,7 +129,7 @@ test('a file saved by a 1.5x frontend before v0.12.5 (slider stored as scale#1) 
     expect(r.carrier).toBe(1.5);
 });
 
-test('the queued prompt carries the slider value as `scale`, even if the carrier lags, and no #1 inputs', async ({ page }) => {
+test('the queued prompt carries the slider value as `scale` when set without any change hook, and no #1 inputs', async ({ page }) => {
     // No generation: POST /api/prompt is answered by this stub and never reaches the
     // server. The graph also has no output node, so the server would reject it anyway.
     const posted = [];
@@ -161,6 +161,7 @@ test('the queued prompt carries the slider value as `scale`, even if the carrier
 });
 
 test('a link into `scale` reaches the queued prompt as the link, not the slider value', async ({ page }) => {
+    // CONSEQUENCE: 6 (behaviour) -- a linked scale drives the output; the slider neither overrides nor edits it.
     // No generation: POST /api/prompt is stubbed, and the graph has no output node.
     const posted = [];
     await page.route(/\/(api\/)?prompt$/, async (route) => {
@@ -180,11 +181,19 @@ test('a link into `scale` reaches the queued prompt as the link, not the slider 
         if (slot < 0) return { error: 'no scale input socket' };
         const pw = prim.widgets?.find(w => w.name === 'value'); if (pw) pw.value = 2.5;
         if (!prim.connect(0, node, slot)) return { error: 'link failed' };
-        node.scaleWidgetInstance.value = 1.5; node.scaleWidgetInstance.onValueChanged?.(1.5);
+        node.scaleWidgetInstance.value = 1.5;
+        // While linked, the slider does not take a drag
+        const before = node.scaleWidgetInstance.value;
+        const handled = node.scaleWidgetInstance.mouse({ type: 'pointerdown' }, [200, 5], node);
+        const afterMouse = node.scaleWidgetInstance.value;
         try { await app.queuePrompt(0, 1); } catch (e) { /* stubbed response */ }
-        return { nodeId: String(node.id), primId: String(prim.id) };
+        return { nodeId: String(node.id), primId: String(prim.id), handled, unchanged: before === afterMouse,
+                 linked: node.scaleWidgetInstance.isLinked?.(node) ?? null };
     });
     expect(ids.error).toBeUndefined();
+    expect(ids.linked).toBe(true);
+    expect(ids.handled).toBe(false);
+    expect(ids.unchanged).toBe(true);
     await page.waitForTimeout(500);
     expect(posted.length, 'no POST /prompt was captured').toBeGreaterThan(0);
     const inputs = posted[posted.length - 1].prompt?.[ids.nodeId]?.inputs || {};
@@ -217,21 +226,36 @@ test('custom scale step sizes survive save/load (stored in node.properties, PR #
     expect(r.restored).toEqual({ leftStep: 0.23, rightStep: 0.47 });
 });
 
-test('a workflow with only our by-name block (older file) still restores from it', async ({ page }) => {
-    const wf = JSON.parse(fs.readFileSync(FIXTURE, 'utf-8'));
-    const node = wf.nodes.find(n => String(n.id) === NODE_ID);
-    delete node.widgets_values_named;                               // pre-1.5x file shape
-    delete node.extensions;
-    node.widgets_values_by_name.dimension_height = { on: true, value: 1536 };
+test('the shipped example workflow (older by-name shape) restores its scale onto the slider', async ({ page }) => {
+    // CONSEQUENCE: 6 (behaviour) -- files saved before 1.5x frontends restore their values, scale included.
+    // Also covers the by-name fallback path (the separate by-name-only test was merged in here).
+    const wf = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'workflow', 'SmartResCalc-Test-Script.json'), 'utf-8'));
+    const saved = wf.nodes.find(n => n.type === 'SmartResolutionCalc');
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
     await boot(page);
     const r = await page.evaluate(async ({ wf, id }) => {
         const app = window.app;
         app.graph.clear();
         await app.loadGraphData(wf);
         await new Promise(r => setTimeout(r, 2000));
-        const node = (app.graph._nodes || []).find(n => String(n.id) === id && n.comfyClass === 'SmartResolutionCalc');
-        const h = node.widgets.find(w => w.name === 'dimension_height');
-        return { height: JSON.parse(JSON.stringify(h.value)) };
-    }, { wf, id: NODE_ID });
-    expect(r.height).toEqual({ on: true, value: 1536 });
+        const n = (app.graph._nodes || []).find(x => String(x.id) === id);
+        const native = n.widgets.find(w => w.name === 'scale');
+        const height = n.widgets.find(w => w.name === 'dimension_height');
+        const p = await app.graphToPrompt();
+        return { slider: n.scaleWidgetInstance?.value, native: native?.value,
+                 height: JSON.parse(JSON.stringify(height.value)),
+                 promptScale: p.output?.[id]?.inputs?.scale,
+                 steps: { l: n.scaleWidgetInstance?.leftStep, r: n.scaleWidgetInstance?.rightStep },
+                 names: n.widgets.map(w => w.name).filter(x => /scale|mode_status/.test(x)) };
+    }, { wf, id: String(saved.id) });
+    console.log(JSON.stringify(r));
+    expect(errors.filter(e => /smart|scale|dazzle/i.test(e))).toEqual([]);
+    expect(r.height).toEqual(saved.widgets_values_by_name.dimension_height);   // {on:false, value:1200}
+    expect(r.native).toBe(saved.widgets_values_by_name.scale);   // 1.1 in this file
+    expect(r.slider).toBe(r.native);
+    expect(r.promptScale).toBe(r.native);
+    expect(r.steps).toEqual({ l: 0.05, r: 0.1 });
+    expect(r.names.filter(x => x.includes('#'))).toEqual([]);     // no renamed duplicates
 });
+

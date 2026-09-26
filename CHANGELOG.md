@@ -5,6 +5,21 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.7] - 2026-09-26
+
+### Changed
+- **The scale slider is now a view on the node's own `scale` input** -- one stored value instead of two kept in
+  step. The slider reads and writes the hidden native `scale` widget, which is what ComfyUI saves, sends to
+  Python, and links to. The slider and the MODE readout have their own names (`scale_slider`,
+  `mode_status_display`), so no frontend renames anything to `scale#1` any more, and SmartResCalc no longer
+  rewrites the queued prompt. This replaces the 0.12.5 workaround that 0.12.6 had to patch.
+- With a node linked into `scale`, the slider shows "SCALE (linked)" and does not take drags; the linked value
+  is what Python uses.
+
+### Compatibility
+- Saved workflows are unchanged in shape: `scale` is saved and restored as before. Files saved on a 1.5x
+  frontend before 0.12.5, which stored the slider as `scale#1`, still reopen with the scale that was set.
+
 ## [0.12.6] - 2026-09-26
 
 ### Fixed

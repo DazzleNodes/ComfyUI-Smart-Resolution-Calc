@@ -228,7 +228,10 @@ app.registerExtension({
                 this.seedWidgetInstance = seedWidget;
 
                 // Add custom scale widget
-                const scaleWidget = new ScaleWidget("scale", 1.0, { tooltipContent: TOOLTIP_CONTENT.scale });
+                // Named apart from the Python `scale` input on purpose: the slider is a view
+                // on the native `scale` widget (see the value accessor below), never saved
+                // and never sent. A shared name made 1.5x frontends rename one of them `scale#1`.
+                const scaleWidget = new ScaleWidget("scale_slider", 1.0, { tooltipContent: TOOLTIP_CONTENT.scale });
                 this.scaleWidgetInstance = scaleWidget; // Store reference for updateModeWidget
 
                 // MODE widget: Optimizations insufficient - custom widgets in draw cycle cause corruption
@@ -472,11 +475,11 @@ app.registerExtension({
                     logger.debug('Hidden native mode_status widget');
                 }
 
-                // Create custom MODE status widget using existing ModeStatusWidget class.
-                // Display only; the hidden native widget above keeps the name for Python,
-                // so ours is not serialized (avoids a `mode_status#1` duplicate on 1.5x).
-                const modeStatusWidget = new ModeStatusWidget("mode_status");
+                // Custom MODE readout. Display only, never saved, and named apart from the
+                // hidden native `mode_status` input so no frontend renames either of them.
+                const modeStatusWidget = new ModeStatusWidget("mode_status_display");
                 modeStatusWidget.serialize = false;
+                this.modeStatusWidgetInstance = modeStatusWidget;
 
                 // Insert custom widget above aspect_ratio
                 const aspectRatioIndex = this.widgets.findIndex(w => w.name === "aspect_ratio");
@@ -488,34 +491,37 @@ app.registerExtension({
                     logger.debug('Created custom MODE status widget at end');
                 }
 
-                // Hide the default "scale" widget created by ComfyUI (we use custom widget instead)
-                // and make it the VALUE CARRIER for our slider. Two widgets share the name
-                // "scale": this hidden default (first in the array) and our custom slider.
-                // Frontends from the 1.5x line de-duplicate names, so the default is sent to
-                // Python as `scale` and our slider as `scale#1`, which Python discards: the
-                // slider was silently ignored (measured 2026-09-26: scale 1.5 produced a 1x
-                // image). Older frontends let the later widget overwrite the earlier one,
-                // which is why it used to work. Mirroring our value into the default on every
-                // change and before every save makes both generations send the right value;
-                // `serialize = false` on our slider stops the `scale#1` duplicate on 1.5x
-                // (older frontends ignore that flag and keep their last-wins behaviour).
-                const defaultScaleWidget = this.widgets.find(w => w.name === "scale" && w.type !== "custom");
-                if (defaultScaleWidget) {
-                    defaultScaleWidget.type = "converted-widget";
-                    defaultScaleWidget.computeSize = () => [0, -4];  // Hide it from layout
-                    defaultScaleWidget.draw = () => {};  // Prevent it from rendering entirely
-                    defaultScaleWidget.value = scaleWidget.value;
+                // The native `scale` widget (from Python's FLOAT input) owns the value: it is
+                // what the frontend saves, what it sends to Python, and it owns the input
+                // socket, so a link into `scale` works with no help from us. It is hidden,
+                // and our slider is a VIEW on it: the slider's `value` is an accessor over
+                // the native widget, so there is one stored value and nothing to keep in
+                // sync. (v0.12.5 mirrored two values and patched the prompt; that patch
+                // overwrote links. Design: 2026-09-26__07-12-00__dev-workflow-single-scale-widget.md)
+                const nativeScaleWidget = this.widgets.find(w => w.name === "scale" && w !== scaleWidget);
+                if (nativeScaleWidget) {
+                    nativeScaleWidget.type = "converted-widget";
+                    nativeScaleWidget.computeSize = () => [0, -4];  // Hide it from layout
+                    nativeScaleWidget.draw = () => {};  // Prevent it from rendering entirely
+                    const initial = scaleWidget.value;
+                    Object.defineProperty(scaleWidget, 'value', {
+                        configurable: true,
+                        enumerable: true,
+                        get: () => nativeScaleWidget.value,
+                        set: (v) => { nativeScaleWidget.value = v; },
+                    });
+                    if (nativeScaleWidget.value === undefined || nativeScaleWidget.value === null) {
+                        nativeScaleWidget.value = initial;
+                    }
                     scaleWidget.serialize = false;
-                    scaleWidget.onValueChanged = (v) => { defaultScaleWidget.value = v; };
-                    this.syncScaleCarrier = () => { defaultScaleWidget.value = scaleWidget.value; };
-                    this.adoptScaleFromCarrier = () => { scaleWidget.value = defaultScaleWidget.value; };
-                    logger.debug('Hidden default scale widget; it now carries the custom slider value');
+                    this.nativeScaleWidget = nativeScaleWidget;
+                    logger.debug('Scale slider is a view on the hidden native scale widget');
                 }
 
                 // Step sizes persist in node.properties, written when they change.
                 // A 1.5x frontend saves via the graph serializer without calling our
                 // node.serialize hook, so a write only at serialize time never reached
-                // the file (#60). Same pattern as the scale carrier above.
+                // the file (#60).
                 this.storeScaleSteps = () => {
                     if (!this.properties) this.properties = {};
                     this.properties.dazzle_scale_steps = { leftStep: scaleWidget.leftStep, rightStep: scaleWidget.rightStep };
@@ -542,7 +548,7 @@ app.registerExtension({
                     // DIAGNOSTIC: Log updateModeWidget call (Phase 1)
                     logger.debug('[UPDATE-MODE] updateModeWidget called, forceRefresh:', forceRefresh);
 
-                    const modeWidget = this.widgets.find(w => w.name === "mode_status");
+                    const modeWidget = this.modeStatusWidgetInstance;
                     if (modeWidget && this.dimensionSourceManager) {
                         // Get imageDimensionsCache from stored ScaleWidget reference
                         const imageDimensionsCache = this.scaleWidgetInstance?.imageDimensionsCache;
@@ -945,11 +951,6 @@ app.registerExtension({
             // Name-based serialization (reusable library function)
             // Scale widget step config is SmartResCalc-specific, passed via hooks
             applyDazzleSerialization(nodeType, {
-                beforeSerialize: (node) => {
-                    // The hidden default "scale" widget is what the frontend serializes;
-                    // make sure it holds the slider's current value first.
-                    if (node.syncScaleCarrier) node.syncScaleCarrier();
-                },
                 onSerialize: (data, node) => {
                     // Store the scale widget's step configuration in node.properties.
                     // Frontends from the 1.5x line keep only an allowlist of node
@@ -971,16 +972,15 @@ app.registerExtension({
                 onConfigure: (info, node) => {
                     // Restore scale widget step configuration: node.properties first
                     // (v0.12.5+), then the pre-v0.12.5 widgets_config block.
-                    // Scale after restore. Frontends from the 1.5x line rename our slider
-                    // to "scale#1" (the hidden default keeps "scale"), so the file's `scale`
-                    // lands on the carrier and the slider must adopt it. A file saved by
-                    // 1.5x before v0.12.5 carries the user's value under "scale#1" instead;
-                    // then the slider was restored by name and the carrier follows it.
-                    if (node.scaleWidgetInstance && node.adoptScaleFromCarrier) {
-                        const src = info.widgets_values_named ?? info.widgets_values_by_name;
-                        const sliderName = node.scaleWidgetInstance.name;
-                        const sliderHadOwnEntry = !!(src && sliderName !== 'scale' && src[sliderName] !== undefined);
-                        if (sliderHadOwnEntry) node.syncScaleCarrier(); else node.adoptScaleFromCarrier();
+                    // Scale restores onto the native `scale` widget by name like any other
+                    // value; the slider reads it through its accessor. One older shape needs
+                    // help: files saved on a 1.5x frontend before v0.12.5 hold the user's
+                    // value under "scale#1" (the slider, renamed by the frontend) and a
+                    // stale 1.0 under "scale". Remove when such files no longer matter.
+                    const named = info.widgets_values_named;
+                    if (node.nativeScaleWidget && named && typeof named === 'object'
+                        && named['scale#1'] !== undefined && named['scale#1'] !== null) {
+                        node.nativeScaleWidget.value = named['scale#1'];
                     }
 
                     const steps = info.properties?.dazzle_scale_steps ?? info.widgets_config?.scale;
@@ -1164,22 +1164,6 @@ app.registerExtension({
 
                 const seedWidget = node.widgets?.find(w => w.name === 'fill_seed');
                 if (!seedWidget) continue;
-
-                // Scale: whatever the frontend serialized, the declared `scale` input
-                // must carry the slider's value (the hidden default widget is the
-                // carrier; this is the belt for that suspender). Drop the `#1`
-                // duplicates a 1.5x frontend makes from same-named widgets.
-                const promptInputs = prompt?.output?.[String(node.id)]?.inputs;
-                if (promptInputs) {
-                    // A link into `scale` arrives as [nodeId, slot]; leave it alone so the
-                    // linked value reaches Python (v0.12.5 overwrote it with the slider).
-                    if (node.scaleWidgetInstance && Object.prototype.hasOwnProperty.call(promptInputs, 'scale')
-                        && !Array.isArray(promptInputs.scale)) {
-                        promptInputs.scale = node.scaleWidgetInstance.value;
-                    }
-                    delete promptInputs['scale#1'];
-                    delete promptInputs['mode_status#1'];
-                }
 
                 // Fallback hydration of lastSeed from the per-tab persisted
                 // property (primary hydration happens in the configure hook).
