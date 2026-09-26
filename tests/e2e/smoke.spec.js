@@ -104,7 +104,8 @@ test('SmartResCalc node can be loaded via API', async ({ page }) => {
 
 test('SmartResCalc node has expected widgets', async ({ page }) => {
     await page.goto('/');
-    await page.waitForTimeout(3000);
+    await page.waitForFunction(() => !!(window.app && window.app.graph && window.LiteGraph), null, { timeout: 60000 });
+    await page.waitForTimeout(1000);
 
     // Load test workflow
     const workflowPath = path.join(__dirname, '..', '..', 'docs', 'workflow', 'SmartResCalc-Test-Script.json');
@@ -148,7 +149,9 @@ test('SmartResCalc node has expected widgets', async ({ page }) => {
 
 test('SmartResCalc node has expected outputs', async ({ page }) => {
     await page.goto('/');
-    await page.waitForTimeout(3000);
+    // Same readiness race as "can be loaded via API": wait for the app, not the clock.
+    await page.waitForFunction(() => !!(window.app && window.app.graph && window.LiteGraph), null, { timeout: 60000 });
+    await page.waitForTimeout(1000);
 
     const workflowPath = path.join(__dirname, '..', '..', 'docs', 'workflow', 'SmartResCalc-Test-Script.json');
     const workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf-8'));
@@ -190,7 +193,8 @@ test('SmartResCalc node has expected outputs', async ({ page }) => {
 
 test('Screenshot baseline', async ({ page }) => {
     await page.goto('/');
-    await page.waitForTimeout(3000);
+    await page.waitForFunction(() => !!(window.app && window.app.graph && window.LiteGraph), null, { timeout: 60000 });
+    await page.waitForTimeout(1000);
 
     const workflowPath = path.join(__dirname, '..', '..', 'docs', 'workflow', 'SmartResCalc-Test-Script.json');
     const workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf-8'));

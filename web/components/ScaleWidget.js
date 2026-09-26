@@ -956,21 +956,25 @@ class ScaleWidget extends DazzleWidget {
             if (this.showingSettings) {
                 if (this.isInBounds(pos, this.hitAreas.leftStepDown)) {
                     this.leftStep = Math.max(0.001, this.leftStep - 0.01);
+                    this.onStepsChanged?.();
                     node.setDirtyCanvas(true);
                     return true;
                 }
                 if (this.isInBounds(pos, this.hitAreas.leftStepUp)) {
                     this.leftStep = Math.min(1.0, this.leftStep + 0.01);
+                    this.onStepsChanged?.();
                     node.setDirtyCanvas(true);
                     return true;
                 }
                 if (this.isInBounds(pos, this.hitAreas.rightStepDown)) {
                     this.rightStep = Math.max(0.001, this.rightStep - 0.01);
+                    this.onStepsChanged?.();
                     node.setDirtyCanvas(true);
                     return true;
                 }
                 if (this.isInBounds(pos, this.hitAreas.rightStepUp)) {
                     this.rightStep = Math.min(10.0, this.rightStep + 0.01);
+                    this.onStepsChanged?.();
                     node.setDirtyCanvas(true);
                     return true;
                 }
@@ -981,6 +985,7 @@ class ScaleWidget extends DazzleWidget {
                         const parsed = parseFloat(newValue);
                         if (!isNaN(parsed) && parsed >= 0.001 && parsed <= 1.0) {
                             this.leftStep = parsed;
+                            this.onStepsChanged?.();
                             node.setDirtyCanvas(true);
                         }
                     }, event);
@@ -993,6 +998,7 @@ class ScaleWidget extends DazzleWidget {
                         const parsed = parseFloat(newValue);
                         if (!isNaN(parsed) && parsed >= 0.001 && parsed <= 10.0) {
                             this.rightStep = parsed;
+                            this.onStepsChanged?.();
                             node.setDirtyCanvas(true);
                         }
                     }, event);
@@ -1006,6 +1012,7 @@ class ScaleWidget extends DazzleWidget {
                     const parsed = parseFloat(newValue);
                     if (!isNaN(parsed) && parsed >= 0.0) {
                         this.value = Math.max(0.0, parsed);
+                        this.onValueChanged?.(this.value);
                         node.setDirtyCanvas(true);
                     }
                 }, event);
@@ -1021,6 +1028,7 @@ class ScaleWidget extends DazzleWidget {
                 if (timeSinceLastClick < this.doubleClickThreshold) {
                     // Double-click detected - reset to 1.0x
                     this.value = 1.0;
+                    this.onValueChanged?.(this.value);
                     this.lastClickTime = 0; // Reset to prevent triple-click
                     node.setDirtyCanvas(true);
                     logger.info(`[ScaleWidget] Double-click detected - reset to 1.0x`);
@@ -1117,6 +1125,9 @@ class ScaleWidget extends DazzleWidget {
 
         // Clamp to range
         this.value = Math.max(this.min, Math.min(this.max, newValue));
+        // Mirror into the hidden default "scale" widget that the frontend serializes
+        // (set by the node in onNodeCreated; see smart_resolution_calc.js)
+        this.onValueChanged?.(this.value);
     }
 
     // isInBounds() — inherited from DazzleWidget
