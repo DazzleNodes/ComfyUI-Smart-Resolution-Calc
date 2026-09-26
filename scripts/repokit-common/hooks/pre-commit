@@ -1,0 +1,166 @@
+#!/bin/sh
+# Pre-commit hook that:
+# 1. Updates version.py with correct version info
+# 2. Prevents committing private content to public branches
+
+# Get current branch name
+current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+# Get the repository root
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+# PART 1: Update version.py
+# -------------------------
+# Locate the version-sync script LAYOUT-AGNOSTICALLY. It may live flat at
+# scripts/sync-versions.py (this library's original assumption) OR nested at
+# scripts/repokit-common/sync-versions.py (the subtree layout most consumers
+# actually use). Resolve either, then fall back to a recursive find under
+# scripts/. (Hardcoding scripts/sync-versions.py silently no-ops the stamp for
+# every nested-layout consumer -- the bug this generalization fixes.)
+#
+# Both candidates and the find fallback are scoped under scripts/, which still
+# assumes the subtree lives there. A consumer may mount it anywhere -- e.g.
+# Software/<area>/<tools>/Repokit-Scripts/ -- and for those the stamp silently
+# no-ops again. Ask git's index as a further fallback: it knows every tracked
+# path, costs no directory walk (which matters on a large work tree, where a
+# recursive find can take minutes), and is layout-agnostic by construction.
+SYNC_SCRIPT=""
+for _cand in "$REPO_ROOT/scripts/repokit-common/sync-versions.py" "$REPO_ROOT/scripts/sync-versions.py"; do
+    [ -f "$_cand" ] && { SYNC_SCRIPT="$_cand"; break; }
+done
+[ -z "$SYNC_SCRIPT" ] && SYNC_SCRIPT="$(find "$REPO_ROOT/scripts" -name sync-versions.py -type f -print 2>/dev/null | head -n1)"
+if [ -z "$SYNC_SCRIPT" ]; then
+    _rel="$(git ls-files -- '*sync-versions.py' 2>/dev/null | head -n1)"
+    [ -n "$_rel" ] && [ -f "$REPO_ROOT/$_rel" ] && SYNC_SCRIPT="$REPO_ROOT/$_rel"
+fi
+UPDATE_SCRIPT=""
+for _cand in "$REPO_ROOT/scripts/repokit-common/update-version.sh" "$REPO_ROOT/scripts/update-version.sh"; do
+    [ -f "$_cand" ] && { UPDATE_SCRIPT="$_cand"; break; }
+done
+if [ -z "$UPDATE_SCRIPT" ]; then
+    _rel="$(git ls-files -- '*update-version.sh' 2>/dev/null | head -n1)"
+    [ -n "$_rel" ] && [ -f "$REPO_ROOT/$_rel" ] && UPDATE_SCRIPT="$REPO_ROOT/$_rel"
+fi
+
+if [ -n "$SYNC_SCRIPT" ] && command -v python >/dev/null 2>&1; then
+    # Run in auto mode to update version before commit
+    UPDATE_OUTPUT=$(python "$SYNC_SCRIPT" --auto 2>&1)
+    UPDATE_EXIT=$?
+
+    if [ $UPDATE_EXIT -eq 0 ]; then
+        # Success - check if version.py was staged
+        if git diff --cached --name-only | grep -q "_version.py"; then
+            echo "✓ Version updated for commit"
+        fi
+    else
+        echo "⚠ Warning: Version update failed but continuing"
+    fi
+elif [ -n "$UPDATE_SCRIPT" ]; then
+    # Fallback to legacy bash script
+    "$UPDATE_SCRIPT" --auto 2>&1 || echo "⚠ Warning: Version update failed but continuing"
+fi
+
+# PART 2: Check for private content
+# -------------------------------------------------
+# Define private branches where private content is allowed
+case "$current_branch" in
+    local|private|feature/*|feat/*|prototype/*|experiment/*|spike/*)
+        echo "Checking for private content on branch: $current_branch"
+        exit 0
+        ;;
+    main|dev|live|test|production|staging|prod|master)
+        echo "🔍 Pre-Commit Check"
+        echo "   Branch: $current_branch (public)"
+        ;;
+    *)
+        echo "🔍 Pre-Commit Check"
+        echo "   Branch: $current_branch (public)"
+        ;;
+esac
+
+# Check for private content using patterns specific to this project.
+#
+# Allowlist support: if .repokit-allowlist exists in repo root, paths listed
+# there (one per line, # comments allowed, blank lines OK) bypass the private-
+# content regex check below. Intended for DELIBERATE move-aside artifacts that
+# carry signal-bearing extensions like .bak (preserved pre-pivot source: "this
+# is the old version, do not use this") which would otherwise trip the regex.
+ALLOWLIST_FILE="$REPO_ROOT/.repokit-allowlist"
+allowed() {
+    [ -f "$ALLOWLIST_FILE" ] || return 1
+    grep -v '^[[:space:]]*#' "$ALLOWLIST_FILE" | grep -v '^[[:space:]]*$' | grep -Fxq -- "$1"
+}
+
+# Staged paths, NUL-delimited, written to a temp file.
+#
+# `for f in $(git diff --cached --name-only)` word-splits on whitespace, so
+# "my report.log" arrived as "my" and "report.log" -- the regex below then
+# matched a fragment rather than the path, and the large-file check further
+# down silently skipped every file whose name contains a space, because
+# `[ -f "$file" ]` failed on every fragment.
+#
+# The list goes to a FILE rather than a variable: command substitution strips
+# NUL bytes, so `X=$(git ... -z)` silently concatenates every path into one
+# string. A temp file is the only way to carry NUL-delimited data through sh.
+STAGED_LIST="$REPO_ROOT/.git/.repokit-staged.$$"
+git diff --cached --name-only -z --diff-filter=ACMR > "$STAGED_LIST"
+cleanup_staged() { rm -f "$STAGED_LIST" "$REPO_ROOT/.git/.repokit-private-hits.$$"; }
+trap cleanup_staged EXIT
+
+# One grep over the whole list instead of an `echo | grep` per file. On a large
+# commit the per-file form costs thousands of process spawns, which is slow
+# everywhere and painful on Windows. The allowlist is consulted only for paths
+# that actually match, so the common case (no private content) costs one grep.
+has_private_content=0
+private_candidates=$(tr '\0' '\n' < "$STAGED_LIST" |
+    grep -E "^.*/__private__.*|^.*/private_.*|^.*~$|\.backup$|\.bak$|\.log$|\.tmp$|^\.env.*|^\.env\.local$|^\.env\.private$|^convos/|^credentials/|^logs/|^nul$|^private/|^revisions/|^secrets/|^test-runs/|^test_runs/")
+
+if [ -n "$private_candidates" ]; then
+    printf '%s\n' "$private_candidates" | while IFS= read -r file; do
+        [ -n "$file" ] || continue
+        allowed "$file" && continue
+        printf '%s\n' "$file"
+    done > "$REPO_ROOT/.git/.repokit-private-hits.$$"
+
+    if [ -s "$REPO_ROOT/.git/.repokit-private-hits.$$" ]; then
+        has_private_content=1
+        echo ""
+        echo "❌ COMMIT BLOCKED - Private Content Protection"
+        echo ""
+        echo "ERROR: Attempting to commit private files to public branch '$current_branch':"
+        echo ""
+        while IFS= read -r file; do
+            echo "  - $file"
+        done < "$REPO_ROOT/.git/.repokit-private-hits.$$"
+    fi
+    rm -f "$REPO_ROOT/.git/.repokit-private-hits.$$"
+fi
+
+if [ $has_private_content -eq 1 ]; then
+    echo ""
+    echo "These files should only exist in private branches."
+    echo "To fix this:"
+    echo "  1. Switch to private branch: git checkout private"
+    echo "  2. Or unstage these files: git reset HEAD <file>"
+    echo "  3. Or remove from working directory: rm <file>"
+    echo ""
+    exit 1
+fi
+
+# Check for large files (>10MB)
+# xargs -0 batches the whole staged list into a handful of du calls rather than
+# one per file, and keeps paths with spaces intact. The previous loop's
+# `[ -f "$file" ]` guard failed on every word-split fragment, so a large file
+# whose name contained a space was never checked at all.
+large_files=$(xargs -0 -r du -k < "$STAGED_LIST" 2>/dev/null |
+    awk -F'\t' '$1 > 10240 { printf "%s\t%s\n", $2, $1 }')
+
+if [ -n "$large_files" ]; then
+    printf '%s\n' "$large_files" | while IFS="$(printf '\t')" read -r file size; do
+        echo "ERROR: File $file is too large ($size KB)"
+    done
+    echo "Consider using Git LFS or add to .gitignore"
+    exit 1
+fi
+
+exit 0
