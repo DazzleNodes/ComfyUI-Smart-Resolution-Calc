@@ -160,6 +160,38 @@ test('the queued prompt carries the slider value as `scale`, even if the carrier
     expect(inputs['mode_status#1']).toBeUndefined();
 });
 
+test('a link into `scale` reaches the queued prompt as the link, not the slider value', async ({ page }) => {
+    // No generation: POST /api/prompt is stubbed, and the graph has no output node.
+    const posted = [];
+    await page.route(/\/(api\/)?prompt$/, async (route) => {
+        if (route.request().method() !== 'POST') return route.continue();
+        posted.push(JSON.parse(route.request().postData() || '{}'));
+        await route.fulfill({ status: 200, contentType: 'application/json',
+            body: JSON.stringify({ prompt_id: 'linked-scale-stub', number: 0, node_errors: {} }) });
+    });
+    await boot(page);
+    const ids = await page.evaluate(async () => {
+        const app = window.app;
+        app.graph.clear();
+        const node = LiteGraph.createNode('SmartResolutionCalc'); node.pos = [400, 100]; app.graph.add(node);
+        const prim = LiteGraph.createNode('PrimitiveFloat'); prim.pos = [50, 100]; app.graph.add(prim);
+        await new Promise(r => setTimeout(r, 300));
+        const slot = (node.inputs || []).findIndex(i => i.name === 'scale');
+        if (slot < 0) return { error: 'no scale input socket' };
+        const pw = prim.widgets?.find(w => w.name === 'value'); if (pw) pw.value = 2.5;
+        if (!prim.connect(0, node, slot)) return { error: 'link failed' };
+        node.scaleWidgetInstance.value = 1.5; node.scaleWidgetInstance.onValueChanged?.(1.5);
+        try { await app.queuePrompt(0, 1); } catch (e) { /* stubbed response */ }
+        return { nodeId: String(node.id), primId: String(prim.id) };
+    });
+    expect(ids.error).toBeUndefined();
+    await page.waitForTimeout(500);
+    expect(posted.length, 'no POST /prompt was captured').toBeGreaterThan(0);
+    const inputs = posted[posted.length - 1].prompt?.[ids.nodeId]?.inputs || {};
+    console.log(JSON.stringify({ scale: inputs.scale }));
+    expect(inputs.scale).toEqual([ids.primId, 0]);
+});
+
 test('custom scale step sizes survive save/load (stored in node.properties, PR #59 + #60)', async ({ page }) => {
     await boot(page);
     const r = await page.evaluate(async () => {

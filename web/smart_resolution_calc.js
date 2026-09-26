@@ -1171,7 +1171,10 @@ app.registerExtension({
                 // duplicates a 1.5x frontend makes from same-named widgets.
                 const promptInputs = prompt?.output?.[String(node.id)]?.inputs;
                 if (promptInputs) {
-                    if (node.scaleWidgetInstance && Object.prototype.hasOwnProperty.call(promptInputs, 'scale')) {
+                    // A link into `scale` arrives as [nodeId, slot]; leave it alone so the
+                    // linked value reaches Python (v0.12.5 overwrote it with the slider).
+                    if (node.scaleWidgetInstance && Object.prototype.hasOwnProperty.call(promptInputs, 'scale')
+                        && !Array.isArray(promptInputs.scale)) {
                         promptInputs.scale = node.scaleWidgetInstance.value;
                     }
                     delete promptInputs['scale#1'];

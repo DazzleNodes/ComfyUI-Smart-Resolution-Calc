@@ -1,13 +1,12 @@
 name: Publish to ComfyUI Registry
 
-# Automatically publish to registry when pyproject.toml version changes
+# Publish when a GitHub release is published, not on every push: a version bump
+# pushed to main is not a release until it is tagged and its notes are out.
+# workflow_dispatch stays for a manual re-publish.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'pyproject.toml'
+  release:
+    types: [published]
 
 jobs:
   publish:
@@ -17,6 +16,17 @@ jobs:
     steps:
       - name: Check Out Repo
         uses: actions/checkout@v4
+
+      - name: Check release tag matches pyproject version
+        if: github.event_name == 'release'
+        run: |
+          version=$(grep -m1 -E '^version = ' pyproject.toml | sed -E 's/^version = "(.*)"/\1/')
+          tag="${GITHUB_REF_NAME#v}"
+          echo "pyproject version: $version, release tag: $GITHUB_REF_NAME"
+          if [ "$version" != "$tag" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not match pyproject.toml version $version"
+            exit 1
+          fi
 
       - name: Publish Custom Node
         uses: Comfy-Org/publish-node-action@main
@@ -29,14 +39,15 @@ jobs:
 # 1. Create publisher account at https://registry.comfy.org/
 # 2. Generate a personal access token from the registry
 # 3. Add the token as a repository secret:
-#    - Go to: Settings → Secrets and variables → Actions
+#    - Go to: Settings -> Secrets and variables -> Actions
 #    - Click "New repository secret"
 #    - Name: REGISTRY_ACCESS_TOKEN
 #    - Value: Your token from the registry
 # 4. Update PublisherId in pyproject.toml with your publisher ID
-# 5. Push changes to main branch - this workflow will auto-publish
 
 # To publish a new version:
-# 1. Update the version field in pyproject.toml
-# 2. Commit and push to main branch
-# 3. Workflow will automatically publish to registry
+# 1. Update the version field in pyproject.toml, commit, and push to main
+#    (pushing alone does not publish)
+# 2. Create and publish a GitHub release whose tag is v<version>
+#    (for example with /github-release); this workflow then publishes it
+# 3. To re-publish by hand: Actions -> Publish to ComfyUI Registry -> Run workflow

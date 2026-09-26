@@ -5,6 +5,21 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.6] - 2026-09-26
+
+### Fixed
+- **A link into `scale` reaches Python again** -- with a node connected to SmartResCalc's `scale` input,
+  0.12.5 sent the scale slider's value instead of the linked value. The queue step that makes the slider's
+  value reach Python now leaves a linked `scale` alone. Unlinked use was not affected.
+
+### Changed
+- Releases reach the ComfyUI Registry when a GitHub release is published, not when a version bump is pushed
+  to main. The publish job checks that the release tag matches the `pyproject.toml` version.
+
+### Added
+- A live test that links a float node into `scale` and checks the queued prompt carries the link (no image is
+  generated).
+
 ## [0.12.5] - 2026-09-26
 
 ### Fixed
