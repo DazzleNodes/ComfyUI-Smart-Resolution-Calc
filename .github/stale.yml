@@ -1,0 +1,14 @@
+daysUntilStale: 60
+daysUntilClose: 14
+staleLabel: stale
+
+exemptLabels:
+  - pinned
+  - security
+  - enhancement
+  - bug
+  - "in progress"
+  - "help wanted"
+
+exemptAssignees: true
+limitPerRun: 30

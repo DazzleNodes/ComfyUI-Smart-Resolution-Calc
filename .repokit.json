@@ -1,0 +1,14 @@
+{
+  "repokit_managed": true,
+  "generated_by": "repokit",
+  "version": "0.4.3",
+  "project_name": "git-repokit-common",
+  "language": "python",
+  "branch_strategy": "minimal",
+  "private_branch": "private",
+  "description": "Shared scripts, hooks, and tools for DazzleTools projects",
+  "author": {
+    "name": "djdarcy",
+    "email": "6962246+djdarcy@users.noreply.github.com"
+  }
+}

@@ -1,0 +1,33 @@
+#!/bin/bash
+#
+# Post-commit hook (repokit-common)
+# Updates _version.py with the actual commit hash after commit is created
+#
+
+# Find the repository root
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+# Locate the version-sync script LAYOUT-AGNOSTICALLY (flat scripts/ or nested
+# scripts/repokit-common/), matching the pre-commit hook -- the hardcoded flat
+# path silently no-ops the hash refresh for every nested-layout consumer.
+SYNC_SCRIPT=""
+for _cand in "$REPO_ROOT/scripts/repokit-common/sync-versions.py" "$REPO_ROOT/scripts/sync-versions.py"; do
+    [ -f "$_cand" ] && { SYNC_SCRIPT="$_cand"; break; }
+done
+[ -z "$SYNC_SCRIPT" ] && SYNC_SCRIPT="$(find "$REPO_ROOT/scripts" -name sync-versions.py -type f -print 2>/dev/null | head -n1)"
+UPDATE_SCRIPT=""
+for _cand in "$REPO_ROOT/scripts/repokit-common/update-version.sh" "$REPO_ROOT/scripts/update-version.sh"; do
+    [ -f "$_cand" ] && { UPDATE_SCRIPT="$_cand"; break; }
+done
+
+if [ -n "$SYNC_SCRIPT" ] && command -v python >/dev/null 2>&1; then
+    # Run without --auto to refresh hash with actual commit info
+    python "$SYNC_SCRIPT" > /dev/null 2>&1
+    echo "✓ Version updated with commit hash $(git rev-parse --short HEAD)"
+elif [ -n "$UPDATE_SCRIPT" ]; then
+    # Fallback to legacy bash script
+    "$UPDATE_SCRIPT" > /dev/null 2>&1
+    echo "✓ Version updated with commit hash $(git rev-parse --short HEAD)"
+fi
+
+exit 0

@@ -1,0 +1,181 @@
+#!/bin/bash
+#
+# Pre-push hook (repokit-common)
+# Runs basic quality checks before pushing to remote.
+#
+# Optional protected-branch block:
+#   A repo can refuse to push branches matching a pattern -- useful when a
+#   branch holds material that must not reach a public remote. That pattern
+#   is per-repo POLICY, so it lives in the consuming repo's own config rather
+#   than in this shared hook:
+#
+#       git config repokit.protectedBranchRe '^refs/heads/wip-private($|-)'
+#
+#   Unset (the default) disables the block entirely, so repos that do not
+#   need it are unaffected. Because the value lives in .git/config it is
+#   local-only and never committed, which matters when the branch name is
+#   itself sensitive. Both source and destination refs are matched, so
+#   `git push origin foo:protected` cannot launder content past the check
+#   under a non-matching source name.
+#
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Change to repository root
+cd "$(git rev-parse --show-toplevel)" 2>/dev/null || true
+
+# =============================================================================
+# CAPTURE PUSHED REFS (read stdin once, iterate multiple times below)
+# =============================================================================
+REFS_DATA=$(cat)
+
+# =============================================================================
+# PROTECTED BRANCH BLOCK (opt-in, per-repo)
+# Refuse to push refs matching repokit.protectedBranchRe on EITHER side --
+# catching both `git push origin protected` (source matches) and
+# `git push origin foo:protected` (destination matches, which would otherwise
+# launder protected content under a non-matching source ref name).
+# Unset by default: no pattern means the block is skipped entirely.
+# =============================================================================
+PROTECTED_BRANCH_RE="$(git config --get repokit.protectedBranchRe 2>/dev/null)"
+
+if [ -n "$REFS_DATA" ] && [ -n "$PROTECTED_BRANCH_RE" ]; then
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        local_ref=$(echo "$line" | awk '{print $1}')
+        remote_ref=$(echo "$line" | awk '{print $3}')
+        for ref_name in "$local_ref" "$remote_ref"; do
+            [ -z "$ref_name" ] && continue
+            if echo "$ref_name" | grep -qE "$PROTECTED_BRANCH_RE"; then
+                echo "" >&2
+                echo -e "${RED}ERROR: refusing to push protected branch.${NC}" >&2
+                echo "       Local ref:  $local_ref" >&2
+                echo "       Remote ref: $remote_ref" >&2
+                echo "       Matched protected pattern: $PROTECTED_BRANCH_RE" >&2
+                echo "       This branch is held back from the remote by repository policy." >&2
+                echo "       To override (use only when policy no longer applies):" >&2
+                echo "           git push --no-verify <args>" >&2
+                echo "" >&2
+                exit 1
+            fi
+        done
+    done <<< "$REFS_DATA"
+fi
+
+# Skip validation for tag-only pushes (no code changed, no need to retest)
+PUSHING_TAGS_ONLY=true
+if [ -n "$REFS_DATA" ]; then
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        ref_name=$(echo "$line" | awk '{print $1}')
+        if [[ "$ref_name" != refs/tags/* ]]; then
+            PUSHING_TAGS_ONLY=false
+            break
+        fi
+    done <<< "$REFS_DATA"
+fi
+if $PUSHING_TAGS_ONLY; then
+    echo -e "${GREEN}Tag-only push -- skipping validation${NC}"
+    exit 0
+fi
+
+# Auto-detect the Python package directory
+# Looks for a directory containing __init__.py at the project root or under src/
+PACKAGE_DIR=""
+for dir in */; do
+    if [ -f "${dir}__init__.py" ]; then
+        PACKAGE_DIR="${dir%/}"
+        break
+    fi
+done
+
+# Also check src/ layout (PEP 517 / setuptools src layout)
+if [ -z "$PACKAGE_DIR" ] && [ -d "src" ]; then
+    for dir in src/*/; do
+        if [ -f "${dir}__init__.py" ]; then
+            PACKAGE_DIR="${dir%/}"
+            break
+        fi
+    done
+fi
+
+if [ -z "$PACKAGE_DIR" ]; then
+    echo -e "${YELLOW}Warning: No Python package directory found (no __init__.py)${NC}"
+    echo "Skipping package-specific checks"
+    PACKAGE_DIR="."
+fi
+
+# Get current branch
+CURRENT_BRANCH=$(git branch --show-current)
+echo -e "${BLUE}🔍 Pre-push validation for branch: $CURRENT_BRANCH${NC}"
+echo ""
+
+# =============================================================================
+# PYTHON SYNTAX CHECK
+# =============================================================================
+echo -e "${BLUE}Checking Python syntax...${NC}"
+# Use compileall for recursive check; handles src/ layout and avoids
+# glob expansion failure when no .py files exist at the target path.
+python -m compileall -q "$PACKAGE_DIR" 2>/dev/null || {
+    echo -e "${RED}❌ Python syntax errors found${NC}"
+    echo "Fix syntax errors before pushing"
+    exit 1
+}
+echo -e "${GREEN}✓${NC} Python syntax check passed"
+
+# =============================================================================
+# RUN TESTS
+# =============================================================================
+echo ""
+echo -e "${BLUE}Running tests...${NC}"
+
+# Run unit tests (skip if no test files exist)
+TEST_FILES=$(find tests/ -name "test_*.py" -type f 2>/dev/null | head -1)
+if [ -z "$TEST_FILES" ]; then
+    echo -e "${YELLOW}⚠${NC} No test files found (tests/test_*.py) -- skipping"
+elif python -m pytest tests/ -q 2>/dev/null; then
+    echo -e "${GREEN}✓${NC} All tests passed"
+else
+    echo -e "${YELLOW}⚠${NC} Some tests failed"
+    if [[ "$CURRENT_BRANCH" == "main" ]] || [[ "$CURRENT_BRANCH" == "master" ]]; then
+        echo -e "${RED}❌ BLOCKED: Cannot push to main with failing tests${NC}"
+        exit 1
+    else
+        echo "  Consider fixing tests before pushing"
+    fi
+fi
+
+# =============================================================================
+# CHECK FOR DEBUG STATEMENTS
+# =============================================================================
+echo ""
+echo -e "${BLUE}Checking for debug statements...${NC}"
+
+# Check for pdb statements
+if grep -r "import pdb\|pdb\.set_trace()" $PACKAGE_DIR/ --include="*.py" 2>/dev/null; then
+    echo -e "${RED}❌ ERROR: Debugger statements found${NC}"
+    echo "Remove all pdb statements before pushing"
+    exit 1
+fi
+
+# Check for excessive print statements (warning only)
+print_count=$(grep -r "print(" $PACKAGE_DIR/ --include="*.py" 2>/dev/null | grep -v "#.*print(" | wc -l)
+if [ "$print_count" -gt 20 ]; then
+    echo -e "${YELLOW}⚠${NC} Warning: Many print() statements found ($print_count)"
+    echo "  Consider using logging instead"
+fi
+
+echo -e "${GREEN}✓${NC} No debugger statements found"
+
+# =============================================================================
+# FINAL STATUS
+# =============================================================================
+echo ""
+echo -e "${GREEN}✅ Pre-push validation complete${NC}"
+echo "Ready to push to $CURRENT_BRANCH"
+exit 0
