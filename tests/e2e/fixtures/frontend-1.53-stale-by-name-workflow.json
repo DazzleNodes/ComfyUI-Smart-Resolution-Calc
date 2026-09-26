@@ -1,0 +1,307 @@
+{
+  "id": "54bb395d-3e60-4c94-b525-85523901575b",
+  "revision": 0,
+  "last_node_id": 479,
+  "last_link_id": 0,
+  "nodes": [
+    {
+      "id": 473,
+      "type": "SmartResolutionCalc",
+      "pos": [
+        547.7793095338639,
+        2859.990342963942
+      ],
+      "size": [
+        325.3208984375,
+        591
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": null
+        },
+        {
+          "name": "fill_image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        },
+        {
+          "name": "dazzle_options",
+          "shape": 7,
+          "type": "DAZZLE_OPTIONS",
+          "link": null
+        },
+        {
+          "name": "dazzle_signal",
+          "shape": 7,
+          "type": "DAZZLE_SIGNAL",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "megapixels",
+          "type": "FLOAT",
+          "links": []
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "preview",
+          "type": "IMAGE",
+          "links": []
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": []
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": []
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SmartResolutionCalc",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.1"
+        },
+        "dazzle_last_seed": 601245609123048
+      },
+      "widgets_values": [
+        "Calculating...",
+        "3:4 (SD Video Portrait)",
+        "16",
+        false,
+        "Calculating...",
+        "5.2:2.5",
+        1,
+        1,
+        "DazNoise: Plasma",
+        null,
+        0.55,
+        {
+          "on": true,
+          "value": -1
+        },
+        "img2img + img2noise",
+        0.125,
+        0.2,
+        {
+          "blend": 0.55,
+          "cutoff": 0.2
+        },
+        -1,
+        "auto",
+        "#522525",
+        {
+          "on": true,
+          "value": 0
+        },
+        null,
+        {
+          "on": false,
+          "value": 1
+        },
+        {
+          "on": false,
+          "value": 1024
+        },
+        {
+          "on": true,
+          "value": 2100
+        },
+        1
+      ],
+      "widgets_values_named": {
+        "mode_status": "Calculating...",
+        "aspect_ratio": "3:4 (SD Video Portrait)",
+        "divisible_by": "16",
+        "custom_ratio": false,
+        "mode_status#1": "Calculating...",
+        "custom_aspect_ratio": "5.2:2.5",
+        "batch_size": 1,
+        "scale": 1,
+        "fill_type": "DazNoise: Plasma",
+        "color_picker_button": null,
+        "blend_strength": 0.55,
+        "fill_seed": {
+          "on": true,
+          "value": -1
+        },
+        "image_purpose": "img2img + img2noise",
+        "fill_blend_strength": 0.125,
+        "cutoff": 0.2,
+        "spectral_blend_2d": {
+          "blend": 0.55,
+          "cutoff": 0.2
+        },
+        "feature_size": -1,
+        "output_image_mode": "auto",
+        "fill_color": "#522525",
+        "image_mode": {
+          "on": true,
+          "value": 0
+        },
+        "copy_from_image": null,
+        "dimension_megapixel": {
+          "on": false,
+          "value": 1
+        },
+        "dimension_width": {
+          "on": false,
+          "value": 1024
+        },
+        "dimension_height": {
+          "on": true,
+          "value": 2100
+        },
+        "scale#1": 1
+      },
+      "widgets_values_by_name": {
+        "mode_status": "Calculating...",
+        "aspect_ratio": "3:4 (SD Video Portrait)",
+        "divisible_by": "16",
+        "custom_ratio": false,
+        "custom_aspect_ratio": "5.2:2.5",
+        "batch_size": 1,
+        "scale": 1,
+        "fill_type": "DazNoise: Plasma",
+        "color_picker_button": null,
+        "blend_strength": 0.55,
+        "fill_seed": {
+          "on": true,
+          "value": 333670668065774
+        },
+        "image_purpose": "img2img + img2noise",
+        "fill_blend_strength": 0.125,
+        "cutoff": 0.2,
+        "spectral_blend_2d": {
+          "blend": 0.55,
+          "cutoff": 0.2
+        },
+        "feature_size": -1,
+        "output_image_mode": "auto",
+        "fill_color": "#522525",
+        "image_mode": {
+          "on": true,
+          "value": 0
+        },
+        "copy_from_image": null,
+        "dimension_megapixel": {
+          "on": false,
+          "value": 1
+        },
+        "dimension_width": {
+          "on": false,
+          "value": 1024
+        },
+        "dimension_height": {
+          "on": true,
+          "value": 1216
+        }
+      },
+      "widgets_config": {
+        "scale": {
+          "leftStep": 0.05,
+          "rightStep": 0.1
+        }
+      },
+      "extensions": {
+        "widgets_values_by_name": {
+          "mode_status": "Calculating...",
+          "aspect_ratio": "3:4 (SD Video Portrait)",
+          "divisible_by": "16",
+          "custom_ratio": false,
+          "custom_aspect_ratio": "5.2:2.5",
+          "batch_size": 1,
+          "scale": 1,
+          "fill_type": "DazNoise: Plasma",
+          "color_picker_button": null,
+          "blend_strength": 0.55,
+          "fill_seed": {
+            "on": true,
+            "value": 333670668065774
+          },
+          "image_purpose": "img2img + img2noise",
+          "fill_blend_strength": 0.125,
+          "cutoff": 0.2,
+          "spectral_blend_2d": {
+            "blend": 0.55,
+            "cutoff": 0.2
+          },
+          "feature_size": -1,
+          "output_image_mode": "auto",
+          "fill_color": "#522525",
+          "image_mode": {
+            "on": true,
+            "value": 0
+          },
+          "copy_from_image": null,
+          "dimension_megapixel": {
+            "on": false,
+            "value": 1
+          },
+          "dimension_width": {
+            "on": false,
+            "value": 1024
+          },
+          "dimension_height": {
+            "on": true,
+            "value": 1216
+          }
+        },
+        "widgets_config": {
+          "scale": {
+            "leftStep": 0.05,
+            "rightStep": 0.1
+          }
+        }
+      }
+    }
+  ],
+  "links": [],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

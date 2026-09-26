@@ -169,11 +169,21 @@ test('seed intercept: embedded workflow carries this run\'s seed', async ({ page
     expect(wfNode, 'SmartResCalc node missing from embedded workflow').toBeTruthy();
     const sentSeed = pr[String(built.srcId)].inputs.fill_seed;
     const sentValue = (sentSeed && typeof sentSeed === 'object') ? sentSeed.value : sentSeed;
+    // v0.12.5: two widgets (scale slider, mode_status) no longer serialize, so the
+    // positional array is shorter on a 1.5x frontend. Take fill_seed's index from
+    // the frontend's own name list when it wrote one; the constant is the old-frontend shape.
+    const seedIdx = wfNode.widgets_values_named
+        ? Object.keys(wfNode.widgets_values_named).indexOf('fill_seed')
+        : SEED_WIDGET_INDEX;
     console.log('embedded: sent=', sentValue, 'prop=', wfNode.properties?.dazzle_last_seed,
-                'widget=', JSON.stringify(wfNode.widgets_values?.[SEED_WIDGET_INDEX]));
+                'widget=', JSON.stringify(wfNode.widgets_values?.[seedIdx]), 'idx=', seedIdx);
     expect(sentValue).toBe(result.liveProp);                                  // Python got this run's seed
     expect(wfNode.properties?.dazzle_last_seed).toBe(result.liveProp);        // and so did the image (not the sentinel)
     expect(wfNode.properties?.dazzle_last_seed).not.toBe(SENTINEL_PREV_SEED);
-    expect(wfNode.widgets_values?.[SEED_WIDGET_INDEX]).toEqual({ on: true, value: -1 });   // display state preserved
-    expect(wfNode.widgets_values_by_name?.fill_seed).toEqual({ on: true, value: -1 });
+    expect(wfNode.widgets_values?.[seedIdx]).toEqual({ on: true, value: -1 });   // display state preserved
+    // Name-keyed blocks carry the display state too. A 1.5x frontend writes its own
+    // (`widgets_values_named`) and our block is then not written (v0.12.5); older
+    // frontends get ours. Whichever is present must agree with the index block.
+    const named = wfNode.widgets_values_named?.fill_seed ?? wfNode.widgets_values_by_name?.fill_seed;
+    expect(named).toEqual({ on: true, value: -1 });
 });

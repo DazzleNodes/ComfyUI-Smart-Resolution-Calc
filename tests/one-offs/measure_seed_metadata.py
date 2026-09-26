@@ -53,10 +53,25 @@ def from_webp(path):
         size = struct.unpack('<I', data[off + 4:off + 8])[0]
         if tag == b'EXIF':
             exif = data[off + 8:off + 8 + size]
-            for name, keys in (('workflow', (b'workflow:', b'Workflow:')),
-                               ('prompt', (b'prompt:', b'Prompt:'))):
+            for name, keys in (('workflow', (b'Workflow:', b'workflow:')),
+                               ('prompt', (b'Prompt:', b'prompt:'))):
                 for key in keys:
-                    k = exif.find(key)
+                    # A field starts at a NUL (or the buffer start) and its
+                    # value starts with '{'. A bare substring search can hit
+                    # text inside the other field's JSON (e.g. a note saying
+                    # "prompt: ..." or a URL containing "workflow"), which is
+                    # what happened on 2026-09-26 with a newer frontend embed.
+                    k = -1
+                    start = 0
+                    while True:
+                        k = exif.find(key, start)
+                        if k < 0:
+                            break
+                        at_field_start = (k == 0 or exif[k - 1] == 0)
+                        value_is_json = exif[k + len(key):k + len(key) + 1] == b'{'
+                        if at_field_start and value_is_json:
+                            break
+                        start = k + 1
                     if k >= 0:
                         out[name] = _json_after(exif[k + len(key):])
                         break

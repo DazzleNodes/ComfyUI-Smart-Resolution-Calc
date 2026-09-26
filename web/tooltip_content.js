@@ -141,6 +141,19 @@ export const TOOLTIP_CONTENT = {
               "Click a value to type it directly.\n" +
               "Hover the graph to preview without changing.\n\n" +
               "Green = safe | Yellow = boundary | Red = artifacts\n\n" +
+              "PIPELINE NOTE\n" +
+              "blend_strength is 'primary pattern dominance over base noise.'\n" +
+              "The primary pattern depends on image_purpose:\n" +
+              "  dimensions only / image+noise -> fill_type pattern\n" +
+              "  img2noise / img2img+img2noise -> input image\n\n" +
+              "When fill_blend_strength > 0 in img2noise modes, a Stage 1\n" +
+              "pre-blend mixes the fill_type into Gaussian first (\"flavored\n" +
+              "noise\"), then Stage 2 blends the image pattern over that with\n" +
+              "this blend_strength. So fill_blend_strength = noise CHARACTER,\n" +
+              "blend_strength = noise SHAPE.\n\n" +
+              "blend_strength is NOT the img2img amount -- that's 'denoise'\n" +
+              "on the KSampler. This shapes the NOISE; denoise controls how\n" +
+              "much of the input image survives.\n\n" +
               "Shift+Click for the full guide.",
         docsUrl: "https://github.com/DazzleNodes/ComfyUI-Smart-Resolution-Calc/blob/main/docs/spectral-blending.md",
         hoverDelay: 250

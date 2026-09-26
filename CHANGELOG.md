@@ -5,6 +5,45 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.5] - 2026-09-26
+
+### Fixed
+- **Reloaded workflows and dragged-in images restore the values they were saved with on ComfyUI frontend 1.53** (#60) --
+  an image generated at 2096x2096 no longer comes back with height 1216. A seed saved in random mode again comes
+  back as v0.12.4 intended: still random, showing the image's own seed, which the recycle button locks if you want
+  to regenerate that image. The stale values had locked it to a different, older seed instead. Frontend 1.53
+  keeps its own name-keyed copy of widget values; SmartResCalc now restores from that copy and uses its own only
+  when the frontend wrote none. The node's own copy is also no longer
+  echoed back into every saved file, which was how it went stale.
+- **The scale slider works again on frontend 1.53** (#60) -- scale 1.5x on a 1400 base now produces 2096 (with
+  divisible-by 16), where Python had been receiving 1.0 whatever the slider showed. The node had two widgets called
+  `scale`; frontend 1.53 renames the second to `scale#1` and sends the first. The hidden `scale` input now carries
+  the slider's value, the slider and the MODE readout are no longer saved as separate entries, and workflows saved
+  on 1.53 before this release still reopen with the scale you had set.
+- **Custom scale step sizes are kept on save** -- they are stored in the node's properties, written whenever you
+  change them. Frontend 1.53 drops unknown node keys when saving, so the previous location never reached the file.
+  Step sizes saved by earlier versions are still read.
+- **The scale widget is found after the frontend adopts it** (PR #59, thanks to @DrJKL) -- the frontend swaps a
+  custom widget's prototype, so type checks no longer matched; the retained reference is used for the image
+  disconnect cache and the MODE readout. Related upstream change: Comfy-Org/ComfyUI_frontend#17817.
+
+### Compatibility
+| Situation | Behaviour |
+|---|---|
+| Older frontends (before 1.5x) | Unchanged: SmartResCalc writes and restores its own name-keyed copy; the slider is found by name as before |
+| Frontend 1.53 | The frontend's copy is used; SmartResCalc writes none of its own; scale and step sizes restore |
+| File saved on 1.53, opened on an older frontend | Values restore by position, which matches as long as the node's widget list is the same version |
+| File saved by an older version, opened on 1.53 | Restores from SmartResCalc's own copy, and step sizes from the old location |
+
+### Changed
+- The `blend_strength` tooltip explains the two-stage noise pipeline: which pattern it blends in each image_purpose
+  mode, how it differs from `fill_blend_strength`, and that it is not the img2img denoise amount.
+
+### Added
+- `tests/unit/Serialization.test.js` (11 tests) and `tests/e2e/widget-restore-frontend-153.spec.js` (6 live tests
+  on frontend 1.53, none of which generates an image), with the workflow from the reported image as a fixture.
+  `seed-dragin.spec.js` now reads a committed fixture image instead of the server's output folder.
+
 ## [0.12.4] - 2026-09-06
 
 ### Fixed
