@@ -37,7 +37,7 @@ bash scripts/update-common.sh --push     # push local changes upstream
 - **update-version.sh** -- Legacy bash version updater (deprecated; use sync-versions.py)
 
 ### GitHub Tools
-- **gh_issue_full.py** -- Display complete issue context: timeline, cross-refs, sub-issues, comments
+- **gh_issue_full.py** -- Display complete issue context: timeline, cross-refs, sub-issues, comments. Shows the body and every comment in full by default; `--no-full` truncates. The default can be changed per user with `GH_ISSUE_FULL_DEFAULT=truncated` or per repo with `gh-issue-full-default = "truncated"` under `[tool.repokit-common]` in `pyproject.toml`; a flag always wins, and the environment variable wins over the repo setting.
 - **gh_sub_issues.py** -- Manage GitHub sub-issue relationships
 
 ### Knowledge Vault Tools

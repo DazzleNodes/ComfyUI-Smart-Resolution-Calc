@@ -65,6 +65,8 @@ tag-format = "pep440"    # or "human"
 private-patterns = ["private/", "local/", ".env"]
 ```
 
+Reading this table needs a TOML parser: the standard library's `tomllib` on Python 3.11+, or the `tomli` package on older versions. Without one, the script warns that it found `pyproject.toml` but cannot read it, and falls back to placeholder defaults such as `$PACKAGE_NAME/_version.py`.
+
 ### Tag Format
 
 | Setting | Tag example | PEP 440 | Use when |

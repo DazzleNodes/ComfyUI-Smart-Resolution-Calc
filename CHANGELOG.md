@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-09-27
+
+### Changed
+
+- **`gh_issue_full.py` now shows an issue in full by default.** It used to truncate the body and comments unless `--full` was given, and the flag was easy to forget: in one session an issue was read without it, the later comments that proved it already complete were cut, and the same issue was re-verified three times. The body and every comment now print in full unless asked otherwise. `--no-full` gives the truncated view, and `--full` still works and is now the default. When neither flag is given, the default comes from the `GH_ISSUE_FULL_DEFAULT` environment variable (`full` or `truncated`, per user), then from `gh-issue-full-default` under `[tool.repokit-common]` in the consuming project's `pyproject.toml` (per repo), then `full`. A flag on the command line always wins. An unrecognised value is named in a one-line warning and skipped, never silently obeyed. Eleven tests pin the order (`tests/test_gh_issue_full.py`), including one that drives `main()` so a flag is proven to reach the display. None of them touch the network. Two rounds of deliberate bugs, 22 in all and written without sight of the tests, are all caught (`tests/mutation/`). Four of those bugs first went unnoticed, and each now has a test that fails against it.
+- **`tests/test_sync_versions.py` consolidated from ten tests to seven, with no loss of detection.** Four of the ten checked facets of the one warning line -- that it exists, names the path, names both remedies, is one line -- with the same setup and the same call. They are now one test with four assertions. A mutation sweep of 17 deliberate bugs confirms the seven tests catch every one the ten did. Each test now opens its docstring with a consequence score from 1 (superficial) to 10 (never remove), and the file is ordered by score, so the one test that pins wording in another function sits last under a "superficial" divider. 133 lines, down from 213. The consolidation was proposed by a new cleanup instrument run cold on the original file; an earlier hand trim to four tests had dropped three of the facets and kept the one that the others fully covered, losing the wording detection this version keeps.
+
+## [0.2.11] - 2026-09-25
+
+### Fixed
+
+- **`sync-versions.py` now says why it fell back to placeholder defaults when it cannot read `pyproject.toml`.** When a `pyproject.toml` was found but no TOML parser could be imported (Python older than 3.11 without the `tomli` package), the config loader returned the placeholder defaults without a word, and the user met the problem much later as `Cannot find $PACKAGE_NAME/_version.py. Run from project root.` -- an error that names an unexpanded placeholder and points at the wrong cause. The loader now prints one warning to stderr at the moment it happens, naming the file it found and the two remedies (Python 3.11+ or `pip install tomli`), and then continues with the defaults exactly as before. A project with no `pyproject.toml` stays silent, and a readable one is unaffected.
+
+  Ten regression tests pin it (`tests/test_sync_versions.py`): four fail without the warning and six fence the behaviour around it, including that a config-less project does not start warning. The tests were written from a one-sentence description of the bug by an agent that never saw the fix.
+
 ## [0.2.10] - 2026-09-14
 
 ### Fixed
@@ -201,7 +216,9 @@ First consumer: `DazzleTools/dazzlelink` (file-association scripts live in `scri
 
 All project-specific hardcoding (`wtf-restarted`, `comfydbg`) was replaced with auto-detection or `$placeholder` variables. Project-level files (`.github/`, `CONTRIBUTING.md`, `.repokit.json`, `.vscode/`) were substituted with real values for `git-repokit-common`.
 
-[Unreleased]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.10...HEAD
+[Unreleased]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.12...HEAD
+[0.2.12]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.11...v0.2.12
+[0.2.11]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.9...v0.2.10
 [0.2.5]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.3...v0.2.4
