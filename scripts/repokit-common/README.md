@@ -28,7 +28,7 @@ bash scripts/update-common.sh --push     # push local changes upstream
 ## What's Included
 
 ### Git Hooks (`hooks/`)
-- **pre-commit** -- Version sync (`sync-versions.py --auto`), private content protection, large file blocking
+- **pre-commit** -- Version sync (`sync-versions.py --auto`), private content protection, large file blocking. Works in normal clones and in git worktrees
 - **post-commit** -- Refreshes version hash after commit
 - **pre-push** -- Python syntax check, pytest, debug statement detection
 
