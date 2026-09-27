@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-09-27
+
+### Fixed
+
+- **The pre-commit hook's private-content and large-file checks now work in git worktrees.** The hook wrote its list of staged files to `$REPO_ROOT/.git/`, but in a git worktree `.git` is a file that points at the real repository, not a directory. The write failed, the list came out empty, and both checks passed every commit from a worktree: a `private/` file or an oversized file went through with no message. Found while moving a consuming project (ComfyUI-Smart-Resolution-Calc) onto repokit-common from a worktree checkout. The hook now asks git for this checkout's own directory (`git rev-parse --absolute-git-dir`), which is a real directory in both clones and worktrees, and keeps its temporary files there. If the list still cannot be written, the hook now blocks the commit and says why, instead of checking nothing.
+- **A failed version stamp now says why.** The hook printed only "Version update failed but continuing" and hid the tool's output. In the same consuming project an older version script failed on a `/` in the branch name, and a commit shipped with a stale version string that nobody noticed. The warning is now followed by the tool's own output, indented. The commit still proceeds, as before.
+
+### Added
+
+- `tests/test_pre_commit_hook.py`, 6 tests. Each builds a throwaway repository (and a worktree of it) under the test's temporary directory, installs the hook, and commits there with signing off and `core.hooksPath` pinned to that repository, so no test can reach a real one. Four tests catch the fix when it is reverted: a private file and an oversized file committed from a worktree, a commit that goes ahead although the staged list could not be written (forced with a stand-in `git` that points the hook at a directory that does not exist), and the version tool's error being hidden. Two are fences that passed before and after: a private file is still blocked in a normal clone, and ordinary work in a worktree is not blocked. Reverting both the path change and the fail-closed step together, which is the original bug, lets the private and oversized files through again. A manual checklist covers the real installer and a consuming project (`tests/checklists/v0.2.13__Tool__pre-commit-worktree-safe.md`).
+
 ## [0.2.12] - 2026-09-27
 
 ### Changed
@@ -216,7 +227,8 @@ First consumer: `DazzleTools/dazzlelink` (file-association scripts live in `scri
 
 All project-specific hardcoding (`wtf-restarted`, `comfydbg`) was replaced with auto-detection or `$placeholder` variables. Project-level files (`.github/`, `CONTRIBUTING.md`, `.repokit.json`, `.vscode/`) were substituted with real values for `git-repokit-common`.
 
-[Unreleased]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.12...HEAD
+[Unreleased]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.13...HEAD
+[0.2.13]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.9...v0.2.10

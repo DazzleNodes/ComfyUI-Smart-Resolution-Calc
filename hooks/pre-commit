@@ -53,7 +53,10 @@ if [ -n "$SYNC_SCRIPT" ] && command -v python >/dev/null 2>&1; then
             echo "✓ Version updated for commit"
         fi
     else
-        echo "⚠ Warning: Version update failed but continuing"
+        # Say why. A bare warning once let a commit ship with a stale version
+        # string: sed choked on a "/" in the branch name and nobody saw it.
+        echo "⚠ Warning: Version update failed but continuing:"
+        printf '%s\n' "$UPDATE_OUTPUT" | sed 's/^/    /'
     fi
 elif [ -n "$UPDATE_SCRIPT" ]; then
     # Fallback to legacy bash script
@@ -102,10 +105,24 @@ allowed() {
 # The list goes to a FILE rather than a variable: command substitution strips
 # NUL bytes, so `X=$(git ... -z)` silently concatenates every path into one
 # string. A temp file is the only way to carry NUL-delimited data through sh.
-STAGED_LIST="$REPO_ROOT/.git/.repokit-staged.$$"
-git diff --cached --name-only -z --diff-filter=ACMR > "$STAGED_LIST"
-cleanup_staged() { rm -f "$STAGED_LIST" "$REPO_ROOT/.git/.repokit-private-hits.$$"; }
+#
+# The temp files live in git's directory for THIS checkout, asked of git, not
+# under "$REPO_ROOT/.git/": in a git worktree .git is a file ("gitdir: ..."),
+# so writes under it fail, the list came out empty, and both checks below
+# passed every commit -- private files and oversized files included.
+GIT_DIR_ABS="$(git rev-parse --absolute-git-dir 2>/dev/null)"
+STAGED_LIST="$GIT_DIR_ABS/.repokit-staged.$$"
+HITS_FILE="$GIT_DIR_ABS/.repokit-private-hits.$$"
+cleanup_staged() { rm -f "$STAGED_LIST" "$HITS_FILE"; }
 trap cleanup_staged EXIT
+# Fail closed: without the list, the checks below would silently check nothing.
+if [ -z "$GIT_DIR_ABS" ] || ! git diff --cached --name-only -z --diff-filter=ACMR > "$STAGED_LIST"; then
+    echo ""
+    echo "❌ COMMIT BLOCKED - pre-commit could not list the staged files"
+    echo "   (tried to write: $STAGED_LIST)"
+    echo "   The private-content and large-file checks cannot run without it."
+    exit 1
+fi
 
 # One grep over the whole list instead of an `echo | grep` per file. On a large
 # commit the per-file form costs thousands of process spawns, which is slow
@@ -120,9 +137,9 @@ if [ -n "$private_candidates" ]; then
         [ -n "$file" ] || continue
         allowed "$file" && continue
         printf '%s\n' "$file"
-    done > "$REPO_ROOT/.git/.repokit-private-hits.$$"
+    done > "$HITS_FILE"
 
-    if [ -s "$REPO_ROOT/.git/.repokit-private-hits.$$" ]; then
+    if [ -s "$HITS_FILE" ]; then
         has_private_content=1
         echo ""
         echo "❌ COMMIT BLOCKED - Private Content Protection"
@@ -131,9 +148,9 @@ if [ -n "$private_candidates" ]; then
         echo ""
         while IFS= read -r file; do
             echo "  - $file"
-        done < "$REPO_ROOT/.git/.repokit-private-hits.$$"
+        done < "$HITS_FILE"
     fi
-    rm -f "$REPO_ROOT/.git/.repokit-private-hits.$$"
+    rm -f "$HITS_FILE"
 fi
 
 if [ $has_private_content -eq 1 ]; then
