@@ -1,0 +1,290 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_gh_issue_full.py"
+    ],
+    "timestamp": "2026-09-27T00:00:22-04:00"
+  },
+  "results": [
+    {
+      "id": "R1",
+      "file": "gh_issue_full.py",
+      "note": "Walk bound cut to 1 level: a pyproject.toml above the vendored script is never found",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing"
+      ]
+    },
+    {
+      "id": "R2",
+      "file": "gh_issue_full.py",
+      "note": "Existence guard tests the directory, not the file",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present",
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing"
+      ]
+    },
+    {
+      "id": "R3",
+      "file": "gh_issue_full.py",
+      "note": "MULTILINE dropped: a key on a later line no longer triggers the no-parser warning",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ]
+    },
+    {
+      "id": "R4",
+      "file": "gh_issue_full.py",
+      "note": "tomli fallback lost on Python < 3.11",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing"
+      ]
+    },
+    {
+      "id": "R5",
+      "file": "gh_issue_full.py",
+      "note": "Edit-implies-full inverted",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ]
+    },
+    {
+      "id": "R6",
+      "file": "gh_issue_full.py",
+      "note": "--full stores None, so config overrides an explicit --full",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display",
+        "tests/test_gh_issue_full.py::test_parser_flags_are_exclusive_and_tri_state"
+      ]
+    },
+    {
+      "id": "R7",
+      "file": "gh_issue_full.py",
+      "note": "No-parser warning goes to stdout, corrupting --json output",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ]
+    },
+    {
+      "id": "R8",
+      "file": "gh_issue_full.py",
+      "note": "--no-full dest renamed: the flag has no effect",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display",
+        "tests/test_gh_issue_full.py::test_parser_flags_are_exclusive_and_tri_state"
+      ]
+    }
+  ],
+  "summary": {
+    "killed": 8
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_gh_issue_full.py::test_config_sets_the_default": [
+        "R1",
+        "R2"
+      ],
+      "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured": [
+        "R2"
+      ],
+      "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid": [
+        "R1",
+        "R2"
+      ],
+      "tests/test_gh_issue_full.py::test_env_wins_over_config": [
+        "R2"
+      ],
+      "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through": [
+        "R1",
+        "R2"
+      ],
+      "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display": [
+        "R2",
+        "R5",
+        "R6",
+        "R8"
+      ],
+      "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present": [
+        "R1",
+        "R2",
+        "R3",
+        "R7"
+      ],
+      "tests/test_gh_issue_full.py::test_no_pyproject_means_full": [
+        "R2"
+      ],
+      "tests/test_gh_issue_full.py::test_parser_flags_are_exclusive_and_tri_state": [
+        "R6",
+        "R8"
+      ],
+      "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing": [
+        "R1",
+        "R2",
+        "R4"
+      ]
+    },
+    "identical": [
+      [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full"
+      ]
+    ],
+    "contained": [
+      [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_config_sets_the_default"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_config_sets_the_default"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full",
+        "tests/test_gh_issue_full.py::test_config_sets_the_default"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full",
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_parser_flags_are_exclusive_and_tri_state",
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ]
+    ],
+    "killed_without_names": []
+  }
+}

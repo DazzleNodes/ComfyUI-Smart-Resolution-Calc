@@ -1,0 +1,13 @@
+{
+  "test_command": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_gh_issue_full.py"],
+  "mutations": [
+    {"id": "R1", "file": "gh_issue_full.py", "original": "for _ in range(5):", "mutated": "for _ in range(1):", "note": "Walk bound cut to 1 level: a pyproject.toml above the vendored script is never found"},
+    {"id": "R2", "file": "gh_issue_full.py", "original": "if candidate.exists():", "mutated": "if check_dir.exists():", "note": "Existence guard tests the directory, not the file"},
+    {"id": "R3", "file": "gh_issue_full.py", "original": "raw, re.MULTILINE)", "mutated": "raw)", "note": "MULTILINE dropped: a key on a later line no longer triggers the no-parser warning"},
+    {"id": "R4", "file": "gh_issue_full.py", "original": "import tomli as tomllib", "mutated": "raise ImportError", "note": "tomli fallback lost on Python < 3.11"},
+    {"id": "R5", "file": "gh_issue_full.py", "original": "if args.edit is not None:", "mutated": "if args.edit is None:", "note": "Edit-implies-full inverted"},
+    {"id": "R6", "file": "gh_issue_full.py", "original": "const=True, default=None", "mutated": "const=None, default=None", "note": "--full stores None, so config overrides an explicit --full"},
+    {"id": "R7", "file": "gh_issue_full.py", "original": "f\"tomli package). Ignoring it.\",\n                        file=sys.stderr,", "mutated": "f\"tomli package). Ignoring it.\",", "note": "No-parser warning goes to stdout, corrupting --json output"},
+    {"id": "R8", "file": "gh_issue_full.py", "original": "dest=\"full\", action=\"store_const\", const=False", "mutated": "dest=\"no_full\", action=\"store_const\", const=False", "note": "--no-full dest renamed: the flag has no effect"}
+  ]
+}

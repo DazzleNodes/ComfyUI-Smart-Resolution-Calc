@@ -4,13 +4,21 @@ GitHub Issue Full View - Display complete issue context including timeline event
 cross-references, commits, sub-issues, and all metadata.
 
 Usage:
-    python scripts/gh_issue_full.py 24
-    python scripts/gh_issue_full.py 24 --full      # Complete body + all comments untruncated
-    python scripts/gh_issue_full.py 24 --full --edit 1     # View the original (first) version
-    python scripts/gh_issue_full.py 24 --full --edit 3     # View version 3
+    python scripts/gh_issue_full.py 24             # Complete body + all comments (the default)
+    python scripts/gh_issue_full.py 24 --no-full   # Truncated body and comments
+    python scripts/gh_issue_full.py 24 --edit 1    # View the original (first) version
+    python scripts/gh_issue_full.py 24 --edit 3    # View version 3
     python scripts/gh_issue_full.py 24 --json
     python scripts/gh_issue_full.py 24 --compact
     python scripts/gh_issue_full.py 24 --ascii    # Force ASCII mode (no emoji)
+
+Full or truncated, when neither --full nor --no-full is given, is decided by
+the first of these that is set:
+    1. GH_ISSUE_FULL_DEFAULT environment variable: "full" or "truncated" (per user)
+    2. gh-issue-full-default under [tool.repokit-common] in the consuming
+       project's pyproject.toml: "full" or "truncated" (per repo)
+    3. "full"
+A flag on the command line always wins.
 
 Note: On Windows, the script automatically attempts to enable UTF-8 (chcp 65001).
       If that fails or output is piped, it falls back to ASCII symbols.
@@ -18,11 +26,17 @@ Note: On Windows, the script automatically attempts to enable UTF-8 (chcp 65001)
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import os
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
+
+FULL_DEFAULT_ENV = "GH_ISSUE_FULL_DEFAULT"
+FULL_DEFAULT_KEY = "gh-issue-full-default"
+_FULL_VALUES = {"full": True, "truncated": False}
 
 # Symbol sets for different terminal capabilities
 SYMBOLS_UNICODE = {
@@ -538,28 +552,100 @@ def ensure_utf8_stdout():
         pass
 
 
-def main():
-    global SYMBOLS
+def _load_full_default_config():
+    """Read gh-issue-full-default from the consuming project's pyproject.toml.
 
-    # Always ensure UTF-8 output for body/comment text (may contain math symbols)
-    ensure_utf8_stdout()
+    Walks up from this script's own location, as sync-versions.py does, so the
+    project that vendors the script supplies the setting. Returns the raw
+    value, or None when there is no pyproject.toml or no such key.
+    """
+    check_dir = Path(__file__).resolve().parent
+    for _ in range(5):
+        candidate = check_dir / "pyproject.toml"
+        if candidate.exists():
+            try:
+                import tomllib
+            except ImportError:
+                try:
+                    import tomli as tomllib
+                except ImportError:
+                    tomllib = None
+            if tomllib is None:
+                # Warn only when the setting is actually there to be missed,
+                # so a parser-less Python stays quiet on every other project.
+                raw = candidate.read_text(encoding="utf-8", errors="replace")
+                if re.search(rf"^\s*{re.escape(FULL_DEFAULT_KEY)}\s*=", raw, re.MULTILINE):
+                    print(
+                        f"Warning: {candidate} sets {FULL_DEFAULT_KEY} but no TOML "
+                        f"parser is available (use Python 3.11+ or install the "
+                        f"tomli package). Ignoring it.",
+                        file=sys.stderr,
+                    )
+                return None
+            with open(candidate, "rb") as f:
+                data = tomllib.load(f)
+            return data.get("tool", {}).get("repokit-common", {}).get(FULL_DEFAULT_KEY)
+        check_dir = check_dir.parent
+    return None
 
+
+def resolve_full(flag):
+    """Decide full vs truncated output.
+
+    flag is True for --full, False for --no-full, None for neither. A flag
+    always wins; otherwise the environment variable, then the pyproject.toml
+    key, then full. An unrecognised value is reported and skipped.
+    """
+    if flag is not None:
+        return flag
+    for source, value in (
+        (FULL_DEFAULT_ENV, os.environ.get(FULL_DEFAULT_ENV)),
+        (f"{FULL_DEFAULT_KEY} in pyproject.toml", _load_full_default_config()),
+    ):
+        if value is None or value == "":
+            continue
+        key = str(value).strip().lower()
+        if key in _FULL_VALUES:
+            return _FULL_VALUES[key]
+        print(
+            f"Warning: {source} is {value!r}; expected 'full' or 'truncated'. Ignoring it.",
+            file=sys.stderr,
+        )
+    return True
+
+
+def build_parser():
     parser = argparse.ArgumentParser(
         description="Display full GitHub issue context including timeline, cross-references, and sub-issues"
     )
     parser.add_argument("issue", type=int, help="Issue number")
     parser.add_argument("--repo", "-r", type=str, help="Repository in owner/name format (default: auto-detect from current directory)")
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
-    parser.add_argument("--full", "-f", action="store_true", help="Show complete body and all comments without truncation")
+    full_group = parser.add_mutually_exclusive_group()
+    full_group.add_argument("--full", "-f", dest="full", action="store_const", const=True, default=None,
+                            help=f"Show complete body and all comments without truncation (the default, "
+                                 f"unless {FULL_DEFAULT_ENV} or pyproject.toml says otherwise)")
+    full_group.add_argument("--no-full", dest="full", action="store_const", const=False,
+                            help="Truncate the body and comments")
     parser.add_argument("--edit", "-e", type=int, default=None, metavar="N",
                         help="View a specific edit version (1=original, omit for latest). Implies --full.")
     parser.add_argument("--compact", action="store_true", help="Compact output (skip body, label history, renames)")
     parser.add_argument("--ascii", action="store_true", help="Use ASCII symbols instead of Unicode/emoji (auto-detected if output is piped)")
+    return parser
 
-    args = parser.parse_args()
+
+def main(argv=None):
+    global SYMBOLS
+
+    # Always ensure UTF-8 output for body/comment text (may contain math symbols)
+    ensure_utf8_stdout()
+
+    args = build_parser().parse_args(argv)
 
     # Initialize symbol set based on terminal capabilities
     SYMBOLS = detect_utf8_support(force_ascii=args.ascii)
+
+    args.full = resolve_full(args.full)
 
     # --edit implies --full
     if args.edit is not None:

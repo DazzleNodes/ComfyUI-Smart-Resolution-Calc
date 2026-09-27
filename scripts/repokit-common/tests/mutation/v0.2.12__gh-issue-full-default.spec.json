@@ -1,0 +1,19 @@
+{
+  "test_command": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_gh_issue_full.py"],
+  "mutations": [
+    {"id": "M1", "file": "gh_issue_full.py", "original": "    if flag is not None:\n        return flag", "mutated": "    if flag:\n        return flag", "note": "None-vs-truthiness: --no-full (False) no longer wins; falls through to env/pyproject/default True"},
+    {"id": "M2", "file": "gh_issue_full.py", "original": "        if value is None or value == \"\":", "mutated": "        if value is None:", "note": "Empty env var no longer skipped silently; produces a spurious warning"},
+    {"id": "M3", "file": "gh_issue_full.py", "original": "        key = str(value).strip().lower()", "mutated": "        key = str(value).strip()", "note": "Dropped .lower(): 'FULL'/'Truncated' rejected as unrecognised"},
+    {"id": "M4", "file": "gh_issue_full.py", "original": "        key = str(value).strip().lower()", "mutated": "        key = str(value).lower()", "note": "Dropped .strip(): ' truncated ' rejected as unrecognised"},
+    {"id": "M5", "file": "gh_issue_full.py", "original": "    return True\n\n\ndef build_parser():", "mutated": "    return False\n\n\ndef build_parser():", "note": "Final default flipped: no flag/env/pyproject yields truncated instead of full"},
+    {"id": "M6", "file": "gh_issue_full.py", "original": "        (FULL_DEFAULT_ENV, os.environ.get(FULL_DEFAULT_ENV)),\n        (f\"{FULL_DEFAULT_KEY} in pyproject.toml\", _load_full_default_config()),", "mutated": "        (f\"{FULL_DEFAULT_KEY} in pyproject.toml\", _load_full_default_config()),\n        (FULL_DEFAULT_ENV, os.environ.get(FULL_DEFAULT_ENV)),", "note": "Precedence swap: pyproject.toml key beats the environment variable"},
+    {"id": "M7", "file": "gh_issue_full.py", "original": "            continue\n        key = str(value)", "mutated": "            return True\n        key = str(value)", "note": "Early return: unset env var returns full without consulting pyproject.toml"},
+    {"id": "M8", "file": "gh_issue_full.py", "original": "            return _FULL_VALUES[key]", "mutated": "            return bool(key)", "note": "Recognised value always maps to True: 'truncated' yields full output"},
+    {"id": "M9", "file": "gh_issue_full.py", "original": "                if re.search(rf", "mutated": "                if not re.search(rf", "note": "Inverted warn guard: parser-less Python warns on projects without the key and stays silent when it is set"},
+    {"id": "M10", "file": "gh_issue_full.py", "original": "            return data.get(\"tool\", {}).get(\"repokit-common\", {}).get(FULL_DEFAULT_KEY)", "mutated": "            return data.get(\"tool\", {}).get(FULL_DEFAULT_KEY)", "note": "Wrong TOML table: reads [tool] instead of [tool.repokit-common], so the key is never found"},
+    {"id": "M11", "file": "gh_issue_full.py", "original": "        check_dir = check_dir.parent\n    return None", "mutated": "        break\n    return None", "note": "Removed walk-up: only the script's own directory is checked for pyproject.toml"},
+    {"id": "M12", "file": "gh_issue_full.py", "original": "    args.full = resolve_full(args.full)", "mutated": "    args.full = resolve_full(None)", "note": "CLI flag dropped from resolution: --full/--no-full ignored in favour of env/pyproject/default"},
+    {"id": "M13", "file": "gh_issue_full.py", "original": "action=\"store_const\", const=False,", "mutated": "action=\"store_const\", const=None,", "note": "--no-full stores None, indistinguishable from no flag"},
+    {"id": "M14", "file": "gh_issue_full.py", "original": "expected 'full' or 'truncated'. Ignoring it.\",\n            file=sys.stderr,", "mutated": "expected 'full' or 'truncated'. Ignoring it.\",", "note": "Warning for unrecognised value goes to stdout instead of stderr, polluting --json output"}
+  ]
+}

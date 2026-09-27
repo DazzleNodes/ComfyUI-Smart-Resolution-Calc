@@ -101,6 +101,13 @@ def _load_config():
                         cfg.get("tag-prefix", _DEFAULT_TAG_PREFIX),
                         tag_format,
                     )
+            else:
+                print(
+                    f"Warning: found {candidate} but cannot read it: no TOML parser "
+                    f"is available (use Python 3.11+ or install the tomli package). "
+                    f"Using placeholder defaults.",
+                    file=sys.stderr,
+                )
             break
         check_dir = check_dir.parent
 

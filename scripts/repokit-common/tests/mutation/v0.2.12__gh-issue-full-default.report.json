@@ -1,0 +1,290 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_gh_issue_full.py"
+    ],
+    "timestamp": "2026-09-26T23:58:30-04:00"
+  },
+  "results": [
+    {
+      "id": "M1",
+      "file": "gh_issue_full.py",
+      "note": "None-vs-truthiness: --no-full (False) no longer wins; falls through to env/pyproject/default True",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_flag_wins_over_env_and_config",
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ]
+    },
+    {
+      "id": "M2",
+      "file": "gh_issue_full.py",
+      "note": "Empty env var no longer skipped silently; produces a spurious warning",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid"
+      ]
+    },
+    {
+      "id": "M3",
+      "file": "gh_issue_full.py",
+      "note": "Dropped .lower(): 'FULL'/'Truncated' rejected as unrecognised",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default"
+      ]
+    },
+    {
+      "id": "M4",
+      "file": "gh_issue_full.py",
+      "note": "Dropped .strip(): ' truncated ' rejected as unrecognised",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default"
+      ]
+    },
+    {
+      "id": "M5",
+      "file": "gh_issue_full.py",
+      "note": "Final default flipped: no flag/env/pyproject yields truncated instead of full",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present",
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full"
+      ]
+    },
+    {
+      "id": "M6",
+      "file": "gh_issue_full.py",
+      "note": "Precedence swap: pyproject.toml key beats the environment variable",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ]
+    },
+    {
+      "id": "M7",
+      "file": "gh_issue_full.py",
+      "note": "Early return: unset env var returns full without consulting pyproject.toml",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ]
+    },
+    {
+      "id": "M8",
+      "file": "gh_issue_full.py",
+      "note": "Recognised value always maps to True: 'truncated' yields full output",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ]
+    },
+    {
+      "id": "M9",
+      "file": "gh_issue_full.py",
+      "note": "Inverted warn guard: parser-less Python warns on projects without the key and stays silent when it is set",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ]
+    },
+    {
+      "id": "M10",
+      "file": "gh_issue_full.py",
+      "note": "Wrong TOML table: reads [tool] instead of [tool.repokit-common], so the key is never found",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ]
+    },
+    {
+      "id": "M11",
+      "file": "gh_issue_full.py",
+      "note": "Removed walk-up: only the script's own directory is checked for pyproject.toml",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ]
+    },
+    {
+      "id": "M12",
+      "file": "gh_issue_full.py",
+      "note": "CLI flag dropped from resolution: --full/--no-full ignored in favour of env/pyproject/default",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ]
+    },
+    {
+      "id": "M13",
+      "file": "gh_issue_full.py",
+      "note": "--no-full stores None, indistinguishable from no flag",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display",
+        "tests/test_gh_issue_full.py::test_parser_flags_are_exclusive_and_tri_state"
+      ]
+    },
+    {
+      "id": "M14",
+      "file": "gh_issue_full.py",
+      "note": "Warning for unrecognised value goes to stdout instead of stderr, polluting --json output",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ]
+    }
+  ],
+  "summary": {
+    "killed": 14
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_gh_issue_full.py::test_config_sets_the_default": [
+        "M10",
+        "M11",
+        "M3",
+        "M4",
+        "M7",
+        "M8"
+      ],
+      "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured": [
+        "M5"
+      ],
+      "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid": [
+        "M10",
+        "M11",
+        "M2",
+        "M7",
+        "M8"
+      ],
+      "tests/test_gh_issue_full.py::test_env_wins_over_config": [
+        "M6",
+        "M8"
+      ],
+      "tests/test_gh_issue_full.py::test_flag_wins_over_env_and_config": [
+        "M1"
+      ],
+      "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through": [
+        "M10",
+        "M11",
+        "M14",
+        "M5",
+        "M6",
+        "M7",
+        "M8"
+      ],
+      "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display": [
+        "M1",
+        "M12",
+        "M13",
+        "M8"
+      ],
+      "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present": [
+        "M11",
+        "M5",
+        "M9"
+      ],
+      "tests/test_gh_issue_full.py::test_no_pyproject_means_full": [
+        "M5"
+      ],
+      "tests/test_gh_issue_full.py::test_parser_flags_are_exclusive_and_tri_state": [
+        "M13"
+      ]
+    },
+    "identical": [
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full"
+      ]
+    ],
+    "contained": [
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_default_is_full_with_nothing_configured",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_env_wins_over_config",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_flag_wins_over_env_and_config",
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_pyproject_means_full",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_parser_flags_are_exclusive_and_tri_state",
+        "tests/test_gh_issue_full.py::test_main_passes_the_resolved_choice_to_display"
+      ]
+    ],
+    "killed_without_names": []
+  }
+}
