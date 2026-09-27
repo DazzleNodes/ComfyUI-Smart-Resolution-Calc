@@ -31,5 +31,14 @@ PublisherId = "djdarcy"
 DisplayName = "Smart Resolution Calculator"
 Icon = ""
 
-# Publishing: Update version in this file and push to main branch
-# GitHub Actions will automatically publish to ComfyUI Registry
+# Publishing: update the version here, push, then publish a GitHub release
+# tagged v<version>; GitHub Actions publishes that release to the ComfyUI Registry
+
+# Version tooling (scripts/repokit-common/sync-versions.py, run by the git hooks).
+# This node keeps its version file at the repository root, not in a package folder.
+[tool.repokit-common]
+version-source = "version.py"
+changelog = "CHANGELOG.md"
+repo-url = "https://github.com/DazzleNodes/ComfyUI-Smart-Resolution-Calc"
+tag-prefix = "v"
+tag-format = "human"

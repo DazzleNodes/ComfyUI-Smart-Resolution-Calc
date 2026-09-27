@@ -14,8 +14,23 @@ cd "$REPO_ROOT" 2>/dev/null || true
 
 # PART 1: Update version.py
 # -------------------------
+# Preferred: repokit-common's sync-versions.py (subtree at scripts/repokit-common),
+# configured by [tool.repokit-common] in pyproject.toml (version-source = "version.py").
+# Fallback: the legacy scripts/update-version.sh.
+SYNC_SCRIPT="$REPO_ROOT/scripts/repokit-common/sync-versions.py"
 UPDATE_SCRIPT="$REPO_ROOT/scripts/update-version.sh"
-if [ -f "$UPDATE_SCRIPT" ]; then
+if [ -f "$SYNC_SCRIPT" ] && command -v python >/dev/null 2>&1; then
+    UPDATE_OUTPUT=$(python "$SYNC_SCRIPT" --auto 2>&1)
+    UPDATE_EXIT=$?
+    if [ $UPDATE_EXIT -eq 0 ]; then
+        git add version.py
+        echo "✓ Version updated and staged for commit"
+    else
+        # Show why: a silent warning here once let a commit ship a stale version string
+        echo "⚠ Warning: Version update failed but continuing:"
+        echo "$UPDATE_OUTPUT" | sed 's/^/    /'
+    fi
+elif [ -f "$UPDATE_SCRIPT" ]; then
     # Run in auto mode to update version before commit
     # Capture output to check if it's just "already up to date"
     UPDATE_OUTPUT=$("$UPDATE_SCRIPT" --auto 2>&1)

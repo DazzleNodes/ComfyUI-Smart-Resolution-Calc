@@ -7,7 +7,15 @@
 # Find the repository root (where .git is located)
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
-# Find the update-version.sh script
+# Preferred: repokit-common's sync-versions.py (rewrites the hash to this commit)
+SYNC_SCRIPT="$REPO_ROOT/scripts/repokit-common/sync-versions.py"
+if [ -f "$SYNC_SCRIPT" ] && command -v python >/dev/null 2>&1; then
+    python "$SYNC_SCRIPT" > /dev/null 2>&1
+    echo "✓ Version updated with commit hash $(git rev-parse --short HEAD)"
+    exit 0
+fi
+
+# Fallback: the legacy update-version.sh script
 if [ -f "$REPO_ROOT/scripts/update-version.sh" ]; then
     UPDATE_SCRIPT="$REPO_ROOT/scripts/update-version.sh"
 else
