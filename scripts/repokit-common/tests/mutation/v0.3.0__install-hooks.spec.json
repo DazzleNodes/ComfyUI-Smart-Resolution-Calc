@@ -1,0 +1,13 @@
+{
+ "test_command": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_install_hooks.py"],
+ "mutations": [
+  {"id": "M1", "file": "install-hooks.sh", "original": "        cp -p \"$_dst\" \"$_dst.backup-$BACKUP_STAMP\"", "mutated": "        true", "note": "Backup removed: a differing existing hook is overwritten without being saved"},
+  {"id": "M2", "file": "install-hooks.sh", "original": "cp -p \"$_dst\" \"$_dst.backup-$BACKUP_STAMP\"", "mutated": "cp -p \"$_src\" \"$_dst.backup-$BACKUP_STAMP\"", "note": "Swapped source: the backup holds the new hook's content, so the old hook's content is lost"},
+  {"id": "M3", "file": "install-hooks.sh", "original": "if cmp -s \"$_src\" \"$_dst\"; then", "mutated": "if ! cmp -s \"$_src\" \"$_dst\"; then", "note": "Flipped comparison: differing hooks are skipped as up to date, while identical hooks are backed up and reinstalled"},
+  {"id": "M4", "file": "install-hooks.sh", "original": "hook already up to date${NC}\"\n            return 0", "mutated": "hook already up to date${NC}\"", "note": "Early return dropped: an identical hook falls through and gets a needless backup"},
+  {"id": "M5", "file": "install-hooks.sh", "original": "    if [ -f \"$_dst\" ]; then", "mutated": "    if [ ! -f \"$_dst\" ]; then", "note": "Flipped existence guard: an existing hook is never compared or backed up before replacement"},
+  {"id": "M6", "file": "install-hooks.sh", "original": "[ -f \"$_src\" ] || return 0", "mutated": "[ -f \"$_src\" ] && return 0", "note": "Inverted source guard: every hook that has a source file returns early, so nothing is installed"},
+  {"id": "M7", "file": "install-hooks.sh", "original": "install_hook post-commit", "mutated": "# install_hook post-commit", "note": "Dropped hook: post-commit is never installed"},
+  {"id": "M8", "file": "install-hooks.sh", "original": "install_hook pre-push", "mutated": "install_hook pre_push", "note": "Wrong file name: no source exists for pre_push, so pre-push is not installed"}
+ ]
+}

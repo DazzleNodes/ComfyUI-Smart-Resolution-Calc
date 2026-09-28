@@ -1,0 +1,48 @@
+{
+ "test_command": [
+  "python",
+  "-m",
+  "pytest",
+  "-q",
+  "-p",
+  "no:cacheprovider",
+  "tests/test_repokit_config.py"
+ ],
+ "mutations": [
+  {
+   "id": "M3",
+   "file": "repokit_config.py",
+   "original": "if bound is None or d == bound:",
+   "mutated": "if d == bound:",
+   "note": "Removed None guard: a .git marker git will not explain is no longer treated as the boundary, so the walk leaves the project."
+  },
+  {
+   "id": "M6",
+   "file": "repokit_config.py",
+   "original": "r'^\\s*\\[\\s*tool",
+   "mutated": "r'\\[\\s*tool",
+   "note": "Dropped line anchor: a commented-out or inline mention of [tool.repokit-common] counts as declaring the table."
+  },
+  {
+   "id": "M9",
+   "file": "repokit_config.py",
+   "original": "return table if isinstance(table, dict) else {}",
+   "mutated": "return table",
+   "note": "Removed type guard: a non-table value under tool.repokit-common is returned instead of an empty dict."
+  },
+  {
+   "id": "M10",
+   "file": "repokit_config.py",
+   "original": "    if isinstance(value, bool):\n        return \"true\" if value else \"false\"\n",
+   "mutated": "    if False:\n        return \"true\" if value else \"false\"\n",
+   "note": "Dropped bool normalization (expressed as a dead branch; the harness rejects an empty replacement): booleans print as True or False instead of true or false."
+  },
+  {
+   "id": "M12",
+   "file": "repokit_config.py",
+   "original": "        if args.get in table:\n            print(_as_text(table[args.get]))",
+   "mutated": "        print(_as_text(table.get(args.get, \"\")))",
+   "note": "Removed guard: an unset --get key prints an empty line instead of nothing."
+  }
+ ]
+}

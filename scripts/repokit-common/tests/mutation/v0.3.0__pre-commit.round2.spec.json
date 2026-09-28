@@ -1,0 +1,34 @@
+{
+ "test_command": [
+  "python",
+  "-m",
+  "pytest",
+  "-q",
+  "-p",
+  "no:cacheprovider",
+  "tests/test_pre_commit_hook.py"
+ ],
+ "mutations": [
+  {
+   "id": "M3",
+   "file": "hooks/pre-commit",
+   "original": "NR == FNR { sub(/\\r$/, \"\"); sub(/^\\.\\//, \"\");",
+   "mutated": "NR == FNR { sub(/^\\.\\//, \"\");",
+   "note": "Trailing carriage return no longer stripped: a CRLF-produced entry 'private/\\r' never matches."
+  },
+  {
+   "id": "M6",
+   "file": "hooks/pre-commit",
+   "original": "if ($0 != \"\") p[++n] = $0; next }",
+   "mutated": "p[++n] = $0; next }",
+   "note": "Empty-entry guard removed: an empty entry (or './' or '/') is a prefix of every path and blocks every file."
+  },
+  {
+   "id": "M12",
+   "file": "hooks/pre-commit",
+   "original": "    _rel=\"$(git ls-files -- ':(glob)**/repokit_config.py' 2>/dev/null | head -n1)\"",
+   "mutated": "    _rel=\"\"",
+   "note": "Tracked-file fallback removed: a vendored repokit_config.py outside the three candidate locations is never found."
+  }
+ ]
+}

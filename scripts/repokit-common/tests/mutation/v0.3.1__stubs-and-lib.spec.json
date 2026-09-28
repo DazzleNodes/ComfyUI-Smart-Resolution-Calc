@@ -1,0 +1,17 @@
+{
+ "test_command": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_install_hooks.py", "tests/test_pre_commit_hook.py", "tests/test_pre_push_hook.py"],
+ "mutations": [
+  {"id": "M1", "file": "hooks/lib.sh", "original": "if [ -f \"$_rk_hooks/../repokit_config.py\" ]; then", "mutated": "if [ -f \"$_rk_hooks/repokit_config.py\" ]; then", "note": "The vendored copy is no longer found as the folder above hooks/, so the lookup always falls through to the fallback paths."},
+  {"id": "M2", "file": "hooks/lib.sh", "original": "_rk_rel=\"$(git ls-files -- ':(glob)**/repokit_config.py' 2>/dev/null | head -n1)\"", "mutated": "_rk_rel=\"$(git ls-files -- ':(glob)*/repokit_config.py' 2>/dev/null | head -n1)\"", "note": "The git tracked-list fallback finds only a copy one directory deep."},
+  {"id": "M3", "file": "hooks/lib.sh", "original": "[ \"$RK_DIR\" != \"$REPO_ROOT\" ] && VENDORED_DIR=", "mutated": "[ \"$RK_DIR\" = \"$REPO_ROOT\" ] && VENDORED_DIR=", "note": "Inverts the self-project check for VENDORED_DIR."},
+  {"id": "M4", "file": "hooks/lib.sh", "original": "[ -n \"$RK_DIR\" ] && [ -f \"$RK_DIR/sync-versions.py\" ] && SYNC_SCRIPT=\"$RK_DIR/sync-versions.py\"", "mutated": "[ -z \"$RK_DIR\" ] && [ -f \"$RK_DIR/sync-versions.py\" ] && SYNC_SCRIPT=\"$RK_DIR/sync-versions.py\"", "note": "sync-versions.py beside the copy is no longer preferred."},
+  {"id": "M5", "file": "hooks/lib.sh", "original": "git symbolic-ref --short -q HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown", "mutated": "git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown", "note": "Drops symbolic-ref, so an unborn branch resolves to HEAD."},
+  {"id": "M6", "file": "hooks/lib.sh", "original": "local|private|feature/*|feat/*|prototype/*|experiment/*|spike/*) return 0 ;;", "mutated": "local|private|feature/*|prototype/*|experiment/*|spike/*) return 0 ;;", "note": "feat/* branches are no longer treated as private."},
+  {"id": "M7", "file": "install-hooks.sh", "original": "exec bash \"\\$d/hooks/\\$REPOKIT_HOOK\" \"\\$@\"", "mutated": "exec bash \"\\$d/hooks/\\$REPOKIT_HOOK\"", "note": "The stub stops passing its arguments to the vendored hook."},
+  {"id": "M8", "file": "install-hooks.sh", "original": "strict=\"\\${REPOKIT_STRICT_BRANCHES-\\$REPOKIT_INSTALLED_STRICT}\"", "mutated": "strict=\"\\${REPOKIT_STRICT_BRANCHES:-\\$REPOKIT_INSTALLED_STRICT}\"", "note": "An empty REPOKIT_STRICT_BRANCHES no longer overrides the installed list."},
+  {"id": "M9", "file": "install-hooks.sh", "original": "set -f\nfor p in \\$strict; do", "mutated": "for p in \\$strict; do", "note": "Without set -f, patterns are glob-expanded against the filesystem."},
+  {"id": "M10", "file": "install-hooks.sh", "original": "            exit 1 ;;\n    esac\ndone", "mutated": "            exit 0 ;;\n    esac\ndone", "note": "A gated branch with no copy prints BLOCKED but exits 0."},
+  {"id": "M11", "file": "install-hooks.sh", "original": "cp -p \"$_dst\" \"$_dst.backup-$BACKUP_STAMP\"", "mutated": "true \"$_dst\" \"$_dst.backup-$BACKUP_STAMP\"", "note": "A differing existing hook is overwritten without a backup."},
+  {"id": "M12", "file": "install-hooks.sh", "original": "chmod +x \"$_dst\"", "mutated": "chmod -x \"$_dst\"", "note": "The installed stub is not executable."}
+ ]
+}

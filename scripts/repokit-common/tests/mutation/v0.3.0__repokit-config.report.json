@@ -1,0 +1,357 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_repokit_config.py",
+      "tests/test_sync_versions.py",
+      "tests/test_gh_issue_full.py"
+    ],
+    "timestamp": "2026-09-27T13:16:10-04:00"
+  },
+  "results": [
+    {
+      "id": "M1",
+      "file": "repokit_config.py",
+      "note": "Precedence swap: fallback .repokit-common.toml wins over pyproject.toml in the same directory; the contract says pyproject wins.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file"
+      ]
+    },
+    {
+      "id": "M2",
+      "file": "repokit_config.py",
+      "note": "Dropped table check: a pyproject.toml without [tool.repokit-common] is returned instead of skipped.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ]
+    },
+    {
+      "id": "M3",
+      "file": "repokit_config.py",
+      "note": "Removed None guard: a .git marker git will not explain is no longer treated as the boundary, so the walk leaves the project.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M4",
+      "file": "repokit_config.py",
+      "note": "Wrong precedence order: inside a submodule the bound becomes the submodule root, not the superproject root.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ]
+    },
+    {
+      "id": "M5",
+      "file": "repokit_config.py",
+      "note": "Comparison flip: git's output is used only on failure, so the bound is never learned from a successful call.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ]
+    },
+    {
+      "id": "M6",
+      "file": "repokit_config.py",
+      "note": "Dropped line anchor: a commented-out or inline mention of [tool.repokit-common] counts as declaring the table.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M7",
+      "file": "repokit_config.py",
+      "note": "Dropped MULTILINE: the header is detected only when it sits on the first line of pyproject.toml.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing",
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[Software/area/tools/vendor/Repokit-Scripts/lib]",
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts/repokit-common]",
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts]",
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file",
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ]
+    },
+    {
+      "id": "M8",
+      "file": "repokit_config.py",
+      "note": "Narrowed except: malformed TOML raises a raw decode error instead of ConfigError, so exit 2 is not produced.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_malformed_config_exits_2_with_a_reason"
+      ]
+    },
+    {
+      "id": "M9",
+      "file": "repokit_config.py",
+      "note": "Removed type guard: a non-table value under tool.repokit-common is returned instead of an empty dict.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M10",
+      "file": "repokit_config.py",
+      "note": "Dropped bool normalization (expressed as a dead branch; the harness rejects an empty replacement): booleans print as True or False instead of true or false.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M11",
+      "file": "repokit_config.py",
+      "note": "Lists are joined with spaces instead of one item per line.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_shell_output_is_safe_to_eval_and_unset_keys_are_empty"
+      ]
+    },
+    {
+      "id": "M12",
+      "file": "repokit_config.py",
+      "note": "Removed guard: an unset --get key prints an empty line instead of nothing.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M13",
+      "file": "repokit_config.py",
+      "note": "Dropped shell quoting: --shell output is not safe to eval for values with spaces or metacharacters.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_shell_output_is_safe_to_eval_and_unset_keys_are_empty"
+      ]
+    },
+    {
+      "id": "M14",
+      "file": "repokit_config.py",
+      "note": "Dropped upper-casing: the variable name becomes REPOKIT_<key> in the original case instead of REPOKIT_<KEY>.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_shell_output_is_safe_to_eval_and_unset_keys_are_empty"
+      ]
+    },
+    {
+      "id": "M15",
+      "file": "repokit_config.py",
+      "note": "Wrong exit code on an unreadable config: the contract specifies 2.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_malformed_config_exits_2_with_a_reason"
+      ]
+    }
+  ],
+  "summary": {
+    "killed": 10,
+    "survived": 5
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_gh_issue_full.py::test_config_sets_the_default": [
+        "M7"
+      ],
+      "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid": [
+        "M7"
+      ],
+      "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through": [
+        "M7"
+      ],
+      "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present": [
+        "M7"
+      ],
+      "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing": [
+        "M7"
+      ],
+      "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[Software/area/tools/vendor/Repokit-Scripts/lib]": [
+        "M7"
+      ],
+      "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts/repokit-common]": [
+        "M7"
+      ],
+      "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts]": [
+        "M7"
+      ],
+      "tests/test_repokit_config.py::test_malformed_config_exits_2_with_a_reason": [
+        "M15",
+        "M8"
+      ],
+      "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file": [
+        "M1",
+        "M7"
+      ],
+      "tests/test_repokit_config.py::test_shell_output_is_safe_to_eval_and_unset_keys_are_empty": [
+        "M11",
+        "M13",
+        "M14"
+      ],
+      "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table": [
+        "M2",
+        "M7"
+      ],
+      "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config": [
+        "M2",
+        "M4",
+        "M5",
+        "M7"
+      ]
+    },
+    "identical": [
+      [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present",
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing",
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[Software/area/tools/vendor/Repokit-Scripts/lib]",
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts/repokit-common]",
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts]"
+      ]
+    ],
+    "contained": [
+      [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_config_sets_the_default",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_empty_env_is_unset_not_invalid",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_invalid_values_warn_and_fall_through",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present",
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present",
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_no_parser_warns_only_when_the_key_is_present",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing",
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing",
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table"
+      ],
+      [
+        "tests/test_gh_issue_full.py::test_tomli_is_used_when_tomllib_is_missing",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ],
+      [
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[Software/area/tools/vendor/Repokit-Scripts/lib]",
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file"
+      ],
+      [
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[Software/area/tools/vendor/Repokit-Scripts/lib]",
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table"
+      ],
+      [
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[Software/area/tools/vendor/Repokit-Scripts/lib]",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ],
+      [
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts/repokit-common]",
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file"
+      ],
+      [
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts/repokit-common]",
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table"
+      ],
+      [
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts/repokit-common]",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ],
+      [
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts]",
+        "tests/test_repokit_config.py::test_pyproject_wins_over_the_fallback_file"
+      ],
+      [
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts]",
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table"
+      ],
+      [
+        "tests/test_repokit_config.py::test_finds_the_project_config_from_any_mount_depth[scripts]",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ],
+      [
+        "tests/test_repokit_config.py::test_skips_a_pyproject_without_the_table",
+        "tests/test_repokit_config.py::test_submodule_finds_the_superprojects_config"
+      ]
+    ],
+    "killed_without_names": []
+  }
+}

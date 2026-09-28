@@ -555,13 +555,21 @@ def ensure_utf8_stdout():
 def _load_full_default_config():
     """Read gh-issue-full-default from the consuming project's pyproject.toml.
 
-    Walks up from this script's own location, as sync-versions.py does, so the
-    project that vendors the script supplies the setting. Returns the raw
-    value, or None when there is no pyproject.toml or no such key.
+    Uses the shared discovery in repokit_config.py (as sync-versions.py does):
+    the nearest pyproject.toml holding [tool.repokit-common], or a
+    .repokit-common.toml, walking up from this script's own location and never
+    past the project. Returns the raw value, or None when there is no config
+    or no such key.
     """
-    check_dir = Path(__file__).resolve().parent
-    for _ in range(5):
-        candidate = check_dir / "pyproject.toml"
+    start = Path(__file__).resolve().parent
+    try:
+        sys.path.insert(0, str(start))
+        from repokit_config import find_config
+        found = find_config(start)
+        candidates = [found] if found is not None else []
+    except ImportError:  # an older vendored copy without the shared helper
+        candidates = [d / "pyproject.toml" for d in (start, *start.parents)][:5]
+    for candidate in candidates:
         if candidate.exists():
             try:
                 import tomllib
@@ -585,7 +593,6 @@ def _load_full_default_config():
             with open(candidate, "rb") as f:
                 data = tomllib.load(f)
             return data.get("tool", {}).get("repokit-common", {}).get(FULL_DEFAULT_KEY)
-        check_dir = check_dir.parent
     return None
 
 

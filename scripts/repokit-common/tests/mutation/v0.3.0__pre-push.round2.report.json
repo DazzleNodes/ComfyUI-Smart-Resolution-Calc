@@ -1,0 +1,76 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_pre_push_hook.py"
+    ],
+    "timestamp": "2026-09-27T15:38:57-04:00"
+  },
+  "results": [
+    {
+      "id": "M05",
+      "file": "hooks/pre-push",
+      "note": "master is no longer treated as protected; failing tests pass on master.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_failing_tests_block_a_push_to_master_too"
+      ]
+    },
+    {
+      "id": "M08",
+      "file": "hooks/pre-push",
+      "note": "Vendored repokit-common copy is not excluded when present (inverted guard).",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_a_vendored_copy_mounted_under_tests_is_not_collected"
+      ]
+    },
+    {
+      "id": "M14",
+      "file": "hooks/pre-push",
+      "note": "Off-by-one exit mapping: a test-command exiting 1 (failing tests) is reported as passed.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_test_command_replaces_pytest_and_its_failure_blocks_main[1]"
+      ]
+    }
+  ],
+  "summary": {
+    "killed": 3
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_pre_push_hook.py::test_a_vendored_copy_mounted_under_tests_is_not_collected": [
+        "M08"
+      ],
+      "tests/test_pre_push_hook.py::test_failing_tests_block_a_push_to_master_too": [
+        "M05"
+      ],
+      "tests/test_pre_push_hook.py::test_test_command_replaces_pytest_and_its_failure_blocks_main[1]": [
+        "M14"
+      ]
+    },
+    "identical": [],
+    "contained": [],
+    "killed_without_names": []
+  }
+}

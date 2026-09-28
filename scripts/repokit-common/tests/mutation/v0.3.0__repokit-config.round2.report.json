@@ -1,0 +1,102 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_repokit_config.py"
+    ],
+    "timestamp": "2026-09-27T13:17:21-04:00"
+  },
+  "results": [
+    {
+      "id": "M3",
+      "file": "repokit_config.py",
+      "note": "Removed None guard: a .git marker git will not explain is no longer treated as the boundary, so the walk leaves the project.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_stops_at_the_repository_when_git_cannot_say_where_it_ends"
+      ]
+    },
+    {
+      "id": "M6",
+      "file": "repokit_config.py",
+      "note": "Dropped line anchor: a commented-out or inline mention of [tool.repokit-common] counts as declaring the table.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_a_commented_out_table_header_does_not_count"
+      ]
+    },
+    {
+      "id": "M9",
+      "file": "repokit_config.py",
+      "note": "Removed type guard: a non-table value under tool.repokit-common is returned instead of an empty dict.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_a_non_table_value_reads_as_empty"
+      ]
+    },
+    {
+      "id": "M10",
+      "file": "repokit_config.py",
+      "note": "Dropped bool normalization (expressed as a dead branch; the harness rejects an empty replacement): booleans print as True or False instead of true or false.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_get_prints_booleans_lowercase_and_nothing_for_unset_keys"
+      ]
+    },
+    {
+      "id": "M12",
+      "file": "repokit_config.py",
+      "note": "Removed guard: an unset --get key prints an empty line instead of nothing.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_repokit_config.py::test_get_prints_booleans_lowercase_and_nothing_for_unset_keys"
+      ]
+    }
+  ],
+  "summary": {
+    "killed": 5
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_repokit_config.py::test_a_commented_out_table_header_does_not_count": [
+        "M6"
+      ],
+      "tests/test_repokit_config.py::test_a_non_table_value_reads_as_empty": [
+        "M9"
+      ],
+      "tests/test_repokit_config.py::test_get_prints_booleans_lowercase_and_nothing_for_unset_keys": [
+        "M10",
+        "M12"
+      ],
+      "tests/test_repokit_config.py::test_stops_at_the_repository_when_git_cannot_say_where_it_ends": [
+        "M3"
+      ]
+    },
+    "identical": [],
+    "contained": [],
+    "killed_without_names": []
+  }
+}

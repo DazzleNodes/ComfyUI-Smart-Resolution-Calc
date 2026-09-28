@@ -1,0 +1,85 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_pre_commit_hook.py"
+    ],
+    "timestamp": "2026-09-27T15:58:05-04:00"
+  },
+  "results": [
+    {
+      "id": "M3",
+      "file": "hooks/pre-commit",
+      "note": "Trailing carriage return no longer stripped: a CRLF-produced entry 'private/\\r' never matches.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M6",
+      "file": "hooks/pre-commit",
+      "note": "Empty-entry guard removed: an empty entry (or './' or '/') is a prefix of every path and blocks every file.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_an_empty_entry_blocks_nothing[./]",
+        "tests/test_pre_commit_hook.py::test_an_empty_entry_blocks_nothing[/]",
+        "tests/test_pre_commit_hook.py::test_an_empty_entry_blocks_nothing[]"
+      ]
+    },
+    {
+      "id": "M12",
+      "file": "hooks/pre-commit",
+      "note": "Tracked-file fallback removed: a vendored repokit_config.py outside the three candidate locations is never found.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_a_config_tool_mounted_anywhere_is_found_through_git"
+      ]
+    }
+  ],
+  "summary": {
+    "survived": 1,
+    "killed": 2
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_pre_commit_hook.py::test_a_config_tool_mounted_anywhere_is_found_through_git": [
+        "M12"
+      ],
+      "tests/test_pre_commit_hook.py::test_an_empty_entry_blocks_nothing[./]": [
+        "M6"
+      ],
+      "tests/test_pre_commit_hook.py::test_an_empty_entry_blocks_nothing[/]": [
+        "M6"
+      ],
+      "tests/test_pre_commit_hook.py::test_an_empty_entry_blocks_nothing[]": [
+        "M6"
+      ]
+    },
+    "identical": [
+      [
+        "tests/test_pre_commit_hook.py::test_an_empty_entry_blocks_nothing[./]",
+        "tests/test_pre_commit_hook.py::test_an_empty_entry_blocks_nothing[/]",
+        "tests/test_pre_commit_hook.py::test_an_empty_entry_blocks_nothing[]"
+      ]
+    ],
+    "contained": [],
+    "killed_without_names": []
+  }
+}

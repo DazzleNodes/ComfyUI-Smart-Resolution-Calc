@@ -1,0 +1,246 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_pre_commit_hook.py"
+    ],
+    "timestamp": "2026-09-27T15:52:49-04:00"
+  },
+  "results": [
+    {
+      "id": "M1",
+      "file": "hooks/pre-commit",
+      "note": "Prefix anchor lost: an entry now matches anywhere in the path (substring), e.g. 'private/' would block docs/private/x.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[drafts/-tools/x/drafts/a.md-False]"
+      ]
+    },
+    {
+      "id": "M2",
+      "file": "hooks/pre-commit",
+      "note": "Plausible refactor reads entries as anchored regular expressions: metacharacters in entries change meaning.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[d.t*-dxtt.md-False]"
+      ]
+    },
+    {
+      "id": "M3",
+      "file": "hooks/pre-commit",
+      "note": "Trailing carriage return no longer stripped: a CRLF-produced entry 'private/\\r' never matches.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M4",
+      "file": "hooks/pre-commit",
+      "note": "Leading './' no longer ignored: entry './secret/' never matches the root-relative staged path.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[./drafts/-drafts/a.md-True]"
+      ]
+    },
+    {
+      "id": "M5",
+      "file": "hooks/pre-commit",
+      "note": "Leading '/' no longer ignored: entry '/private-data/' never matches.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[/drafts/-drafts/a.md-True]"
+      ]
+    },
+    {
+      "id": "M6",
+      "file": "hooks/pre-commit",
+      "note": "Empty-entry guard removed: an empty entry (or './' or '/') is a prefix of every path and blocks every file.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M7",
+      "file": "hooks/pre-commit",
+      "note": "Off-by-one: the last project entry (and a sole entry) is never consulted.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_clone",
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_worktree",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[./drafts/-drafts/a.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[/drafts/-drafts/a.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[d.t+-d.t+.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[notes-notes-public.md-True]"
+      ]
+    },
+    {
+      "id": "M8",
+      "file": "hooks/pre-commit",
+      "note": "Unreadable config no longer blocks: message printed but commit proceeds without the project's patterns.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_an_unreadable_config_blocks_the_commit"
+      ]
+    },
+    {
+      "id": "M9",
+      "file": "hooks/pre-commit",
+      "note": "Project patterns REPLACE the built-ins when any project entry exists.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_built_in_patterns_still_block_when_the_project_adds_its_own"
+      ]
+    },
+    {
+      "id": "M10",
+      "file": "hooks/pre-commit",
+      "note": "Condition flipped: project patterns are never applied when present.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_clone",
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_worktree",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[./drafts/-drafts/a.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[/drafts/-drafts/a.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[d.t+-d.t+.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[notes-notes-public.md-True]"
+      ]
+    },
+    {
+      "id": "M11",
+      "file": "hooks/pre-commit",
+      "note": "Guard inverted: a located repokit_config.py is never run, so project patterns are silently dropped.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": []
+    },
+    {
+      "id": "M12",
+      "file": "hooks/pre-commit",
+      "note": "Tracked-file fallback removed: a vendored repokit_config.py outside the three candidate locations is never found.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    }
+  ],
+  "summary": {
+    "killed": 9,
+    "survived": 3
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_clone": [
+        "M10",
+        "M7"
+      ],
+      "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_worktree": [
+        "M10",
+        "M7"
+      ],
+      "tests/test_pre_commit_hook.py::test_an_unreadable_config_blocks_the_commit": [
+        "M8"
+      ],
+      "tests/test_pre_commit_hook.py::test_built_in_patterns_still_block_when_the_project_adds_its_own": [
+        "M9"
+      ],
+      "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[./drafts/-drafts/a.md-True]": [
+        "M10",
+        "M4",
+        "M7"
+      ],
+      "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[/drafts/-drafts/a.md-True]": [
+        "M10",
+        "M5",
+        "M7"
+      ],
+      "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[d.t*-dxtt.md-False]": [
+        "M2"
+      ],
+      "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[d.t+-d.t+.md-True]": [
+        "M10",
+        "M7"
+      ],
+      "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[drafts/-tools/x/drafts/a.md-False]": [
+        "M1"
+      ],
+      "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[notes-notes-public.md-True]": [
+        "M10",
+        "M7"
+      ]
+    },
+    "identical": [
+      [
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_clone",
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_worktree",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[d.t+-d.t+.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[notes-notes-public.md-True]"
+      ]
+    ],
+    "contained": [
+      [
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_clone",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[./drafts/-drafts/a.md-True]"
+      ],
+      [
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_clone",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[/drafts/-drafts/a.md-True]"
+      ],
+      [
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_worktree",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[./drafts/-drafts/a.md-True]"
+      ],
+      [
+        "tests/test_pre_commit_hook.py::test_a_configured_prefix_blocks_in_a_worktree",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[/drafts/-drafts/a.md-True]"
+      ],
+      [
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[d.t+-d.t+.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[./drafts/-drafts/a.md-True]"
+      ],
+      [
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[d.t+-d.t+.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[/drafts/-drafts/a.md-True]"
+      ],
+      [
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[notes-notes-public.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[./drafts/-drafts/a.md-True]"
+      ],
+      [
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[notes-notes-public.md-True]",
+        "tests/test_pre_commit_hook.py::test_entries_are_literal_prefixes_from_the_root[/drafts/-drafts/a.md-True]"
+      ]
+    ],
+    "killed_without_names": [
+      "M11"
+    ]
+  }
+}

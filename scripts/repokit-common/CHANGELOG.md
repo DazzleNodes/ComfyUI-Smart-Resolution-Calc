@@ -8,6 +8,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-27
+
+> **For consuming projects:**
+> - **Hooks update themselves.** Re-run `install-hooks.sh` once after pulling this version. It replaces the installed hook copies with small stubs (the old ones are kept as `.backup-` files) that run the hooks from the vendored copy, so every later subtree pull updates them.
+> - **Pushes to experimental branches are no longer blocked.** A test runner that cannot start now blocks only the gated branches, as failing tests always did. In 0.3.0 it blocked every branch.
+> - **The gated branches gain two names.** The default is now `main`, `master`, `staging` and `live`, so a push to `staging` or `live` with failing tests is now blocked. Set `strict-branches` to choose your own.
+> - **Captured output changes.** Hook messages in an IDE's git panel or CI now read `[OK]`, `[!]`, `[X]` instead of emoji and colour codes.
+> - **`sync-versions.py` stops on a broken settings table** (exit 2, one line), instead of a traceback.
+
+### Added
+
+- **The hooks share one library, `hooks/lib.sh`, and install as stubs (#14).** The three hooks carried copies of the same setup code: finding the vendored copy, reading the settings, finding the version tool, and the branch lists. A fix to one had to be copied by hand to the others. That code now lives in `lib.sh`.
+
+  `install-hooks.sh` writes a small stub per hook into `.git/hooks`. The stub finds the checkout's own vendored copy and runs the hook from there, so hooks update with every subtree pull and never go stale between installs. It looks first where the installer ran from, recorded relative to the root so each worktree uses its own copy. Then it tries the usual layouts and git's index, so an untracked copy at a custom path is found too. A branch whose tree has no vendored copy cannot run the checks, and it is never passed silently: a gated branch is blocked, and any other branch gets a warning. `REPOKIT_STRICT_BRANCHES= git ...` loosens that for one run.
+
+  `core.hooksPath` was measured and rejected as the way to share the code: on a branch without the subtree, git runs no hook at all and the commit goes through silently. The installer now warns when `core.hooksPath` is set, since git would then ignore the stubs.
+- **`strict-branches`:** the gated branches, as shell glob patterns. By default `main`, `master`, `staging` and `live`, from git-repokit's branch model. Failing tests, or a test runner that cannot start, block a push to them and warn elsewhere.
+- **`output`:** `auto`, `plain` or `rich`. Plain `[OK]`/`[!]`/`[X]` markers when the hook's output is not a terminal, and symbols with colour when it is. `REPOKIT_OUTPUT` overrides it for one run. The astral emoji that some consoles cannot draw are gone.
+- **`.gitattributes`** keeps the hooks and shell scripts at LF line endings in every checkout, vendored copies included.
+
+### Fixed
+
+- **A test runner that cannot start blocked pushes to every branch** (0.3.0). It now follows the gated-branch rule, with its own message and pytest's error in both cases.
+- **The first commit on a new branch was read as branch `HEAD`,** so a new branch named `private` was treated as public. Branch names now come from `git symbolic-ref` first.
+- **`sync-versions.py` crashed with a traceback on an unparseable `[tool.repokit-common]` table.** It now prints one line naming the file and the reason, and exits 2 rather than falling back to placeholder paths. A missing TOML parser still warns and falls back, as before.
+- **post-commit reported "Version updated" even when the update failed.** It now shows the tool's own error.
+- **The `print()` count scanned the vendored repokit-common copy and `tests/`** when no package directory was found. A fresh consumer saw "257 in ./", nearly all of them repokit-common's own.
+- **A push that git had already rejected was reported as "Tag-only push".** git passes the hook an empty ref list in that case. It now says there is nothing to push.
+
+### Tests
+
+- `tests/test_install_hooks.py`: a fresh consumer with repokit-common at `scripts/repokit-common/`, installed with the vendored installer, then committing and pushing through the stubs. It also covers a worktree, a missing copy on gated and ungated branches, the one-run override, the stamped branch list, arguments passed through, patterns that must not glob-expand, and the version tool beside the copy.
+- More pre-push tests for the gated branches and the output modes, a pre-commit test for each private branch name, and a sync-versions test for the broken table. The suite has 145 tests. Unit 1's red-green and mutation results are in `tests/mutation/v0.3.1__sweep__stubs-and-lib.md`. The later units were tested in proportion to their risk rather than with the full battery, following a review of how much the full battery was catching.
+
+## [0.3.0] - 2026-09-27
+
+> **For consuming projects: a push may now run more tests, and may now be blocked where it was not before.** After pulling this version and re-running `install-hooks.sh`:
+>
+> - If your project declares pytest `testpaths`, the pre-push hook now runs them instead of only `tests/`. Tests kept beside the code now gate a push to `main`/`master`.
+> - If pytest cannot start at all (a broken `conftest.py`, a missing dependency, a package that shadows one of pytest's imports), the push is now **blocked on every branch**, with pytest's own error shown. Before, this was reported as "Some tests failed", and only a push to `main`/`master` was blocked.
+> - A syntax error in a `.py` file at the repository root now blocks a push. Before, only the detected package directory was checked.
+> - A `[tool.repokit-common]` table that cannot be parsed now stops the commit and the push, with the reason. Before, the hooks did not read the table at all. (`sync-versions.py` is unchanged here: it still stops with a Python traceback on an unparseable table, as in earlier versions; the pre-commit hook shows that traceback under "Version update failed but continuing" and then blocks for the reason above.) A Python older than 3.11 without the `tomli` package, which cannot read TOML at all, does not block: the hooks print a warning and carry on without the project's settings.
+> - `private-patterns`, documented since 0.1.3-alpha but never read by any code until now, is now enforced by the pre-commit hook.
+>
+> To run something other than pytest, for a script-style or slow suite, set `test-command`. If you do nothing, a project with pytest tests in `tests/`, or with no tests, behaves as before, except that the test count is now printed.
+
+### Added
+
+- **Project settings for the hooks, and one way to find them.** The hooks now read `[tool.repokit-common]`. It lives in the project's `pyproject.toml`, or in a new `.repokit-common.toml` at the repository root for projects without one, such as C/C++ or Rust consumers. When both exist in one directory, `pyproject.toml` wins. A new `repokit_config.py` does the finding for every tool and hook. It walks up from repokit-common's own directory to the nearest file that holds the table, and walks past a `pyproject.toml` that does not. It never leaves the project: it stops at the repository root, or at the superproject's root when repokit-common is itself a git submodule. A project that vendors repokit-common and is itself a submodule of a larger project, such as a node inside DazzleNodes, stops at its own root and never reads the larger project's settings. `sync-versions.py` and `gh_issue_full.py` now use it. Their old search looked five directories up and took the first `pyproject.toml` it met. A proof of concept over eight layouts found that search wrong in five of them, including a deep mount, a real submodule, and a project with no settings of its own that picked up an unrelated project's file from a parent directory. The new rule was right in all eight (`tests/one-offs/thinking/config-discovery/`). Each hook makes one call to the helper, and it asks git only when the walk reaches a repository boundary. Its output to the hooks is always UTF-8 with LF line endings, whatever the console code page, because git gives the hooks staged paths in UTF-8; a setting with non-ASCII text therefore works on Windows too.
+- **`private-patterns` now works (#13).** Each entry is a literal path prefix from the repository root. `private/` blocks `private/notes.md` but not `docs/private/notes.md`, and `.env` blocks `.env.local`. Entries are added to the hook's built-in list and never replace it. `.repokit-allowlist` still exempts listed paths, and an entry that is empty, or only `./` or `/`, is ignored. Prefixes were chosen over regular expressions after a measurement on dazzlecmd, which already set nine entries. Read as unanchored regular expressions, those entries would have blocked 20 of its 657 tracked files, for example `logs/` matching inside `claude-recover-sesslogs/`. Read as prefixes, they block none (`tests/one-offs/measure_private_patterns_consumer.py`).
+- **`test-command`** replaces pytest in the pre-push hook. It runs with `sh -c` from the repository root, and any non-zero exit counts as failing tests. This is for projects whose tests are scripts with their own runners.
+- **`print-warning = false`** turns off the pre-push warning about many `print()` calls, which fired on every push for command-line tools. The warning now also names the directory it counted.
+- **`install-hooks.sh` keeps the hook it replaces.** An existing hook that differs from the new one is copied to `<hook>.backup-YYYYMMDD-HHMMSS` first. An identical hook is left alone. This came from a consuming project's own installer, which is being retired in favour of this one.
+
+### Changed
+
+- **The pre-push test step reports what actually happened (#10).** It used to run `python -m pytest tests/ -q 2>/dev/null` and call every non-zero exit "Some tests failed". That hid pytest's own errors, and it reported a test runner that never started as failing tests. In one consuming project, ComfyUI-Smart-Resolution-Calc, pytest could not even import, because the project's package is named `py/` and shadowed a module pytest imports. Every push to `main` was blocked with a message that pointed at the tests. Now:
+  - pytest runs as `python -P -m pytest`, so the repository root is not put first on the import path. Python older than 3.11 has no `-P`, so there the root is removed from the path by hand.
+  - The scope is the project's declared `testpaths` when it has them. Otherwise it is `tests/` without `one-offs/` and `thinking/`, which hold moment-in-time scripts, and without the vendored repokit-common copy. Before, a whole-repository run in a consumer collected only repokit-common's own tests.
+  - pytest's exit code is reported as it is. 0 prints the count. 1 is failing tests, blocks `main`/`master`, and shows the output. 5 means nothing was collected and is a notice, like having no test files. 2, 3 and 4 mean the runner could not run: the push is blocked on any branch, with pytest's error.
+- The pre-push syntax check also compiles `.py` files at the repository root, such as a root `__init__.py` or `version.py`, and shows the compiler's error instead of hiding it.
+
+### Tests
+
+- The suite grew from 54 tests to 113. `tests/test_repokit_config.py` has 17 tests: the eight layouts from the proof of concept, a project that is itself a submodule of a configured project (it must not read the parent's settings), a malformed file, a Python with no TOML parser, non-ASCII values, and output a shell can safely `eval`. `tests/test_pre_push_hook.py` has 20, each pushing for real into a bare repository in the test's temporary directory. `tests/test_pre_commit_hook.py` gained 18 cases for `private-patterns`. `tests/test_install_hooks.py` has 4, each running the installer only after checking that git resolves the hooks folder inside the temporary directory. Every new test was checked by removing the behaviour it covers. The few that still passed are deliberate fences around behaviour that must stay, and each is named as one. Each unit was also checked against deliberate bugs written without sight of the tests (`tests/mutation/`): 49 bugs, 48 caught, and a test was written for each of the 10 that got through at first. The one bug still not caught, dropping the hook's carriage-return strip, cannot show: the helper now writes LF line endings everywhere, and Git for Windows' `awk` strips carriage returns anyway. It is recorded in `tests/mutation/equivalents.md`. The three fixes made after that review (the nested-submodule case, UTF-8 output, and the missing parser) were each checked by putting the old code back and watching their new tests fail; the deliberate-bug review was not re-run over them.
+- A manual checklist (`tests/checklists/v0.3.0__Feature__hook-settings-test-scope-private-patterns.md`) installs the vendored copy into a fresh consumer project and runs every hook from there, from a worktree and from inside a parent project, with a helper (`tests/checklists/v0.3.0__scratch.py`) that builds all of it in one scratch folder and gives the same commands in cmd.exe, PowerShell and bash. A run by a test agent passed every automatable item; the console-rendering and interactive-installer items are left for a person.
+
 ## [0.2.13] - 2026-09-27
 
 ### Fixed
@@ -227,7 +294,9 @@ First consumer: `DazzleTools/dazzlelink` (file-association scripts live in `scri
 
 All project-specific hardcoding (`wtf-restarted`, `comfydbg`) was replaced with auto-detection or `$placeholder` variables. Project-level files (`.github/`, `CONTRIBUTING.md`, `.repokit.json`, `.vscode/`) were substituted with real values for `git-repokit-common`.
 
-[Unreleased]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.13...HEAD
+[Unreleased]: https://github.com/DazzleTools/git-repokit-common/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/DazzleTools/git-repokit-common/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.13...v0.3.0
 [0.2.13]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/DazzleTools/git-repokit-common/compare/v0.2.10...v0.2.11
