@@ -1,0 +1,185 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_install_hooks.py",
+      "tests/test_pre_commit_hook.py",
+      "tests/test_pre_push_hook.py"
+    ],
+    "timestamp": "2026-09-27T19:35:03-04:00"
+  },
+  "results": [
+    {
+      "id": "M1",
+      "file": "hooks/lib.sh",
+      "note": "The vendored copy is no longer found as the folder above hooks/, so the lookup always falls through to the fallback paths.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M2",
+      "file": "hooks/lib.sh",
+      "note": "The git tracked-list fallback finds only a copy one directory deep.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_a_config_tool_mounted_anywhere_is_found_through_git",
+        "tests/test_pre_push_hook.py::test_a_vendored_copy_mounted_under_tests_is_not_collected"
+      ]
+    },
+    {
+      "id": "M3",
+      "file": "hooks/lib.sh",
+      "note": "Inverts the self-project check for VENDORED_DIR.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_a_vendored_copy_mounted_under_tests_is_not_collected"
+      ]
+    },
+    {
+      "id": "M4",
+      "file": "hooks/lib.sh",
+      "note": "sync-versions.py beside the copy is no longer preferred.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M5",
+      "file": "hooks/lib.sh",
+      "note": "Drops symbolic-ref, so an unborn branch resolves to HEAD.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_commit_hook.py::test_the_first_commit_on_a_new_private_branch_is_treated_as_private"
+      ]
+    },
+    {
+      "id": "M6",
+      "file": "hooks/lib.sh",
+      "note": "feat/* branches are no longer treated as private.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M7",
+      "file": "install-hooks.sh",
+      "note": "The stub stops passing its arguments to the vendored hook.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M8",
+      "file": "install-hooks.sh",
+      "note": "An empty REPOKIT_STRICT_BRANCHES no longer overrides the installed list.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_an_empty_override_loosens_the_gate_for_one_run"
+      ]
+    },
+    {
+      "id": "M9",
+      "file": "install-hooks.sh",
+      "note": "Without set -f, patterns are glob-expanded against the filesystem.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M10",
+      "file": "install-hooks.sh",
+      "note": "A gated branch with no copy prints BLOCKED but exits 0.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_no_copy_on_a_gated_branch_blocks"
+      ]
+    },
+    {
+      "id": "M11",
+      "file": "install-hooks.sh",
+      "note": "A differing existing hook is overwritten without a backup.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced"
+      ]
+    },
+    {
+      "id": "M12",
+      "file": "install-hooks.sh",
+      "note": "The installed stub is not executable.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    }
+  ],
+  "summary": {
+    "survived": 6,
+    "killed": 6
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks": [
+        "M11"
+      ],
+      "tests/test_install_hooks.py::test_an_empty_override_loosens_the_gate_for_one_run": [
+        "M8"
+      ],
+      "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced": [
+        "M11"
+      ],
+      "tests/test_install_hooks.py::test_no_copy_on_a_gated_branch_blocks": [
+        "M10"
+      ],
+      "tests/test_pre_commit_hook.py::test_a_config_tool_mounted_anywhere_is_found_through_git": [
+        "M2"
+      ],
+      "tests/test_pre_commit_hook.py::test_the_first_commit_on_a_new_private_branch_is_treated_as_private": [
+        "M5"
+      ],
+      "tests/test_pre_push_hook.py::test_a_vendored_copy_mounted_under_tests_is_not_collected": [
+        "M2",
+        "M3"
+      ]
+    },
+    "identical": [
+      [
+        "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced"
+      ]
+    ],
+    "contained": [
+      [
+        "tests/test_pre_commit_hook.py::test_a_config_tool_mounted_anywhere_is_found_through_git",
+        "tests/test_pre_push_hook.py::test_a_vendored_copy_mounted_under_tests_is_not_collected"
+      ]
+    ],
+    "killed_without_names": []
+  }
+}

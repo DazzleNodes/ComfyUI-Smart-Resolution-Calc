@@ -20,7 +20,7 @@ Note: If you already have files in `scripts/`, move them out first, do the subtr
 
 ## Required (after subtree add)
 
-- [ ] **Configure pyproject.toml**: Add `[tool.repokit-common]` section (hooks depend on this):
+- [ ] **Configure pyproject.toml**: Add `[tool.repokit-common]` section (no `pyproject.toml`? put the same table in `.repokit-common.toml` at the repository root):
   ```toml
   [tool.repokit-common]
   version-source = "your_package/_version.py"
@@ -29,8 +29,10 @@ Note: If you already have files in `scripts/`, move them out first, do the subtr
   tag-prefix = "v"
   private-patterns = ["private/", "local/", ".env"]
   ```
+  `private-patterns` entries are literal path prefixes from the repository root (not regular expressions), added to the pre-commit hook's built-in list.
+- [ ] **Check the pre-push test step**: with no settings it runs pytest over your declared `testpaths`, or over `tests/` without `one-offs/` and `thinking/`. If your tests are scripts rather than pytest, or live elsewhere, set `test-command` (or declare `testpaths`)
 - [ ] **Create `_version.py`**: Copy the version module template into your package directory and edit the initial version values
-- [ ] **Install hooks**: Run `bash scripts/install-hooks.sh`
+- [ ] **Install hooks**: run `bash scripts/repokit-common/install-hooks.sh` (or `scripts/install-hooks.sh` in a flat layout). It writes small stubs that run the vendored hooks, so later subtree pulls update the hooks without re-installing. Re-run it only after changing `strict-branches`.
 
 ## Customize (as needed)
 
@@ -47,6 +49,6 @@ Note: If you already have files in `scripts/`, move them out first, do the subtr
 ## Notes
 
 - The hooks auto-detect your Python package directory (looks for `__init__.py` at the project root)
-- `sync-versions.py` reads config from `pyproject.toml [tool.repokit-common]` automatically
+- `sync-versions.py`, `gh_issue_full.py` and the hooks read `[tool.repokit-common]` automatically, through `repokit_config.py`
 - `--prefix=scripts` must be used consistently for all subtree operations
 - Your project-specific scripts can coexist alongside repokit-common files in `scripts/`

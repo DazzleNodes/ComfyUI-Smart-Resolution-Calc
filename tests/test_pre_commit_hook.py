@@ -50,6 +50,7 @@ def repo(tmp_path):
     hooks = root / ".git" / "hooks"
     hooks.mkdir(exist_ok=True)
     shutil.copy(HOOK, hooks / "pre-commit")
+    shutil.copy(HOOK.parent / "lib.sh", hooks / "lib.sh")  # the hook sources it from beside itself
     (hooks / "pre-commit").chmod(0o755)
     (root / "README.md").write_text("seed\n")
     _git(root, "add", "README.md")
@@ -154,6 +155,152 @@ def test_version_step_failure_shows_the_reason(repo):
     assert result.returncode == 0, out
     assert "Version update failed" in out
     assert "stamp failed" in out
+
+
+CONFIG_TOOL = Path(__file__).resolve().parents[1] / "repokit_config.py"
+
+
+def _configure(where, patterns=None, raw=None):
+    """Vendor repokit_config.py at scripts/repokit-common/ and write the project's
+    .repokit-common.toml. Both stay untracked; the hook reads them from disk."""
+    tool = where / "scripts" / "repokit-common" / "repokit_config.py"
+    tool.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(CONFIG_TOOL, tool)
+    if raw is None:
+        items = ", ".join(f'"{p}"' for p in patterns)
+        raw = f"[tool.repokit-common]\nprivate-patterns = [{items}]\n"
+    (where / ".repokit-common.toml").write_text(raw, encoding="utf-8")
+
+
+def test_a_configured_prefix_blocks_in_a_worktree(worktree):
+    """CONSEQUENCE: 9 (safety) -- a project's own private-patterns entry blocks a commit to a public branch, from a worktree too (#13)."""
+    wt, hooks = worktree
+    _configure(wt, ["drafts/"])
+    result = _commit(wt, hooks, "drafts/idea.md")
+    out = result.stdout + result.stderr
+    assert result.returncode != 0, out
+    assert "COMMIT BLOCKED" in out and "drafts/idea.md" in out
+    assert not _in_head(wt, "drafts/idea.md")
+
+
+def test_a_configured_prefix_blocks_in_a_clone(repo):
+    """CONSEQUENCE: 9 (safety) -- the same in a normal clone, with the setting in pyproject.toml."""
+    root, hooks = repo
+    _configure(root, raw="")
+    (root / ".repokit-common.toml").unlink()
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "p"\n\n[tool.repokit-common]\nprivate-patterns = ["drafts/"]\n', encoding="utf-8")
+    result = _commit(root, hooks, "drafts/idea.md")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert not _in_head(root, "drafts/idea.md")
+
+
+def test_built_in_patterns_still_block_when_the_project_adds_its_own(repo):
+    """CONSEQUENCE: 9 (safety) -- project patterns add to the built-in list, never replace it."""
+    root, hooks = repo
+    _configure(root, ["drafts/"])
+    result = _commit(root, hooks, "private/notes.md")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert not _in_head(root, "private/notes.md")
+
+
+def test_an_unreadable_config_blocks_the_commit(repo):
+    """CONSEQUENCE: 8 (safety) -- a malformed settings table stops the commit instead of silently dropping the project's patterns."""
+    root, hooks = repo
+    _configure(root, raw='[tool.repokit-common]\nprivate-patterns = ["drafts/"\n')
+    result = _commit(root, hooks, "docs/page.md")
+    out = result.stdout + result.stderr
+    assert result.returncode != 0, out
+    assert "settings could not be read" in out and "private-patterns" in out
+    assert "cannot read" in out
+
+
+@pytest.mark.parametrize("pattern,path,blocked", [
+    ("drafts/", "tools/x/drafts/a.md", False),   # a prefix, not a substring: mid-path does not match
+    ("drafts/", "drafts2/a.md", False),          # the slash is part of the prefix
+    ("notes", "notes-public.md", True),          # a prefix of a file name matches
+    ("./drafts/", "drafts/a.md", True),          # a leading ./ is ignored
+    ("/drafts/", "drafts/a.md", True),           # a leading / is ignored
+    ("d.t*", "dxtt.md", False),                  # literal text, never a regular expression or glob
+    ("d.t+", "d.t+.md", True),
+])
+def test_entries_are_literal_prefixes_from_the_root(repo, pattern, path, blocked):
+    """CONSEQUENCE: 7 (behaviour) -- entries match as literal prefixes of the repository-relative path, as documented."""
+    root, hooks = repo
+    _configure(root, [pattern])
+    result = _commit(root, hooks, path)
+    out = result.stdout + result.stderr
+    assert (result.returncode != 0) == blocked, out
+    assert _in_head(root, path) != blocked
+
+
+def test_a_non_ascii_prefix_blocks_its_path(repo):
+    """CONSEQUENCE: 7 (safety) -- a pattern with non-ASCII text matches the path git stages (UTF-8), whatever the console code page."""
+    root, hooks = repo
+    _configure(root, ["brouillons-é/"])
+    result = _commit(root, hooks, "brouillons-é/idee.md")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert not _in_head(root, "brouillons-é/idee.md")
+
+
+@pytest.mark.parametrize("entry", ["", "./", "/"])
+def test_an_empty_entry_blocks_nothing(repo, entry):
+    """CONSEQUENCE: 7 (behaviour) -- an entry that is empty after normalisation is ignored, rather than being a prefix of every path."""
+    root, hooks = repo
+    _configure(root, [entry, "drafts/"])
+    result = _commit(root, hooks, "docs/page.md")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _in_head(root, "docs/page.md")
+
+
+def test_a_config_tool_mounted_anywhere_is_found_through_git(repo):
+    """CONSEQUENCE: 7 (safety) -- a vendored copy outside the usual layouts (tracked at any depth) still supplies the project's patterns."""
+    root, hooks = repo
+    tool = root / "Software" / "tools" / "Repokit-Scripts" / "repokit_config.py"
+    tool.parent.mkdir(parents=True)
+    shutil.copy(CONFIG_TOOL, tool)
+    _git(root, "add", "Software/tools/Repokit-Scripts/repokit_config.py")
+    (root / ".repokit-common.toml").write_text('[tool.repokit-common]\nprivate-patterns = ["drafts/"]\n', encoding="utf-8")
+    result = _commit(root, hooks, "drafts/idea.md")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert not _in_head(root, "drafts/idea.md")
+
+
+def test_the_allowlist_still_exempts_a_configured_prefix(repo):
+    """CONSEQUENCE: 6 (behaviour) -- .repokit-allowlist exempts a path the project's patterns would block."""
+    root, hooks = repo
+    _configure(root, ["drafts/"])
+    (root / ".repokit-allowlist").write_text("drafts/keep.md\n", encoding="utf-8")
+    result = _commit(root, hooks, "drafts/keep.md")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _in_head(root, "drafts/keep.md")
+
+
+def test_a_private_branch_ignores_the_project_patterns(repo):
+    """CONSEQUENCE: 5 (behaviour) -- on a private branch the project's patterns do not block, like the built-ins."""
+    root, hooks = repo
+    _git(root, "checkout", "-q", "-b", "private")
+    _configure(root, ["drafts/"])
+    result = _commit(root, hooks, "drafts/idea.md")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("branch", ["local", "private", "feature/x", "feat/x", "prototype/x", "experiment/x", "spike/x"])
+def test_every_private_branch_name_allows_private_content(repo, branch):
+    """CONSEQUENCE: 6 (behaviour) -- each documented private branch (or prefix) accepts private files; every other branch is public."""
+    root, hooks = repo
+    _git(root, "checkout", "-q", "-b", branch)
+    result = _commit(root, hooks, "private/notes.md")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_the_first_commit_on_a_new_private_branch_is_treated_as_private(repo):
+    """CONSEQUENCE: 5 (behaviour) -- on a branch with no commits yet git's short name lookup answers "HEAD"; the hook still sees the real branch name."""
+    root, hooks = repo
+    _git(root, "checkout", "-q", "--orphan", "private")
+    result = _commit(root, hooks, "private/notes.md")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Checking for private content on branch: private" in result.stdout + result.stderr
 
 
 def test_ordinary_file_commits_in_a_worktree(worktree):

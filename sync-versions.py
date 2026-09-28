@@ -65,6 +65,16 @@ _DEFAULT_TAG_PREFIX = "v"
 _DEFAULT_TAG_FORMAT = "pep440"  # "pep440" or "human"
 _VALID_TAG_FORMATS = {"pep440", "human"}
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from repokit_config import find_config as _find_config
+except ImportError:  # an older vendored copy without the shared helper
+    def _find_config(start):
+        for d in (start, *start.parents):
+            if (d / "pyproject.toml").is_file():
+                return d / "pyproject.toml"
+        return None
+
 def _load_config():
     """Load config from pyproject.toml [tool.repokit-common] or use defaults."""
     try:
@@ -75,41 +85,47 @@ def _load_config():
         except ImportError:
             tomllib = None
 
-    # Walk up to find pyproject.toml (handles submodule case)
-    check_dir = Path(__file__).resolve().parent
-    for _ in range(5):
-        candidate = check_dir / "pyproject.toml"
-        if candidate.exists():
-            if tomllib:
+    # Shared discovery (repokit_config.py, beside this script): the nearest
+    # pyproject.toml holding [tool.repokit-common], or .repokit-common.toml,
+    # walking up from this script's own location and never past the project.
+    candidate = _find_config(Path(__file__).resolve().parent)
+    if candidate is not None:
+        if tomllib:
+            # A file that exists but cannot be parsed is not an absent one:
+            # falling back to the placeholder defaults would aim at the wrong
+            # files (or fail later on "$PACKAGE_NAME"). Say which file and why,
+            # in one line, and stop -- quiet when all is well, loud when not.
+            try:
                 with open(candidate, "rb") as f:
                     data = tomllib.load(f)
-                cfg = data.get("tool", {}).get("repokit-common", {})
-                if cfg:
-                    tag_format = cfg.get("tag-format", _DEFAULT_TAG_FORMAT)
-                    if tag_format not in _VALID_TAG_FORMATS:
-                        print(
-                            f"Warning: unknown tag-format '{tag_format}' "
-                            f"in pyproject.toml (expected: {', '.join(sorted(_VALID_TAG_FORMATS))}). "
-                            f"Falling back to '{_DEFAULT_TAG_FORMAT}'.",
-                            file=sys.stderr,
-                        )
-                        tag_format = _DEFAULT_TAG_FORMAT
-                    return (
-                        cfg.get("version-source", _DEFAULT_VERSION_SOURCE),
-                        cfg.get("changelog", _DEFAULT_CHANGELOG_FILE),
-                        cfg.get("repo-url", _DEFAULT_REPO_URL),
-                        cfg.get("tag-prefix", _DEFAULT_TAG_PREFIX),
-                        tag_format,
+            except (tomllib.TOMLDecodeError, OSError) as e:
+                print(f"Error: cannot read {candidate}: {e}", file=sys.stderr)
+                sys.exit(2)
+            cfg = data.get("tool", {}).get("repokit-common", {})
+            if cfg:
+                tag_format = cfg.get("tag-format", _DEFAULT_TAG_FORMAT)
+                if tag_format not in _VALID_TAG_FORMATS:
+                    print(
+                        f"Warning: unknown tag-format '{tag_format}' "
+                        f"in {candidate.name} (expected: {', '.join(sorted(_VALID_TAG_FORMATS))}). "
+                        f"Falling back to '{_DEFAULT_TAG_FORMAT}'.",
+                        file=sys.stderr,
                     )
-            else:
-                print(
-                    f"Warning: found {candidate} but cannot read it: no TOML parser "
-                    f"is available (use Python 3.11+ or install the tomli package). "
-                    f"Using placeholder defaults.",
-                    file=sys.stderr,
+                    tag_format = _DEFAULT_TAG_FORMAT
+                return (
+                    cfg.get("version-source", _DEFAULT_VERSION_SOURCE),
+                    cfg.get("changelog", _DEFAULT_CHANGELOG_FILE),
+                    cfg.get("repo-url", _DEFAULT_REPO_URL),
+                    cfg.get("tag-prefix", _DEFAULT_TAG_PREFIX),
+                    tag_format,
                 )
-            break
-        check_dir = check_dir.parent
+        else:
+            print(
+                f"Warning: found {candidate} but cannot read it: no TOML parser "
+                f"is available (use Python 3.11+ or install the tomli package). "
+                f"Using placeholder defaults.",
+                file=sys.stderr,
+            )
 
     return (_DEFAULT_VERSION_SOURCE, _DEFAULT_CHANGELOG_FILE, _DEFAULT_REPO_URL,
             _DEFAULT_TAG_PREFIX, _DEFAULT_TAG_FORMAT)

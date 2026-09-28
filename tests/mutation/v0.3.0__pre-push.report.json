@@ -1,0 +1,268 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_pre_push_hook.py"
+    ],
+    "timestamp": "2026-09-27T15:36:16-04:00"
+  },
+  "results": [
+    {
+      "id": "M01",
+      "file": "hooks/pre-push",
+      "note": "Unreadable config no longer blocks; the hook silently falls through to default settings.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_an_unreadable_config_blocks_the_push"
+      ]
+    },
+    {
+      "id": "M02",
+      "file": "hooks/pre-push",
+      "note": "Exit 5 (no tests collected) becomes blocking instead of a notice.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_test_files_without_tests_are_a_notice_not_a_failure"
+      ]
+    },
+    {
+      "id": "M03",
+      "file": "hooks/pre-push",
+      "note": "Runner failure (2/3/4) blocks only main/master instead of any branch.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_a_runner_that_cannot_start_blocks_and_is_not_called_failing_tests"
+      ]
+    },
+    {
+      "id": "M04",
+      "file": "hooks/pre-push",
+      "note": "Failing tests block feature branches and pass on main/master (swapped branch).",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_declared_testpaths_gate_the_push",
+        "tests/test_pre_push_hook.py::test_failing_tests_block_a_push_to_main_and_show_why",
+        "tests/test_pre_push_hook.py::test_failing_tests_on_a_feature_branch_warn_and_push",
+        "tests/test_pre_push_hook.py::test_test_command_replaces_pytest_and_its_failure_blocks_main"
+      ]
+    },
+    {
+      "id": "M05",
+      "file": "hooks/pre-push",
+      "note": "master is no longer treated as protected; failing tests pass on master.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M06",
+      "file": "hooks/pre-push",
+      "note": "Declared testpaths no longer win; tests/ is forced as the explicit scope.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_declared_testpaths_gate_the_push"
+      ]
+    },
+    {
+      "id": "M07",
+      "file": "hooks/pre-push",
+      "note": "thinking/ folder no longer excluded from the default test scope.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_one_offs_thinking_and_the_vendored_copy_are_not_collected"
+      ]
+    },
+    {
+      "id": "M08",
+      "file": "hooks/pre-push",
+      "note": "Vendored repokit-common copy is not excluded when present (inverted guard).",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    },
+    {
+      "id": "M09",
+      "file": "hooks/pre-push",
+      "note": "Root-level .py files are no longer syntax-checked when the package lives elsewhere.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_a_root_level_syntax_error_blocks_the_push"
+      ]
+    },
+    {
+      "id": "M10",
+      "file": "hooks/pre-push",
+      "note": "A syntax error in a root-level .py file no longer fails the check.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_a_root_level_syntax_error_blocks_the_push"
+      ]
+    },
+    {
+      "id": "M11",
+      "file": "hooks/pre-push",
+      "note": "print-warning=false enables rather than silences the print() warning (and default silences it).",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_print_warning_false_silences_the_print_count"
+      ]
+    },
+    {
+      "id": "M12",
+      "file": "hooks/pre-push",
+      "note": "Pre-3.11 fallback no longer strips the repo root from sys.path; a local py/ package can shadow pytest's imports.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_without_dash_p_the_fallback_still_keeps_the_root_off_sys_path"
+      ]
+    },
+    {
+      "id": "M13",
+      "file": "hooks/pre-push",
+      "note": "Pass/skip counts are no longer printed on success.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_pre_push_hook.py::test_a_py_package_at_the_root_does_not_shadow_pytest",
+        "tests/test_pre_push_hook.py::test_one_offs_thinking_and_the_vendored_copy_are_not_collected",
+        "tests/test_pre_push_hook.py::test_passing_tests_push_and_print_the_count",
+        "tests/test_pre_push_hook.py::test_without_dash_p_the_fallback_still_keeps_the_root_off_sys_path"
+      ]
+    },
+    {
+      "id": "M14",
+      "file": "hooks/pre-push",
+      "note": "Off-by-one exit mapping: a test-command exiting 1 (failing tests) is reported as passed.",
+      "verdict": "survived",
+      "restore_ok": true,
+      "output_tail": ""
+    }
+  ],
+  "summary": {
+    "killed": 11,
+    "survived": 3
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_pre_push_hook.py::test_a_py_package_at_the_root_does_not_shadow_pytest": [
+        "M13"
+      ],
+      "tests/test_pre_push_hook.py::test_a_root_level_syntax_error_blocks_the_push": [
+        "M09",
+        "M10"
+      ],
+      "tests/test_pre_push_hook.py::test_a_runner_that_cannot_start_blocks_and_is_not_called_failing_tests": [
+        "M03"
+      ],
+      "tests/test_pre_push_hook.py::test_an_unreadable_config_blocks_the_push": [
+        "M01"
+      ],
+      "tests/test_pre_push_hook.py::test_declared_testpaths_gate_the_push": [
+        "M04",
+        "M06"
+      ],
+      "tests/test_pre_push_hook.py::test_failing_tests_block_a_push_to_main_and_show_why": [
+        "M04"
+      ],
+      "tests/test_pre_push_hook.py::test_failing_tests_on_a_feature_branch_warn_and_push": [
+        "M04"
+      ],
+      "tests/test_pre_push_hook.py::test_one_offs_thinking_and_the_vendored_copy_are_not_collected": [
+        "M07",
+        "M13"
+      ],
+      "tests/test_pre_push_hook.py::test_passing_tests_push_and_print_the_count": [
+        "M13"
+      ],
+      "tests/test_pre_push_hook.py::test_print_warning_false_silences_the_print_count": [
+        "M11"
+      ],
+      "tests/test_pre_push_hook.py::test_test_command_replaces_pytest_and_its_failure_blocks_main": [
+        "M04"
+      ],
+      "tests/test_pre_push_hook.py::test_test_files_without_tests_are_a_notice_not_a_failure": [
+        "M02"
+      ],
+      "tests/test_pre_push_hook.py::test_without_dash_p_the_fallback_still_keeps_the_root_off_sys_path": [
+        "M12",
+        "M13"
+      ]
+    },
+    "identical": [
+      [
+        "tests/test_pre_push_hook.py::test_a_py_package_at_the_root_does_not_shadow_pytest",
+        "tests/test_pre_push_hook.py::test_passing_tests_push_and_print_the_count"
+      ],
+      [
+        "tests/test_pre_push_hook.py::test_failing_tests_block_a_push_to_main_and_show_why",
+        "tests/test_pre_push_hook.py::test_failing_tests_on_a_feature_branch_warn_and_push",
+        "tests/test_pre_push_hook.py::test_test_command_replaces_pytest_and_its_failure_blocks_main"
+      ]
+    ],
+    "contained": [
+      [
+        "tests/test_pre_push_hook.py::test_a_py_package_at_the_root_does_not_shadow_pytest",
+        "tests/test_pre_push_hook.py::test_one_offs_thinking_and_the_vendored_copy_are_not_collected"
+      ],
+      [
+        "tests/test_pre_push_hook.py::test_a_py_package_at_the_root_does_not_shadow_pytest",
+        "tests/test_pre_push_hook.py::test_without_dash_p_the_fallback_still_keeps_the_root_off_sys_path"
+      ],
+      [
+        "tests/test_pre_push_hook.py::test_failing_tests_block_a_push_to_main_and_show_why",
+        "tests/test_pre_push_hook.py::test_declared_testpaths_gate_the_push"
+      ],
+      [
+        "tests/test_pre_push_hook.py::test_failing_tests_on_a_feature_branch_warn_and_push",
+        "tests/test_pre_push_hook.py::test_declared_testpaths_gate_the_push"
+      ],
+      [
+        "tests/test_pre_push_hook.py::test_passing_tests_push_and_print_the_count",
+        "tests/test_pre_push_hook.py::test_one_offs_thinking_and_the_vendored_copy_are_not_collected"
+      ],
+      [
+        "tests/test_pre_push_hook.py::test_passing_tests_push_and_print_the_count",
+        "tests/test_pre_push_hook.py::test_without_dash_p_the_fallback_still_keeps_the_root_off_sys_path"
+      ],
+      [
+        "tests/test_pre_push_hook.py::test_test_command_replaces_pytest_and_its_failure_blocks_main",
+        "tests/test_pre_push_hook.py::test_declared_testpaths_gate_the_push"
+      ]
+    ],
+    "killed_without_names": []
+  }
+}

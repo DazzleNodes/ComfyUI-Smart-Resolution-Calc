@@ -64,6 +64,18 @@ def test_readable_config_is_used_silently(pyproject, capsys):
     assert capsys.readouterr().err == ""
 
 
+def test_a_broken_table_stops_with_one_line_naming_the_file(pyproject, capsys):
+    """CONSEQUENCE: 7 (behaviour) -- an unparseable table stops the script with exit 2 and one line naming the file
+    and the reason; no traceback, and no fallback to placeholder paths (#14)."""
+    pyproject.write_text('[tool.repokit-common]\nversion-source = "mypkg/_version.py\n', encoding="utf-8")
+    with pytest.raises(SystemExit) as stop:
+        SV._load_config()
+    assert stop.value.code == 2
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "cannot read" in err and "pyproject.toml" in err
+    assert "Traceback" not in err
+
+
 def test_unreadable_pyproject_still_returns_the_defaults(pyproject, no_parser):
     """CONSEQUENCE: 6 (behaviour) -- with no parser the loader falls back to the
     defaults rather than failing; the fix only adds a warning."""

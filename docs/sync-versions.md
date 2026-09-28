@@ -53,7 +53,7 @@ Examples:
 
 ## Configuration
 
-In `pyproject.toml`:
+In `pyproject.toml`, or in `.repokit-common.toml` at the repository root for a project without a `pyproject.toml`:
 
 ```toml
 [tool.repokit-common]
@@ -62,8 +62,9 @@ changelog = "CHANGELOG.md"
 repo-url = "https://github.com/MyOrg/my-project"
 tag-prefix = "v"
 tag-format = "pep440"    # or "human"
-private-patterns = ["private/", "local/", ".env"]
 ```
+
+The same table holds the hook settings (`private-patterns`, `test-command`, `print-warning`); the README's Configuration section describes them. The script finds the table through `repokit_config.py`: it walks up from its own directory to the nearest file that holds the table, and never past the repository root (or the superproject's root when repokit-common is a git submodule). Earlier versions looked only five directories up, at the first `pyproject.toml` found, so a deeper mount or a table-less `pyproject.toml` in between left them on the placeholder defaults.
 
 Reading this table needs a TOML parser: the standard library's `tomllib` on Python 3.11+, or the `tomli` package on older versions. Without one, the script warns that it found `pyproject.toml` but cannot read it, and falls back to placeholder defaults such as `$PACKAGE_NAME/_version.py`.
 

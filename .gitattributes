@@ -1,0 +1,6 @@
+# Hooks and shell scripts run under sh/bash. Keep LF endings in every checkout,
+# including consumers' vendored copies (this file applies inside the subtree
+# too). Git for Windows' bash also runs CRLF hooks correctly (measured
+# 2026-09-27), but a bash that does not tolerate CR would fail on them.
+hooks/* text eol=lf
+*.sh text eol=lf

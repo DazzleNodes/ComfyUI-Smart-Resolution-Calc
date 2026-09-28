@@ -1,0 +1,50 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_install_hooks.py",
+      "-k",
+      "beside_the_vendored"
+    ],
+    "timestamp": "2026-09-27T19:47:56-04:00"
+  },
+  "results": [
+    {
+      "id": "M4",
+      "file": "hooks/lib.sh",
+      "note": "sync-versions.py beside the copy is no longer preferred.",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_the_version_tool_beside_the_vendored_copy_is_the_one_used"
+      ]
+    }
+  ],
+  "summary": {
+    "killed": 1
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_install_hooks.py::test_the_version_tool_beside_the_vendored_copy_is_the_one_used": [
+        "M4"
+      ]
+    },
+    "identical": [],
+    "contained": [],
+    "killed_without_names": []
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "harness": {
+    "name": "mutation_sweep.py",
+    "version": "0.2.0"
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "root": ".",
+    "test_command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/test_install_hooks.py"
+    ],
+    "timestamp": "2026-09-27T16:02:49-04:00"
+  },
+  "results": [
+    {
+      "id": "M1",
+      "file": "install-hooks.sh",
+      "note": "Backup removed: a differing existing hook is overwritten without being saved",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced"
+      ]
+    },
+    {
+      "id": "M2",
+      "file": "install-hooks.sh",
+      "note": "Swapped source: the backup holds the new hook's content, so the old hook's content is lost",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced"
+      ]
+    },
+    {
+      "id": "M3",
+      "file": "install-hooks.sh",
+      "note": "Flipped comparison: differing hooks are skipped as up to date, while identical hooks are backed up and reinstalled",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced",
+        "tests/test_install_hooks.py::test_reinstalling_identical_hooks_makes_no_backups"
+      ]
+    },
+    {
+      "id": "M4",
+      "file": "install-hooks.sh",
+      "note": "Early return dropped: an identical hook falls through and gets a needless backup",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_reinstalling_identical_hooks_makes_no_backups"
+      ]
+    },
+    {
+      "id": "M5",
+      "file": "install-hooks.sh",
+      "note": "Flipped existence guard: an existing hook is never compared or backed up before replacement",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_a_fresh_install_makes_no_backups",
+        "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced",
+        "tests/test_install_hooks.py::test_reinstalling_identical_hooks_makes_no_backups"
+      ]
+    },
+    {
+      "id": "M6",
+      "file": "install-hooks.sh",
+      "note": "Inverted source guard: every hook that has a source file returns early, so nothing is installed",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_a_fresh_install_makes_no_backups",
+        "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced",
+        "tests/test_install_hooks.py::test_reinstalling_identical_hooks_makes_no_backups"
+      ]
+    },
+    {
+      "id": "M7",
+      "file": "install-hooks.sh",
+      "note": "Dropped hook: post-commit is never installed",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_a_fresh_install_makes_no_backups",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced"
+      ]
+    },
+    {
+      "id": "M8",
+      "file": "install-hooks.sh",
+      "note": "Wrong file name: no source exists for pre_push, so pre-push is not installed",
+      "verdict": "killed",
+      "restore_ok": true,
+      "output_tail": "",
+      "killed_by": [
+        "tests/test_install_hooks.py::test_a_fresh_install_makes_no_backups",
+        "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced"
+      ]
+    }
+  ],
+  "summary": {
+    "killed": 8
+  },
+  "anomalies": [],
+  "overlap": {
+    "kills": {
+      "tests/test_install_hooks.py::test_a_fresh_install_makes_no_backups": [
+        "M5",
+        "M6",
+        "M7",
+        "M8"
+      ],
+      "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks": [
+        "M1",
+        "M2",
+        "M3",
+        "M5",
+        "M6",
+        "M8"
+      ],
+      "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced": [
+        "M1",
+        "M2",
+        "M3",
+        "M5",
+        "M6",
+        "M7",
+        "M8"
+      ],
+      "tests/test_install_hooks.py::test_reinstalling_identical_hooks_makes_no_backups": [
+        "M3",
+        "M4",
+        "M5",
+        "M6"
+      ]
+    },
+    "identical": [],
+    "contained": [
+      [
+        "tests/test_install_hooks.py::test_a_fresh_install_makes_no_backups",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced"
+      ],
+      [
+        "tests/test_install_hooks.py::test_a_worktree_install_backs_up_the_shared_hooks",
+        "tests/test_install_hooks.py::test_an_existing_hook_is_saved_before_it_is_replaced"
+      ]
+    ],
+    "killed_without_names": []
+  }
+}

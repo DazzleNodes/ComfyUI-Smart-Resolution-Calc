@@ -1,0 +1,17 @@
+{
+ "test_command": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_pre_commit_hook.py"],
+ "mutations": [
+  {"id": "M1", "file": "hooks/pre-commit", "original": "if (index($0, p[i]) == 1) { print; next }", "mutated": "if (index($0, p[i]) > 0) { print; next }", "note": "Prefix anchor lost: an entry now matches anywhere in the path (substring), e.g. 'private/' would block docs/private/x."},
+  {"id": "M2", "file": "hooks/pre-commit", "original": "if (index($0, p[i]) == 1) { print; next }", "mutated": "if ($0 ~ (\"^\" p[i])) { print; next }", "note": "Plausible refactor reads entries as anchored regular expressions: metacharacters in entries change meaning."},
+  {"id": "M3", "file": "hooks/pre-commit", "original": "NR == FNR { sub(/\\r$/, \"\"); sub(/^\\.\\//, \"\");", "mutated": "NR == FNR { sub(/^\\.\\//, \"\");", "note": "Trailing carriage return no longer stripped: a CRLF-produced entry 'private/\\r' never matches."},
+  {"id": "M4", "file": "hooks/pre-commit", "original": "sub(/^\\.\\//, \"\"); sub(/^\\/+/, \"\");", "mutated": "sub(/^\\/+/, \"\");", "note": "Leading './' no longer ignored: entry './secret/' never matches the root-relative staged path."},
+  {"id": "M5", "file": "hooks/pre-commit", "original": "sub(/^\\/+/, \"\"); if ($0 != \"\")", "mutated": "if ($0 != \"\")", "note": "Leading '/' no longer ignored: entry '/private-data/' never matches."},
+  {"id": "M6", "file": "hooks/pre-commit", "original": "if ($0 != \"\") p[++n] = $0; next }", "mutated": "p[++n] = $0; next }", "note": "Empty-entry guard removed: an empty entry (or './' or '/') is a prefix of every path and blocks every file."},
+  {"id": "M7", "file": "hooks/pre-commit", "original": "{ for (i = 1; i <= n; i++) if (index($0, p[i])", "mutated": "{ for (i = 1; i < n; i++) if (index($0, p[i])", "note": "Off-by-one: the last project entry (and a sole entry) is never consulted."},
+  {"id": "M8", "file": "hooks/pre-commit", "original": "        echo \"   table named above is fixed.\"\n        exit 1", "mutated": "        echo \"   table named above is fixed.\"\n        exit 0", "note": "Unreadable config no longer blocks: message printed but commit proceeds without the project's patterns."},
+  {"id": "M9", "file": "hooks/pre-commit", "original": "    tr '\\0' '\\n' < \"$STAGED_LIST\" |\n        grep -E \"^.*/__private__", "mutated": "    [ -s \"$PATTERNS_FILE\" ] || tr '\\0' '\\n' < \"$STAGED_LIST\" |\n        grep -E \"^.*/__private__", "note": "Project patterns REPLACE the built-ins when any project entry exists."},
+  {"id": "M10", "file": "hooks/pre-commit", "original": "    if [ -s \"$PATTERNS_FILE\" ]; then", "mutated": "    if [ ! -s \"$PATTERNS_FILE\" ]; then", "note": "Condition flipped: project patterns are never applied when present."},
+  {"id": "M11", "file": "hooks/pre-commit", "original": "if [ -n \"$CONFIG_TOOL\" ] && command -v python >/dev/null 2>&1; then", "mutated": "if [ -z \"$CONFIG_TOOL\" ] && command -v python >/dev/null 2>&1; then", "note": "Guard inverted: a located repokit_config.py is never run, so project patterns are silently dropped."},
+  {"id": "M12", "file": "hooks/pre-commit", "original": "    _rel=\"$(git ls-files -- ':(glob)**/repokit_config.py' 2>/dev/null | head -n1)\"", "mutated": "    _rel=\"\"", "note": "Tracked-file fallback removed: a vendored repokit_config.py outside the three candidate locations is never found."}
+ ]
+}

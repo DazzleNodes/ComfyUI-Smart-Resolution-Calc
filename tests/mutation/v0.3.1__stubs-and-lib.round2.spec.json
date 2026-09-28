@@ -1,0 +1,56 @@
+{
+ "test_command": [
+  "python",
+  "-m",
+  "pytest",
+  "-q",
+  "-p",
+  "no:cacheprovider",
+  "tests/test_install_hooks.py",
+  "tests/test_pre_commit_hook.py"
+ ],
+ "mutations": [
+  {
+   "id": "M1",
+   "file": "hooks/lib.sh",
+   "original": "if [ -f \"$_rk_hooks/../repokit_config.py\" ]; then",
+   "mutated": "if [ -f \"$_rk_hooks/repokit_config.py\" ]; then",
+   "note": "The vendored copy is no longer found as the folder above hooks/, so the lookup always falls through to the fallback paths."
+  },
+  {
+   "id": "M4",
+   "file": "hooks/lib.sh",
+   "original": "[ -n \"$RK_DIR\" ] && [ -f \"$RK_DIR/sync-versions.py\" ] && SYNC_SCRIPT=\"$RK_DIR/sync-versions.py\"",
+   "mutated": "[ -z \"$RK_DIR\" ] && [ -f \"$RK_DIR/sync-versions.py\" ] && SYNC_SCRIPT=\"$RK_DIR/sync-versions.py\"",
+   "note": "sync-versions.py beside the copy is no longer preferred."
+  },
+  {
+   "id": "M6",
+   "file": "hooks/lib.sh",
+   "original": "local|private|feature/*|feat/*|prototype/*|experiment/*|spike/*) return 0 ;;",
+   "mutated": "local|private|feature/*|prototype/*|experiment/*|spike/*) return 0 ;;",
+   "note": "feat/* branches are no longer treated as private."
+  },
+  {
+   "id": "M7",
+   "file": "install-hooks.sh",
+   "original": "exec bash \"\\$d/hooks/\\$REPOKIT_HOOK\" \"\\$@\"",
+   "mutated": "exec bash \"\\$d/hooks/\\$REPOKIT_HOOK\"",
+   "note": "The stub stops passing its arguments to the vendored hook."
+  },
+  {
+   "id": "M9",
+   "file": "install-hooks.sh",
+   "original": "set -f\nfor p in \\$strict; do",
+   "mutated": "for p in \\$strict; do",
+   "note": "Without set -f, patterns are glob-expanded against the filesystem."
+  },
+  {
+   "id": "M12",
+   "file": "install-hooks.sh",
+   "original": "chmod +x \"$_dst\"",
+   "mutated": "chmod -x \"$_dst\"",
+   "note": "The installed stub is not executable."
+  }
+ ]
+}

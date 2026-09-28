@@ -4,30 +4,36 @@
 # Updates _version.py with the actual commit hash after commit is created
 #
 
-# Find the repository root
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# Shared code (finding the vendored copy and the version tools) lives in lib.sh
+# beside this hook.
+_rk_lib="$(dirname "$0")/lib.sh"
+if [ ! -f "$_rk_lib" ]; then
+    echo "repokit-common: $(basename "$0") cannot run -- lib.sh is not beside it in $(dirname "$0")." >&2
+    echo "  Re-run install-hooks.sh from the vendored repokit-common copy." >&2
+    exit 1
+fi
+. "$_rk_lib"
+rk_locate
+rk_read_settings output || true   # only the output style; a broken file is reported by pre-commit
+rk_setup_output
 
-# Locate the version-sync script LAYOUT-AGNOSTICALLY (flat scripts/ or nested
-# scripts/repokit-common/), matching the pre-commit hook -- the hardcoded flat
-# path silently no-ops the hash refresh for every nested-layout consumer.
-SYNC_SCRIPT=""
-for _cand in "$REPO_ROOT/scripts/repokit-common/sync-versions.py" "$REPO_ROOT/scripts/sync-versions.py"; do
-    [ -f "$_cand" ] && { SYNC_SCRIPT="$_cand"; break; }
-done
-[ -z "$SYNC_SCRIPT" ] && SYNC_SCRIPT="$(find "$REPO_ROOT/scripts" -name sync-versions.py -type f -print 2>/dev/null | head -n1)"
-UPDATE_SCRIPT=""
-for _cand in "$REPO_ROOT/scripts/repokit-common/update-version.sh" "$REPO_ROOT/scripts/update-version.sh"; do
-    [ -f "$_cand" ] && { UPDATE_SCRIPT="$_cand"; break; }
-done
-
+# Refresh the version string with the new commit's hash. A failure is reported
+# with the tool's own words: the commit already exists, so this cannot block,
+# but it must never claim an update that did not happen.
 if [ -n "$SYNC_SCRIPT" ] && command -v python >/dev/null 2>&1; then
-    # Run without --auto to refresh hash with actual commit info
-    python "$SYNC_SCRIPT" > /dev/null 2>&1
-    echo "✓ Version updated with commit hash $(git rev-parse --short HEAD)"
+    _rk_out="$(python "$SYNC_SCRIPT" 2>&1)"
+    _rk_rc=$?
 elif [ -n "$UPDATE_SCRIPT" ]; then
-    # Fallback to legacy bash script
-    "$UPDATE_SCRIPT" > /dev/null 2>&1
-    echo "✓ Version updated with commit hash $(git rev-parse --short HEAD)"
+    _rk_out="$("$UPDATE_SCRIPT" 2>&1)"
+    _rk_rc=$?
+else
+    exit 0
+fi
+if [ $_rk_rc -eq 0 ]; then
+    echo "${RK_OK} Version updated with commit hash $(git rev-parse --short HEAD)"
+else
+    echo "${RK_WARN} Warning: version hash not updated for $(git rev-parse --short HEAD):"
+    printf '%s\n' "$_rk_out" | sed 's/^/    /'
 fi
 
 exit 0

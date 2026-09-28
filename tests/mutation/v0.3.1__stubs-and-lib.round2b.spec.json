@@ -1,0 +1,22 @@
+{
+ "test_command": [
+  "python",
+  "-m",
+  "pytest",
+  "-q",
+  "-p",
+  "no:cacheprovider",
+  "tests/test_install_hooks.py",
+  "-k",
+  "beside_the_vendored"
+ ],
+ "mutations": [
+  {
+   "id": "M4",
+   "file": "hooks/lib.sh",
+   "original": "[ -n \"$RK_DIR\" ] && [ -f \"$RK_DIR/sync-versions.py\" ] && SYNC_SCRIPT=\"$RK_DIR/sync-versions.py\"",
+   "mutated": "[ -z \"$RK_DIR\" ] && [ -f \"$RK_DIR/sync-versions.py\" ] && SYNC_SCRIPT=\"$RK_DIR/sync-versions.py\"",
+   "note": "sync-versions.py beside the copy is no longer preferred."
+  }
+ ]
+}

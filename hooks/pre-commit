@@ -1,47 +1,32 @@
 #!/bin/sh
 # Pre-commit hook that:
 # 1. Updates version.py with correct version info
-# 2. Prevents committing private content to public branches
+# 2. Prevents committing private content to public branches: a built-in list,
+#    plus the project's own `private-patterns` (literal path prefixes from the
+#    repository root) under [tool.repokit-common] in pyproject.toml or
+#    .repokit-common.toml; paths in .repokit-allowlist are exempt from both
+# 3. Blocks files over 10 MB
 
-# Get current branch name
-current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-
-# Get the repository root
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# Shared code (finding the vendored copy, the version tools and the settings;
+# the branch lists) lives in lib.sh beside this hook.
+_rk_lib="$(dirname "$0")/lib.sh"
+if [ ! -f "$_rk_lib" ]; then
+    echo "repokit-common: $(basename "$0") cannot run -- lib.sh is not beside it in $(dirname "$0")." >&2
+    echo "  Re-run install-hooks.sh from the vendored repokit-common copy." >&2
+    exit 1
+fi
+. "$_rk_lib"
+rk_locate
+# One settings call for the whole hook; its result is acted on at the
+# private-content check below. The output style is chosen from it now.
+_rk_settings_ok=true
+rk_read_settings private-patterns output || _rk_settings_ok=false
+rk_setup_output
 
 # PART 1: Update version.py
 # -------------------------
-# Locate the version-sync script LAYOUT-AGNOSTICALLY. It may live flat at
-# scripts/sync-versions.py (this library's original assumption) OR nested at
-# scripts/repokit-common/sync-versions.py (the subtree layout most consumers
-# actually use). Resolve either, then fall back to a recursive find under
-# scripts/. (Hardcoding scripts/sync-versions.py silently no-ops the stamp for
-# every nested-layout consumer -- the bug this generalization fixes.)
-#
-# Both candidates and the find fallback are scoped under scripts/, which still
-# assumes the subtree lives there. A consumer may mount it anywhere -- e.g.
-# Software/<area>/<tools>/Repokit-Scripts/ -- and for those the stamp silently
-# no-ops again. Ask git's index as a further fallback: it knows every tracked
-# path, costs no directory walk (which matters on a large work tree, where a
-# recursive find can take minutes), and is layout-agnostic by construction.
-SYNC_SCRIPT=""
-for _cand in "$REPO_ROOT/scripts/repokit-common/sync-versions.py" "$REPO_ROOT/scripts/sync-versions.py"; do
-    [ -f "$_cand" ] && { SYNC_SCRIPT="$_cand"; break; }
-done
-[ -z "$SYNC_SCRIPT" ] && SYNC_SCRIPT="$(find "$REPO_ROOT/scripts" -name sync-versions.py -type f -print 2>/dev/null | head -n1)"
-if [ -z "$SYNC_SCRIPT" ]; then
-    _rel="$(git ls-files -- '*sync-versions.py' 2>/dev/null | head -n1)"
-    [ -n "$_rel" ] && [ -f "$REPO_ROOT/$_rel" ] && SYNC_SCRIPT="$REPO_ROOT/$_rel"
-fi
-UPDATE_SCRIPT=""
-for _cand in "$REPO_ROOT/scripts/repokit-common/update-version.sh" "$REPO_ROOT/scripts/update-version.sh"; do
-    [ -f "$_cand" ] && { UPDATE_SCRIPT="$_cand"; break; }
-done
-if [ -z "$UPDATE_SCRIPT" ]; then
-    _rel="$(git ls-files -- '*update-version.sh' 2>/dev/null | head -n1)"
-    [ -n "$_rel" ] && [ -f "$REPO_ROOT/$_rel" ] && UPDATE_SCRIPT="$REPO_ROOT/$_rel"
-fi
-
+# sync-versions.py is found by rk_locate: beside the vendored copy, else the
+# layouts consumers have used, else git's index (any mount point).
 if [ -n "$SYNC_SCRIPT" ] && command -v python >/dev/null 2>&1; then
     # Run in auto mode to update version before commit
     UPDATE_OUTPUT=$(python "$SYNC_SCRIPT" --auto 2>&1)
@@ -50,36 +35,29 @@ if [ -n "$SYNC_SCRIPT" ] && command -v python >/dev/null 2>&1; then
     if [ $UPDATE_EXIT -eq 0 ]; then
         # Success - check if version.py was staged
         if git diff --cached --name-only | grep -q "_version.py"; then
-            echo "✓ Version updated for commit"
+            echo "${RK_OK} Version updated for commit"
         fi
     else
         # Say why. A bare warning once let a commit ship with a stale version
         # string: sed choked on a "/" in the branch name and nobody saw it.
-        echo "⚠ Warning: Version update failed but continuing:"
+        echo "${RK_WARN} Warning: Version update failed but continuing:"
         printf '%s\n' "$UPDATE_OUTPUT" | sed 's/^/    /'
     fi
 elif [ -n "$UPDATE_SCRIPT" ]; then
     # Fallback to legacy bash script
-    "$UPDATE_SCRIPT" --auto 2>&1 || echo "⚠ Warning: Version update failed but continuing"
+    "$UPDATE_SCRIPT" --auto 2>&1 || echo "${RK_WARN} Warning: Version update failed but continuing"
 fi
 
 # PART 2: Check for private content
 # -------------------------------------------------
-# Define private branches where private content is allowed
-case "$current_branch" in
-    local|private|feature/*|feat/*|prototype/*|experiment/*|spike/*)
-        echo "Checking for private content on branch: $current_branch"
-        exit 0
-        ;;
-    main|dev|live|test|production|staging|prod|master)
-        echo "🔍 Pre-Commit Check"
-        echo "   Branch: $current_branch (public)"
-        ;;
-    *)
-        echo "🔍 Pre-Commit Check"
-        echo "   Branch: $current_branch (public)"
-        ;;
-esac
+# Private content is allowed on the private branches (rk_is_private_branch in
+# lib.sh); every other branch is treated as public.
+if rk_is_private_branch "$CURRENT_BRANCH"; then
+    echo "Checking for private content on branch: $CURRENT_BRANCH"
+    exit 0
+fi
+echo "${RK_INFO} Pre-Commit Check"
+echo "   Branch: $CURRENT_BRANCH (public)"
 
 # Check for private content using patterns specific to this project.
 #
@@ -118,19 +96,51 @@ trap cleanup_staged EXIT
 # Fail closed: without the list, the checks below would silently check nothing.
 if [ -z "$GIT_DIR_ABS" ] || ! git diff --cached --name-only -z --diff-filter=ACMR > "$STAGED_LIST"; then
     echo ""
-    echo "❌ COMMIT BLOCKED - pre-commit could not list the staged files"
+    echo "${RK_FAIL} COMMIT BLOCKED - pre-commit could not list the staged files"
     echo "   (tried to write: $STAGED_LIST)"
     echo "   The private-content and large-file checks cannot run without it."
     exit 1
 fi
 
+# Project patterns (#13): `private-patterns` in [tool.repokit-common] (the
+# project's pyproject.toml, or .repokit-common.toml at the root), read through
+# the vendored repokit_config.py (rk_read_settings in lib.sh).
+# Each entry is a LITERAL path prefix from the repository root -- "private/"
+# blocks private/..., ".env" blocks .env and .env.local -- never a regular
+# expression, and it is ADDED to the built-in list below, never replacing it.
+# (Read as unanchored regular expressions, dazzlecmd's nine entries would have
+# newly blocked 20 of its tracked files; as prefixes, none.)
+# A config file that exists but cannot be read blocks the commit: silently
+# dropping the project's patterns would let exactly those files through.
+PATTERNS_FILE="$GIT_DIR_ABS/.repokit-patterns.$$"
+trap 'cleanup_staged; rm -f "$PATTERNS_FILE"' EXIT
+: > "$PATTERNS_FILE"
+if [ "$_rk_settings_ok" != true ]; then
+    echo ""
+    echo "${RK_FAIL} COMMIT BLOCKED - the repokit-common settings could not be read"
+    echo "   private-patterns cannot be checked until the [tool.repokit-common]"
+    echo "   table named above is fixed."
+    exit 1
+fi
+[ -n "${REPOKIT_PRIVATE_PATTERNS-}" ] && printf '%s\n' "$REPOKIT_PRIVATE_PATTERNS" > "$PATTERNS_FILE"
+
 # One grep over the whole list instead of an `echo | grep` per file. On a large
 # commit the per-file form costs thousands of process spawns, which is slow
 # everywhere and painful on Windows. The allowlist is consulted only for paths
 # that actually match, so the common case (no private content) costs one grep.
+# The project's prefixes are matched in one awk pass (a leading "./" or "/" on
+# an entry is ignored: every entry is relative to the repository root).
 has_private_content=0
-private_candidates=$(tr '\0' '\n' < "$STAGED_LIST" |
-    grep -E "^.*/__private__.*|^.*/private_.*|^.*~$|\.backup$|\.bak$|\.log$|\.tmp$|^\.env.*|^\.env\.local$|^\.env\.private$|^convos/|^credentials/|^logs/|^nul$|^private/|^revisions/|^secrets/|^test-runs/|^test_runs/")
+private_candidates=$( {
+    tr '\0' '\n' < "$STAGED_LIST" |
+        grep -E "^.*/__private__.*|^.*/private_.*|^.*~$|\.backup$|\.bak$|\.log$|\.tmp$|^\.env.*|^\.env\.local$|^\.env\.private$|^convos/|^credentials/|^logs/|^nul$|^private/|^revisions/|^secrets/|^test-runs/|^test_runs/"
+    if [ -s "$PATTERNS_FILE" ]; then
+        tr '\0' '\n' < "$STAGED_LIST" | awk '
+            NR == FNR { sub(/\r$/, ""); sub(/^\.\//, ""); sub(/^\/+/, ""); if ($0 != "") p[++n] = $0; next }
+            { for (i = 1; i <= n; i++) if (index($0, p[i]) == 1) { print; next } }
+        ' "$PATTERNS_FILE" -
+    fi
+} | sort -u )
 
 if [ -n "$private_candidates" ]; then
     printf '%s\n' "$private_candidates" | while IFS= read -r file; do
@@ -142,9 +152,9 @@ if [ -n "$private_candidates" ]; then
     if [ -s "$HITS_FILE" ]; then
         has_private_content=1
         echo ""
-        echo "❌ COMMIT BLOCKED - Private Content Protection"
+        echo "${RK_FAIL} COMMIT BLOCKED - Private Content Protection"
         echo ""
-        echo "ERROR: Attempting to commit private files to public branch '$current_branch':"
+        echo "ERROR: Attempting to commit private files to public branch '$CURRENT_BRANCH':"
         echo ""
         while IFS= read -r file; do
             echo "  - $file"
