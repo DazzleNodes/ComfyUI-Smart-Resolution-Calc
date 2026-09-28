@@ -328,7 +328,7 @@ Custom JavaScript widgets with compact 24px height design:
 
 ## Development
 
-For contributors: This project uses Git-RepoKit hooks for automatic version tracking. Run `./scripts/install-hooks.sh` to set up versioning hooks.
+For contributors: This project uses the shared [git-repokit-common](https://github.com/DazzleTools/git-repokit-common) hooks for version tracking and pre-push tests. Run `bash scripts/repokit-common/install-hooks.sh` once to set them up; see CONTRIBUTING.md.
 
 ## License
 

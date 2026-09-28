@@ -176,17 +176,17 @@ To use the "ComfyUI: Debug This Node" configuration:
 
 ### Git Hooks and Version Management
 
-This project uses automatic version tracking via git hooks.
+This project uses the shared git hooks from [git-repokit-common](https://github.com/DazzleTools/git-repokit-common), vendored at `scripts/repokit-common/`.
 
 ```bash
-# Install hooks (from project root)
-./scripts/install-hooks.sh
+# Install hooks (from project root, once)
+bash scripts/repokit-common/install-hooks.sh
 ```
 
-Choose option 2 (Standard with security) for:
-- Automatic `version.py` updates before each commit
-- Post-commit hash correction
-- Branch protection and large file blocking
+The installer writes small stubs into `.git/hooks` that run the vendored hooks, so pulling a newer repokit-common updates them without re-installing. They give you:
+- Automatic `version.py` updates before each commit, and the commit hash written in afterwards
+- Private-file and large-file blocking on public branches
+- Tests before a push (`test-command` in `pyproject.toml`): failures block `main`, `master`, `staging` and `live`, and warn on other branches
 
 **Version format**: `VERSION_BRANCH_BUILD-YYYYMMDD-COMMITHASH` (e.g., `0.10.4_main_157-20260321-49487a3`)
 

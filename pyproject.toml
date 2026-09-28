@@ -42,3 +42,6 @@ changelog = "CHANGELOG.md"
 repo-url = "https://github.com/DazzleNodes/ComfyUI-Smart-Resolution-Calc"
 tag-prefix = "v"
 tag-format = "human"
+# The tests are scripts with their own runners, not a pytest suite; pre-push
+# runs this from the repository root and treats a non-zero exit as failing.
+test-command = "python tests/test_dimension_source_calculator.py && python tests/test_calculation_pipeline.py"

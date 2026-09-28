@@ -36,6 +36,7 @@ def make_ctx(**overrides):
         'batch_size': 1,
         'scale': 1.0,
         'image': None,
+        'mask': None,
         'vae': None,
         'image_purpose': 'img2img',
         'output_image_mode': 'auto',
@@ -418,3 +419,6 @@ if __name__ == '__main__':
         print("ALL TESTS PASSED")
     else:
         print(f"{failed} TESTS FAILED")
+        # A failing run must fail the process: the pre-push hook runs this
+        # script as test-command and trusts its exit code.
+        sys.exit(1)
