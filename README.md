@@ -56,6 +56,7 @@ Smart Resolution Calculator replaces the tedious dimension math in ComfyUI workf
 - **Dazzle Command** — optional workflow orchestration for play/pause seed control with cache-transparent operation ([details](docs/dazzle-command.md))
 - **Custom fill input** — connect any image source as fill via `fill_image`
 - **Mask input** — optional `MASK` socket cuts regions out of the input image and fills them with `fill_image`/`fill_type`, auto-fit to the calculated output dimensions across all transform modes ([details](docs/mask-input.md))
+- **Transparent (RGBA) images** — an image with an alpha channel keeps it through every transform and into RGBA-capable VAEs such as Qwen Image 2.1; Dazzle Options `fill_alpha` chooses whether padding and mask fills are opaque (default) or transparent ([demo workflow](docs/workflow/SmartResCalc-RGBA-Alpha-Demo.json))
 
 ### Widget UX
 - **Compact custom widgets** — rgthree-style inline toggles, 24px height

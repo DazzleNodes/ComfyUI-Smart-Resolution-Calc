@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-smart-resolution-calc"
 description = "Flexible resolution and latent generation for ComfyUI with toggle-based dimension inputs and automatic calculation of missing values"
-version = "0.12.7"
+version = "0.12.8"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -44,4 +44,4 @@ tag-prefix = "v"
 tag-format = "human"
 # The tests are scripts with their own runners, not a pytest suite; pre-push
 # runs this from the repository root and treats a non-zero exit as failing.
-test-command = "python tests/test_dimension_source_calculator.py && python tests/test_calculation_pipeline.py"
+test-command = "python tests/test_dimension_source_calculator.py && python tests/test_calculation_pipeline.py && python tests/test_rgba_alpha.py"

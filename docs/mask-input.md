@@ -84,6 +84,8 @@ The node's `IS_CHANGED` fingerprints the mask (shape + sum + mean) so editing th
 - **Empty mask** (all-zero) — the input image becomes fully invisible; output is the fill pattern only.
 - **Full mask** (all-one) — the input image is preserved; the fill is invisible.
 - For true inpainting (attach a `noise_mask` to the latent so KSampler only denoises the cut region), chain a dedicated inpainting node; this release is composite-only.
+- **LoadImage's MASK is `1 - alpha`**, so it is `1` on a PNG's *transparent* pixels. Wired straight in, it keeps the transparent area and fills the subject. To fill the transparent area instead, put an `InvertMask` in between.
+- **RGBA images** (for example from `Join Image with Alpha`) keep their alpha. The fill is opaque by default; Dazzle Options `fill_alpha = transparent` makes the fill area transparent instead, with the fill pattern still in the RGB underneath. See `docs/workflow/SmartResCalc-RGBA-Alpha-Demo.json`.
 
 ## See Also
 

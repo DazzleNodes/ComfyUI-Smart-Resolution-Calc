@@ -295,6 +295,7 @@ The **Dazzle Options** node provides advanced control over spectral blending beh
 | **cutoff_curve** | gaussian, cosine, sharp | gaussian | Planned: shape of the frequency rolloff mask. Gaussian is smooth (default), cosine is slightly sharper, sharp is a brick-wall cutoff. |
 | **phase_randomize** | true/false | false | Planned: randomize pattern phases before blending. Decorrelates pattern from samples in img2img+img2noise mode. |
 | **options_in** | DAZZLE_OPTIONS | — | Chain input. Connect another DazzleOptions node to compose settings. This node's values override the chained input. |
+| **fill_alpha** | opaque, transparent | opaque | Alpha of the areas SmartResCalc fills (crop/pad and scale/pad padding, the mask's fill) when the input image has an alpha channel. `transparent` keeps a transparent design transparent; the fill stays in the RGB underneath. RGB images are unaffected. See [Mask Input](mask-input.md) and `docs/workflow/SmartResCalc-RGBA-Alpha-Demo.json`. |
 
 ### Reproducing Old Outputs
 

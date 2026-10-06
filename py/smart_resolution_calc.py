@@ -42,6 +42,7 @@ from .noise_utils import (
 # EXTRACTED to dimension_calculator.py for modularity and reuse.
 # ============================================================================
 from .dimension_calculator import DimensionSourceCalculator
+from .dazzle_options import resolve_fill_alpha
 
 # Image creation and transformation functions (extracted from SmartResolutionCalc)
 from .image_utils import (
@@ -139,6 +140,7 @@ class CalculationContext:
         self.cutoff: float = cutoff     # Effective Nyquist-relative (resolved before latent gen)
         self.feature_size: int = feature_size  # Pixel feature size override (-1 = disabled)
         self.dazzle_options: dict = dazzle_options or {}  # Advanced config from DazzleOptionsNode
+        self.fill_alpha: float = resolve_fill_alpha(self.dazzle_options)  # alpha of fill areas under an RGBA image
         self.fill_image = fill_image          # Optional[torch.Tensor]
         self.mask = mask                      # Optional[torch.Tensor] — [B,H,W] or [H,W] or [B,H,W,1]
         self.fill_seed = fill_seed            # Optional[dict] — {on: bool, value: int}
@@ -656,7 +658,7 @@ class SmartResolutionCalc:
         ctx.output_image = self._generate_output_image(
             ctx.actual_mode, ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color,
             ctx.batch_size, ctx.fill_image, ctx.cache_key, ctx.seed_active, ctx.actual_seed,
-            mask=ctx.mask, use_image_for_output=ctx.use_image_for_output
+            mask=ctx.mask, use_image_for_output=ctx.use_image_for_output, fill_alpha=ctx.fill_alpha
         )
 
         # Preview (generated after output_image so we can show the transform result)
@@ -676,11 +678,11 @@ class SmartResolutionCalc:
                 if transform_mode == "transform (distort)":
                     preview_image = _transform_image(ctx.image, ctx.w, ctx.h)
                 elif transform_mode == "transform (crop/pad)":
-                    preview_image = _transform_image_crop_pad(ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color, ctx.fill_image)
+                    preview_image = _transform_image_crop_pad(ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color, ctx.fill_image, ctx.fill_alpha)
                 elif transform_mode == "transform (scale/crop)":
                     preview_image = _transform_image_scale_crop(ctx.image, ctx.w, ctx.h)
                 elif transform_mode == "transform (scale/pad)":
-                    preview_image = _transform_image_scale_pad(ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color, ctx.fill_image)
+                    preview_image = _transform_image_scale_pad(ctx.image, ctx.w, ctx.h, ctx.fill_type, ctx.fill_color, ctx.fill_image, ctx.fill_alpha)
                 else:
                     preview_image = _transform_image(ctx.image, ctx.w, ctx.h)
         ctx.preview = _create_preview_image(ctx.w, ctx.h, ctx.resolution, ctx.ratio_display, ctx.mp,
@@ -1000,7 +1002,7 @@ class SmartResolutionCalc:
 
     def _generate_output_image(self, actual_mode, image, w, h, fill_type, fill_color,
                                batch_size, fill_image, cache_key, seed_active, actual_seed,
-                               mask=None, use_image_for_output=True):
+                               mask=None, use_image_for_output=True, fill_alpha=1.0):
         """
         Generate the output image based on the selected mode.
 
@@ -1047,7 +1049,7 @@ class SmartResolutionCalc:
         elif actual_mode == "transform (crop/pad)":
             if image is not None:
                 # No scaling - crop if larger, pad if smaller
-                output_image = _transform_image_crop_pad(image, w, h, fill_type, fill_color, fill_image)
+                output_image = _transform_image_crop_pad(image, w, h, fill_type, fill_color, fill_image, fill_alpha)
                 logger.debug(f"Transformed (crop/pad) input image to {w}×{h}")
             else:
                 # No image connected - fallback to empty image with current fill settings
@@ -1067,7 +1069,7 @@ class SmartResolutionCalc:
         elif actual_mode == "transform (scale/pad)":
             if image is not None:
                 # Scale to fit inside target (maintaining AR), pad remainder
-                output_image = _transform_image_scale_pad(image, w, h, fill_type, fill_color, fill_image)
+                output_image = _transform_image_scale_pad(image, w, h, fill_type, fill_color, fill_image, fill_alpha)
                 logger.debug(f"Transformed (scale/pad) input image to {w}×{h}")
             else:
                 # No image connected - fallback to empty image with current fill settings
@@ -1094,7 +1096,7 @@ class SmartResolutionCalc:
                     f"Mask composite: fg={tuple(fg.shape)}, bg={tuple(bg.shape)}, "
                     f"mask={tuple(fitted_mask.shape)}, mean={float(fitted_mask.mean()):.3f}"
                 )
-                output_image = _composite_with_mask(fg, bg, fitted_mask)
+                output_image = _composite_with_mask(fg, bg, fitted_mask, fill_alpha)
                 print(f"[SmartResCalc] Mask composite APPLIED (mean mask={float(fitted_mask.mean()):.3f})")
             except Exception as e:
                 logger.error(f"Mask composite failed: {e}")
@@ -1160,8 +1162,9 @@ class SmartResolutionCalc:
             try:
                 logger.debug(f"VAE connected with image, encoding output_image")
                 pixels = output_image
-                if pixels.shape[3] > 3:
-                    pixels = pixels[:, :, :, :3]
+                # Keep alpha for RGBA VAEs (Qwen Image 2.1). Default 3 = ComfyUI < 0.6.0, whose
+                # VAE.encode didn't trim channels itself (core #11406 added that).
+                pixels = pixels[:, :, :, :getattr(vae, "output_channels", 3)]
                 if not pixels.is_contiguous():
                     pixels = pixels.contiguous()
 
@@ -1271,7 +1274,7 @@ class SmartResolutionCalc:
             # (we can't hash the full tensor efficiently, but shape change = different image)
             image_shape_key = tuple(image.shape) if (use_image_for_noise_shape and image is not None) else None
             opts = dazzle_options or {}
-            opts_cache_key = (opts.get('norm_mode', 'auto'),)
+            opts_cache_key = (opts.get('norm_mode', 'auto'), resolve_fill_alpha(opts))
             noise_cache_key = (cache_key, blend_strength, fill_blend_strength, cutoff,
                                use_image_for_noise_shape, noise_shape_transform,
                                image_shape_key, opts_cache_key)
@@ -1313,11 +1316,11 @@ class SmartResolutionCalc:
                         if transform_mode == "transform (distort)":
                             transformed = _transform_image(image, w, h)
                         elif transform_mode == "transform (crop/pad)":
-                            transformed = _transform_image_crop_pad(image, w, h, fill_type, fill_color, fill_image)
+                            transformed = _transform_image_crop_pad(image, w, h, fill_type, fill_color, fill_image, resolve_fill_alpha(opts))
                         elif transform_mode == "transform (scale/crop)":
                             transformed = _transform_image_scale_crop(image, w, h)
                         elif transform_mode == "transform (scale/pad)":
-                            transformed = _transform_image_scale_pad(image, w, h, fill_type, fill_color, fill_image)
+                            transformed = _transform_image_scale_pad(image, w, h, fill_type, fill_color, fill_image, resolve_fill_alpha(opts))
                         else:
                             transformed = _transform_image(image, w, h)
                         logger.debug(f"img2noise: transformed input image via '{transform_mode}' to {w}x{h}")
@@ -1328,7 +1331,7 @@ class SmartResolutionCalc:
                             try:
                                 bg_pat = _create_empty_image(w, h, fill_type, fill_color, transformed.shape[0], fill_image)
                                 fitted_mask_pat = _fit_mask_to_target(mask, h, w)
-                                transformed = _composite_with_mask(transformed, bg_pat, fitted_mask_pat)
+                                transformed = _composite_with_mask(transformed, bg_pat, fitted_mask_pat, resolve_fill_alpha(opts))
                                 logger.debug(f"img2noise: mask composite applied to pattern source (mean={float(fitted_mask_pat.mean()):.3f})")
                                 print(f"[SmartResCalc] img2noise pattern: mask composite APPLIED")
                             except Exception as e:
@@ -1338,9 +1341,7 @@ class SmartResolutionCalc:
                             # VAE-encode to get proper latent-space pattern
                             # This avoids pixel-space channel tiling artifacts (3 RGB → 16 latent)
                             # and gives correct channel decorrelation and spatial compression
-                            pixels = transformed
-                            if pixels.shape[3] > 3:
-                                pixels = pixels[:, :, :, :3]
+                            pixels = transformed[:, :, :, :getattr(vae, "output_channels", 3)]
                             if not pixels.is_contiguous():
                                 pixels = pixels.contiguous()
                             pattern_resized = vae.encode(pixels)

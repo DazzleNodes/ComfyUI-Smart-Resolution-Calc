@@ -5,6 +5,16 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.8] - 2026-10-06
+
+### Added
+- **Dazzle Options `fill_alpha`** (`opaque` / `transparent`, default `opaque`) -- sets the alpha of the areas SmartResCalc fills under an RGBA image: the padding from crop/pad and scale/pad, and the mask's fill. `transparent` keeps a transparent design transparent when it is padded or cut; the fill pattern stays in the RGB underneath. Without Dazzle Options, or with `opaque`, fills are opaque as before. RGB images are unaffected.
+- Demo workflow `docs/workflow/SmartResCalc-RGBA-Alpha-Demo.json` with a transparent test image: the same RGBA image padded with the default fill and with `fill_alpha = transparent`.
+
+### Fixed
+- **Images with an alpha channel keep it** -- an RGBA image (for example from Join Image with Alpha) is now VAE-encoded with its alpha when the VAE takes four channels, as Qwen Image 2.1's does, for both the img2img latent and the img2noise pattern. RGB VAEs still receive three channels, as before.
+- **Padding and mask cutout work with RGBA images** -- the scale/pad and crop/pad transforms, and the mask composite, failed on an RGBA image (the pad transforms raised a shape error; the mask composite was skipped with a warning). The fill area is now opaque under an RGBA image, matching how ComfyUI's VAE treats an RGB image; transparent parts of the input stay transparent.
+
 ## [0.12.7] - 2026-09-26
 
 ### Changed

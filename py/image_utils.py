@@ -123,6 +123,19 @@ def create_empty_image(
 
     return image
 
+def match_channels(image: torch.Tensor, channels: int, value: float = 1.0) -> torch.Tensor:
+    """
+    Trim or extend an [B,H,W,C] image to `channels`. Added channels are filled with `value`:
+    1.0 makes a fill canvas or background placed under an RGBA image opaque (same as ComfyUI's
+    VAE padding an RGB image to RGBA); 0.0 makes it transparent (DazzleOptions fill_alpha).
+    """
+    c = image.shape[-1]
+    if c > channels:
+        return image[..., :channels]
+    if c < channels:
+        return torch.cat([image, torch.full((*image.shape[:-1], channels - c), value, dtype=image.dtype, device=image.device)], dim=-1)
+    return image
+
 def fit_mask_to_target(mask: torch.Tensor, target_height: int, target_width: int) -> torch.Tensor:
     """
     Resize a mask to (target_height, target_width) with nearest-exact interpolation.
@@ -147,12 +160,13 @@ def fit_mask_to_target(mask: torch.Tensor, target_height: int, target_width: int
     return torch.clamp(scaled.squeeze(1), 0.0, 1.0)
 
 
-def composite_with_mask(fg: torch.Tensor, bg: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+def composite_with_mask(fg: torch.Tensor, bg: torch.Tensor, mask: torch.Tensor, fill_alpha: float = 1.0) -> torch.Tensor:
     """
     Alpha-blend foreground over background using a mask.
 
     fg, bg: [B, H, W, C] tensors (same H,W; C must match or bg broadcasts).
     mask: [B, H, W] in [0,1]. Mask=1 keeps fg, mask=0 keeps bg.
+    fill_alpha: alpha given to an RGB bg under an RGBA fg (1.0 opaque, 0.0 transparent).
 
     Batch broadcasting: if one of fg/bg/mask has batch=1, it is expanded to the max batch.
     Device: bg and mask are moved to fg's device and dtype before blending.
@@ -181,14 +195,12 @@ def composite_with_mask(fg: torch.Tensor, bg: torch.Tensor, mask: torch.Tensor) 
     bg = _expand_batch(bg, 4)
     mask = _expand_batch(mask, 3)
 
-    # Channel-align bg to fg
+    # Channel-align bg to fg (an RGB fill under an RGBA image gets opaque alpha)
     if bg.shape[3] != fg.shape[3]:
         if bg.shape[3] == 1:
             bg = bg.expand(-1, -1, -1, fg.shape[3])
-        elif bg.shape[3] > fg.shape[3]:
-            bg = bg[..., : fg.shape[3]]
         else:
-            raise ValueError(f"bg channels {bg.shape[3]} cannot match fg channels {fg.shape[3]}")
+            bg = match_channels(bg, fg.shape[3], fill_alpha)
 
     mask4 = mask.unsqueeze(-1)  # [B,H,W,1]
     return torch.clamp(mask4 * fg + (1.0 - mask4) * bg, 0.0, 1.0)
@@ -232,7 +244,8 @@ def transform_image_scale_pad(
     target_height: int,
     fill_type: str = "black",
     fill_color: str = "#808080",
-    fill_image: torch.Tensor = None
+    fill_image: torch.Tensor = None,
+    fill_alpha: float = 1.0
     ) -> torch.Tensor:
     """
     Transform input image to target dimensions using scale/pad strategy.
@@ -286,8 +299,8 @@ def transform_image_scale_pad(
     scaled = transform_image(image, scale_width, scale_height)
 
     # Create canvas with target dimensions filled with specified pattern
-    # Use batch size from input image, not the parameter
-    canvas = create_empty_image(target_width, target_height, fill_type, fill_color, batch_size, fill_image)
+    # Use batch size from input image, not the parameter; channels too (RGBA input -> fill gets fill_alpha)
+    canvas = match_channels(create_empty_image(target_width, target_height, fill_type, fill_color, batch_size, fill_image), channels, fill_alpha)
 
     # Calculate centering offsets
     offset_x = (target_width - scale_width) // 2
@@ -310,7 +323,8 @@ def transform_image_crop_pad(
     target_height: int,
     fill_type: str = "black",
     fill_color: str = "#808080",
-    fill_image: torch.Tensor = None
+    fill_image: torch.Tensor = None,
+    fill_alpha: float = 1.0
     ) -> torch.Tensor:
     """
     Transform input image to target dimensions using pure crop/pad (NO scaling).
@@ -396,8 +410,8 @@ def transform_image_crop_pad(
         logger.debug("No padding needed, returning cropped image")
         return cropped
 
-    # Create canvas with target dimensions
-    canvas = create_empty_image(target_width, target_height, fill_type, fill_color, batch_size, fill_image)
+    # Create canvas with target dimensions (channels match the input: RGBA input -> fill gets fill_alpha)
+    canvas = match_channels(create_empty_image(target_width, target_height, fill_type, fill_color, batch_size, fill_image), channels, fill_alpha)
 
     # Place cropped image in canvas at correct position
     canvas[:, pad_top:pad_top+cropped.shape[1], pad_left:pad_left+cropped.shape[2], :] = cropped

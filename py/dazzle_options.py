@@ -72,6 +72,16 @@ class DazzleOptionsNode:
                     "tooltip": "Chain input from another DazzleOptions node. "
                                "Options from this node override values from options_in."
                 }),
+                # Appended last so saved workflows' positional widget values keep their meaning
+                "fill_alpha": (["opaque", "transparent"], {
+                    "default": "opaque",
+                    "tooltip": "Alpha of the areas SmartResCalc fills (padding from crop/pad and scale/pad, "
+                               "and the mask's fill) when the input image has an alpha channel. "
+                               "RGB images are unaffected; the image's own transparency is always kept.\n\n"
+                               "opaque: the fill shows (default, same as before)\n\n"
+                               "transparent: filled areas are transparent; the fill pattern stays in the "
+                               "RGB underneath"
+                }),
             }
         }
 
@@ -81,7 +91,7 @@ class DazzleOptionsNode:
     CATEGORY = "DazzleNodes/Options"
 
     def configure(self, norm_mode="auto", whitening=1.0, cutoff_curve="gaussian",
-                  phase_randomize=False, options_in=None):
+                  phase_randomize=False, options_in=None, fill_alpha="opaque"):
         """Build options dict, merging with any chained input."""
         # Start with chained options (if any)
         opts = dict(options_in or {})
@@ -92,6 +102,7 @@ class DazzleOptionsNode:
             "whitening": whitening,
             "cutoff_curve": cutoff_curve,
             "phase_randomize": phase_randomize,
+            "fill_alpha": fill_alpha,
         })
 
         logger.debug(f"DazzleOptions configured: {opts}")
@@ -113,3 +124,9 @@ def get_option(dazzle_options, key, default=None):
     if dazzle_options is None:
         return default
     return dazzle_options.get(key, default)
+
+
+def resolve_fill_alpha(dazzle_options):
+    """Alpha value for the areas SmartResCalc fills under an RGBA image: 0.0 for
+    fill_alpha='transparent', else 1.0 (opaque, the behaviour without DazzleOptions)."""
+    return 0.0 if get_option(dazzle_options, "fill_alpha", "opaque") == "transparent" else 1.0
