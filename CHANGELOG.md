@@ -5,6 +5,11 @@ All notable changes to ComfyUI Smart Resolution Calculator will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.9] - 2026-10-06
+
+### Changed
+- **Registry package holds only the node** -- a new `.comfyignore` keeps development files out of the ComfyUI Registry archive: tests, the repokit-common tooling under `scripts/`, CI and editor settings, the Node.js test setup, and the docs pages that are not about using the node. The package drops from 237 files to 50. No change to the node itself; git clones still carry everything.
+
 ## [0.12.8] - 2026-10-06
 
 ### Added

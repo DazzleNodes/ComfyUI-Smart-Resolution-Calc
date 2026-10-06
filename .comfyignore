@@ -1,0 +1,20 @@
+# Files kept in git but left out of the ComfyUI Registry package (gitignore syntax,
+# applied on top of .gitignore by `comfy node publish`). The package needs only the
+# node itself: __init__.py, version.py, py/, web/, docs, README, LICENSE, CHANGELOG.
+
+# development tooling and tests
+tests/
+scripts/
+.github/
+.vscode/
+run_tests.sh
+run_tests.bat
+package.json
+package-lock.json
+playwright.config.js
+vitest.config.js
+.ghtraf.json
+
+# docs that are not about using the node
+docs/stats/
+docs/code/
